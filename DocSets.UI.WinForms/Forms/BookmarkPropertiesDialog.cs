@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -25,6 +25,7 @@ namespace DocSets
         private readonly IList<DocumentSet> availableSets;
         private DocumentSet initialSet;
         private DocumentItem initialParent;
+        private readonly DocumentItem excludedParentRoot;
 
         public BookmarkPropertiesDialog(DocumentItem item)
             : this(item, null, null, null)
@@ -35,7 +36,8 @@ namespace DocSets
             DocumentItem item,
             IEnumerable<DocumentSet> sets,
             DocumentSet selectedSet,
-            DocumentItem selectedParent)
+            DocumentItem selectedParent,
+            DocumentItem excludedParentRoot = null)
         {
             if (item == null)
             {
@@ -46,6 +48,7 @@ namespace DocSets
             showDestination = availableSets.Count > 0;
             initialSet = selectedSet ?? availableSets.FirstOrDefault();
             initialParent = selectedParent?.IsFolder == true ? selectedParent : null;
+            this.excludedParentRoot = excludedParentRoot;
 
             Text = item.IsFolder ? "Свойства папки" : "Свойства закладки";
             StartPosition = FormStartPosition.CenterParent;
@@ -224,7 +227,7 @@ namespace DocSets
 
             if (selectedSet != null)
             {
-                foreach (var folder in FlattenFolders(selectedSet.Files, 0))
+                foreach (var folder in FlattenFolders(selectedSet.Files, 0, excludedParentRoot))
                 {
                     parentComboBox.Items.Add(folder);
                 }
@@ -246,7 +249,7 @@ namespace DocSets
             parentComboBox.SelectedIndex = selectedIndex;
         }
 
-        private static IEnumerable<ParentComboItem> FlattenFolders(IEnumerable<DocumentItem> nodes, int level)
+        private static IEnumerable<ParentComboItem> FlattenFolders(IEnumerable<DocumentItem> nodes, int level, DocumentItem excludedRoot)
         {
             if (nodes == null)
             {
@@ -255,18 +258,51 @@ namespace DocSets
 
             foreach (var node in nodes)
             {
-                if (node == null || !node.IsFolder)
+                if (node == null || !node.IsFolder || IsSelfOrDescendant(node, excludedRoot))
                 {
                     continue;
                 }
 
                 yield return new ParentComboItem(node, new string(' ', level * 2) + node.Name);
 
-                foreach (var child in FlattenFolders(node.Children, level + 1))
+                foreach (var child in FlattenFolders(node.Children, level + 1, excludedRoot))
                 {
                     yield return child;
                 }
             }
+        }
+
+        private static bool IsSelfOrDescendant(DocumentItem item, DocumentItem root)
+        {
+            if (item == null || root == null)
+            {
+                return false;
+            }
+
+            if (ReferenceEquals(item, root))
+            {
+                return true;
+            }
+
+            return IsDescendant(item, root);
+        }
+
+        private static bool IsDescendant(DocumentItem item, DocumentItem parent)
+        {
+            if (item == null || parent == null || parent.Children == null)
+            {
+                return false;
+            }
+
+            foreach (var child in parent.Children)
+            {
+                if (ReferenceEquals(child, item) || IsDescendant(item, child))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void AddLabel(TableLayoutPanel root, int row, string text)

@@ -133,10 +133,10 @@ namespace DocSets
         private static IEnumerable<ColumnSpec> GetDefaultColumnSpecs()
         {
             yield return new ColumnSpec("name", "Название", 340);
-            yield return new ColumnSpec("file", "Файл", 280);
-            yield return new ColumnSpec("line", "Строка", 70);
             yield return new ColumnSpec("comment", "Комментарий", 240);
             yield return new ColumnSpec("project", "Проект", 160);
+            yield return new ColumnSpec("file", "Файл", 280);
+            yield return new ColumnSpec("line", "Строка", 70);
             yield return new ColumnSpec("symbol", "Символ", 260);
         }
 
@@ -543,14 +543,22 @@ namespace DocSets
             parent.DropDownItems.Add(item);
         }
 
-        private void ShowBookmarkProperties(DocumentItem item)
+        private async void ShowBookmarkProperties(DocumentItem item)
         {
             if (item == null)
             {
                 return;
             }
 
-            using (var dialog = new BookmarkPropertiesDialog(item))
+            var itemSet = viewModel.GetSetContainingNode(item) ?? viewModel.SelectedSet;
+            var itemParent = viewModel.GetParentFolder(item);
+
+            using (var dialog = new BookmarkPropertiesDialog(
+                item,
+                viewModel.Sets,
+                itemSet,
+                itemParent,
+                item))
             {
                 var result = dialog.ShowDialog(this);
                 if (result != DialogResult.OK)
@@ -559,7 +567,7 @@ namespace DocSets
                 }
 
                 dialog.ApplyTo(item);
-                _ = viewModel.SaveAsync();
+                await viewModel.MoveExistingNodeAsync(item, dialog.SelectedSet, dialog.SelectedParent);
                 RebuildTree();
                 RefreshStatus();
             }

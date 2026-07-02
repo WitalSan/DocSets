@@ -399,6 +399,84 @@ namespace DocSets
             return AddPreparedBookmarkAsync(bookmark, SelectedSet, target);
         }
 
+        public DocumentSet GetSetContainingNode(DocumentItem item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+
+            return state.Sets.FirstOrDefault(set => ContainsNode(set.Files, item));
+        }
+
+        public DocumentItem GetParentFolder(DocumentItem item)
+        {
+            if (item == null)
+            {
+                return null;
+            }
+
+            foreach (var set in state.Sets)
+            {
+                var parent = FindParentFolder(set.Files, item);
+                if (parent != null)
+                {
+                    return parent;
+                }
+            }
+
+            return null;
+        }
+
+        public async Task MoveExistingNodeAsync(DocumentItem item, DocumentSet destinationSet, DocumentItem destinationParent)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            var targetSet = destinationSet ?? GetSetContainingNode(item) ?? SelectedSet;
+            if (targetSet == null)
+            {
+                return;
+            }
+
+            if (destinationParent != null)
+            {
+                if (!destinationParent.IsFolder || !ContainsNode(targetSet.Files, destinationParent))
+                {
+                    destinationParent = null;
+                }
+
+                if (ReferenceEquals(destinationParent, item) || IsDescendantOf(destinationParent, item))
+                {
+                    destinationParent = null;
+                }
+            }
+
+            var currentSet = GetSetContainingNode(item);
+            var currentOwner = currentSet == null ? null : FindOwnerCollection(currentSet.Files, item);
+            var targetCollection = destinationParent?.IsFolder == true ? destinationParent.Children : targetSet.Files;
+
+            if (!ReferenceEquals(currentOwner, targetCollection))
+            {
+                currentOwner?.Remove(item);
+                targetCollection.Add(item);
+            }
+
+            if (destinationParent?.IsFolder == true)
+            {
+                destinationParent.IsExpanded = true;
+            }
+
+            SelectedSet = targetSet;
+            SelectedNode = item;
+            SetSelectedNodes(new[] { item });
+            await SaveAsync();
+            OnPropertyChanged(nameof(CurrentNodes));
+            InvalidateCommands();
+        }
+
         public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentSet destinationSet, DocumentItem target)
         {
             var set = destinationSet ?? SelectedSet;
@@ -709,6 +787,27 @@ namespace DocSets
             }
 
             return false;
+        }
+
+        private static DocumentItem FindParentFolder(IEnumerable<DocumentItem> nodes, DocumentItem item)
+        {
+            if (nodes == null || item == null) return null;
+
+            foreach (var node in nodes)
+            {
+                if (node.Children != null && node.Children.Contains(item))
+                {
+                    return node;
+                }
+
+                var nested = FindParentFolder(node.Children, item);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
         }
 
         private ObservableCollection<DocumentItem> FindOwnerCollection(DocumentItem item)
