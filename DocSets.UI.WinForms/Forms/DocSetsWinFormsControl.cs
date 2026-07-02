@@ -428,6 +428,7 @@ namespace DocSets
             nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Копировать", viewModel.CopySelectedNodesCommand, "Ctrl+C");
             AddMenu("Вставить", viewModel.PasteNodesCommand, "Ctrl+V");
+            AddJsonMenu();
             nodeMenu.Items.Add(new ToolStripSeparator());
             AddPropertiesMenu();
             BuildGroupMenu();
@@ -492,6 +493,25 @@ namespace DocSets
             var item = new ToolStripMenuItem("Свойства...");
             item.Click += delegate { ShowBookmarkProperties(GetCurrentItem()); };
             nodeMenu.Items.Add(item);
+        }
+
+        private void AddJsonMenu()
+        {
+            var jsonMenu = new ToolStripMenuItem("Json");
+            AddSubMenu(jsonMenu, "Copy", viewModel.CopySelectedNodesAsJsonCommand);
+            AddSubMenu(jsonMenu, "Paste", viewModel.PasteNodesFromJsonCommand);
+            nodeMenu.Items.Add(jsonMenu);
+        }
+
+        private void AddSubMenu(ToolStripMenuItem parent, string text, WpfCommand command)
+        {
+            var item = new ToolStripMenuItem(text)
+            {
+                Tag = command
+            };
+
+            item.Click += (_, __) => Execute(command, GetCurrentItem());
+            parent.DropDownItems.Add(item);
         }
 
         private void ShowBookmarkProperties(DocumentItem item)
@@ -636,15 +656,26 @@ namespace DocSets
             {
                 SyncSelectionFromTree();
                 var current = GetCurrentItem();
-                foreach (ToolStripItem i in nodeMenu.Items)
+                UpdateNodeMenuEnabled(nodeMenu.Items, current);
+            };
+        }
+
+        private void UpdateNodeMenuEnabled(ToolStripItemCollection items, DocumentItem current)
+        {
+            foreach (ToolStripItem item in items)
+            {
+                if (item is ToolStripMenuItem menuItem)
                 {
-                    if (i is ToolStripMenuItem mi)
+                    var command = menuItem.Tag as WpfCommand ?? GetCommandByText(menuItem.Text);
+                    menuItem.Enabled = command?.CanExecute(current) ?? true;
+
+                    if (menuItem.DropDownItems.Count > 0)
                     {
-                        var cmd = GetCommandByText(mi.Text);
-                        mi.Enabled = cmd?.CanExecute(current) ?? true;
+                        UpdateNodeMenuEnabled(menuItem.DropDownItems, current);
+                        menuItem.Enabled = menuItem.DropDownItems.OfType<ToolStripItem>().Any(x => x.Enabled);
                     }
                 }
-            };
+            }
         }
 
         private WpfCommand GetCommandByText(string text)
@@ -658,6 +689,8 @@ namespace DocSets
                 case "Добавить закладку сюда": return viewModel.AddBookmarkCommand;
                 case "Копировать": return viewModel.CopySelectedNodesCommand;
                 case "Вставить": return viewModel.PasteNodesCommand;
+                case "Copy": return viewModel.CopySelectedNodesAsJsonCommand;
+                case "Paste": return viewModel.PasteNodesFromJsonCommand;
                 case "Удалить": return viewModel.DeleteNodeCommand;
                 default: return null;
             }

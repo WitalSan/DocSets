@@ -51,6 +51,8 @@ namespace DocSets
 
             CopySelectedNodesCommand = new RelayCommand(_ => CopySelectedNodes(), _ => IsLoaded && SelectedNodes.Count > 0);
             PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsNodes());
+            CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
+            PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
         }
 
         public ObservableCollection<DocumentSet> Sets => state.Sets;
@@ -203,6 +205,8 @@ namespace DocSets
         public ICommand MoveNodeDownCommand { get; }
         public ICommand CopySelectedNodesCommand { get; }
         public ICommand PasteNodesCommand { get; }
+        public ICommand CopySelectedNodesAsJsonCommand { get; }
+        public ICommand PasteNodesFromJsonCommand { get; }
 
         // Compatibility aliases for old command names.
         public ICommand RenameBookmarkCommand => RenameNodeCommand;
@@ -474,8 +478,7 @@ namespace DocSets
             if (selected.Count == 0) return;
 
             var nodes = selected.Select(x => x.Clone()).ToList();
-            var clipboardNodes = nodes.Select(ToClipboardNode).ToList();
-            var json = JsonConvert.SerializeObject(clipboardNodes, Formatting.Indented);
+            var json = SerializeClipboardNodes(nodes);
 
             var data = new DataObject();
             // V2 is an explicit clipboard DTO. It contains every bookmark field including Comment.
@@ -483,6 +486,21 @@ namespace DocSets
             // Keep old format name for compatibility with already installed builds.
             data.SetData(ClipboardFormat, json);
             data.SetText(BuildText(nodes));
+            Clipboard.SetDataObject(data, true);
+        }
+
+        private void CopySelectedNodesAsJson()
+        {
+            var selected = FilterOutDescendants(SelectedNodes).ToList();
+            if (selected.Count == 0) return;
+
+            var nodes = selected.Select(x => x.Clone()).ToList();
+            var json = SerializeClipboardNodes(nodes);
+
+            var data = new DataObject();
+            data.SetData(ClipboardFormatV2, json);
+            data.SetData(ClipboardFormat, json);
+            data.SetText(json);
             Clipboard.SetDataObject(data, true);
         }
 
@@ -496,26 +514,47 @@ namespace DocSets
                     ? Clipboard.GetData(ClipboardFormatV2) as string
                     : Clipboard.GetData(ClipboardFormat) as string;
 
-                var nodes = DeserializeClipboardNodes(json);
-                NormalizeNodes(nodes);
-                var collection = GetInsertCollection(target);
-
-                DocumentItem last = null;
-                foreach (var node in nodes.Select(x => x.Clone()))
-                {
-                    collection.Add(node);
-                    last = node;
-                }
-
-                if (target?.IsFolder == true) target.IsExpanded = true;
-                if (last != null) SelectedNode = last;
-                _ = SaveAsync();
-                InvalidateCommands();
+                PasteNodesFromJsonText(target, json);
             }
             catch
             {
                 Show("Не удалось вставить элементы из буфера.");
             }
+        }
+
+        private void PasteNodesFromJson(DocumentItem target)
+        {
+            if (SelectedSet == null || !ClipboardContainsJsonText()) return;
+
+            try
+            {
+                PasteNodesFromJsonText(target, Clipboard.GetText());
+            }
+            catch
+            {
+                Show("Буфер не содержит корректный JSON DocSets.");
+            }
+        }
+
+        private void PasteNodesFromJsonText(DocumentItem target, string json)
+        {
+            var nodes = DeserializeClipboardNodes(json);
+            if (nodes.Count == 0) return;
+
+            NormalizeNodes(nodes);
+            var collection = GetInsertCollection(target);
+
+            DocumentItem last = null;
+            foreach (var node in nodes.Select(x => x.Clone()))
+            {
+                collection.Add(node);
+                last = node;
+            }
+
+            if (target?.IsFolder == true) target.IsExpanded = true;
+            if (last != null) SelectedNode = last;
+            _ = SaveAsync();
+            InvalidateCommands();
         }
 
 
@@ -734,6 +773,12 @@ namespace DocSets
             }
         }
 
+        private static string SerializeClipboardNodes(IEnumerable<DocumentItem> nodes)
+        {
+            var clipboardNodes = (nodes ?? Enumerable.Empty<DocumentItem>()).Select(ToClipboardNode).ToList();
+            return JsonConvert.SerializeObject(clipboardNodes, Formatting.Indented);
+        }
+
         private static List<DocumentItem> DeserializeClipboardNodes(string json)
         {
             if (string.IsNullOrWhiteSpace(json))
@@ -751,10 +796,31 @@ namespace DocSets
             }
             catch
             {
+                // Try other supported JSON shapes below.
+            }
+
+            try
+            {
+                var clipboardNode = JsonConvert.DeserializeObject<ClipboardNode>(json);
+                if (clipboardNode != null && (!string.IsNullOrEmpty(clipboardNode.Name) || clipboardNode.Children != null))
+                {
+                    return new List<DocumentItem> { FromClipboardNode(clipboardNode) };
+                }
+            }
+            catch
+            {
                 // Fallback below supports the previous raw DocumentItem clipboard format.
             }
 
-            return JsonConvert.DeserializeObject<List<DocumentItem>>(json) ?? new List<DocumentItem>();
+            try
+            {
+                return JsonConvert.DeserializeObject<List<DocumentItem>>(json) ?? new List<DocumentItem>();
+            }
+            catch
+            {
+                var item = JsonConvert.DeserializeObject<DocumentItem>(json);
+                return item == null ? new List<DocumentItem>() : new List<DocumentItem> { item };
+            }
         }
 
         private static ClipboardNode ToClipboardNode(DocumentItem item)
@@ -841,6 +907,23 @@ namespace DocSets
             try
             {
                 return Clipboard.ContainsData(ClipboardFormatV2) || Clipboard.ContainsData(ClipboardFormat);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ClipboardContainsJsonText()
+        {
+            try
+            {
+                if (!Clipboard.ContainsText()) return false;
+                var text = Clipboard.GetText();
+                if (string.IsNullOrWhiteSpace(text)) return false;
+
+                var trimmed = text.TrimStart();
+                return trimmed.StartsWith("[", StringComparison.Ordinal) || trimmed.StartsWith("{", StringComparison.Ordinal);
             }
             catch
             {
