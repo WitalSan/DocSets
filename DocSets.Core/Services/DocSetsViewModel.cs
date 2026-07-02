@@ -13,8 +13,6 @@ namespace DocSets
 {
     internal sealed class DocSetsViewModel : NotifyObject
     {
-        private const string ClipboardFormatV2 = "DocSets.DocumentItems.Json.V2";
-
         private readonly AsyncPackage package;
         private readonly DocSetsStore store;
         private readonly Func<Window> ownerAccessor;
@@ -50,7 +48,7 @@ namespace DocSets
             MoveNodeDownCommand = new RelayCommand(() => MoveNode(1), () => IsLoaded && CanMoveNode(SelectedNode, 1));
 
             CopySelectedNodesCommand = new RelayCommand(_ => CopySelectedNodes(), _ => IsLoaded && SelectedNodes.Count > 0);
-            PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsNodes());
+            PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
         }
@@ -475,7 +473,6 @@ namespace DocSets
             var json = SerializeClipboardNodes(nodes);
 
             var data = new DataObject();
-            data.SetData(ClipboardFormatV2, json);
             data.SetText(BuildText(nodes));
             Clipboard.SetDataObject(data, true);
         }
@@ -489,18 +486,22 @@ namespace DocSets
             var json = SerializeClipboardNodes(nodes);
 
             var data = new DataObject();
-            data.SetData(ClipboardFormatV2, json);
             data.SetText(json);
             Clipboard.SetDataObject(data, true);
         }
 
         private void PasteNodes(DocumentItem target)
         {
-            if (SelectedSet == null || !ClipboardContainsNodes()) return;
+            if (SelectedSet == null || !ClipboardContainsText()) return;
 
             try
             {
-                PasteNodesFromJsonText(target, Clipboard.GetData(ClipboardFormatV2) as string);
+                var text = Clipboard.GetText();
+                var nodes = TryParseClipboardJson(text, out var jsonNodes)
+                    ? jsonNodes
+                    : ParseClipboardText(text);
+
+                PasteNodes(target, nodes);
             }
             catch
             {
@@ -525,7 +526,12 @@ namespace DocSets
         private void PasteNodesFromJsonText(DocumentItem target, string json)
         {
             var nodes = DeserializeClipboardNodes(json);
-            if (nodes.Count == 0) return;
+            PasteNodes(target, nodes);
+        }
+
+        private void PasteNodes(DocumentItem target, IList<DocumentItem> nodes)
+        {
+            if (nodes == null || nodes.Count == 0) return;
 
             NormalizeNodes(nodes);
             var collection = GetInsertCollection(target);
@@ -870,6 +876,173 @@ namespace DocSets
             return id;
         }
 
+        private static bool TryParseClipboardJson(string text, out List<DocumentItem> nodes)
+        {
+            nodes = new List<DocumentItem>();
+            if (string.IsNullOrWhiteSpace(text)) return false;
+
+            var trimmed = text.TrimStart();
+            if (!trimmed.StartsWith("[", StringComparison.Ordinal) && !trimmed.StartsWith("{", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            try
+            {
+                nodes = DeserializeClipboardNodes(text);
+                return true;
+            }
+            catch
+            {
+                nodes = new List<DocumentItem>();
+                return false;
+            }
+        }
+
+        private static List<DocumentItem> ParseClipboardText(string text)
+        {
+            var roots = new List<DocumentItem>();
+            if (string.IsNullOrWhiteSpace(text)) return roots;
+
+            var stack = new List<TextNodeFrame>();
+            DocumentItem lastItem = null;
+
+            var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            foreach (var rawLine in lines)
+            {
+                if (string.IsNullOrWhiteSpace(rawLine)) continue;
+
+                var level = GetTextIndentLevel(rawLine);
+                var content = rawLine.Trim();
+                if (content.Length == 0) continue;
+
+                if (content.StartsWith("#", StringComparison.Ordinal))
+                {
+                    if (lastItem != null)
+                    {
+                        var commentLine = content.Length == 1 ? string.Empty : content.Substring(1).TrimStart();
+                        lastItem.Comment = string.IsNullOrEmpty(lastItem.Comment)
+                            ? commentLine
+                            : lastItem.Comment + Environment.NewLine + commentLine;
+                    }
+                    continue;
+                }
+
+                var item = ParseClipboardTextNode(content);
+                if (item == null) continue;
+
+                while (stack.Count > 0 && stack[stack.Count - 1].Level >= level)
+                {
+                    stack.RemoveAt(stack.Count - 1);
+                }
+
+                var parent = stack.Count == 0 ? null : stack[stack.Count - 1].Item;
+                if (parent != null && parent.IsFolder)
+                {
+                    parent.Children.Add(item);
+                }
+                else
+                {
+                    roots.Add(item);
+                }
+
+                stack.Add(new TextNodeFrame(level, item));
+                lastItem = item;
+            }
+
+            return roots;
+        }
+
+        private static int GetTextIndentLevel(string line)
+        {
+            var spaces = 0;
+            foreach (var ch in line)
+            {
+                if (ch == ' ') spaces++;
+                else if (ch == '\t') spaces += 2;
+                else break;
+            }
+
+            return spaces / 2;
+        }
+
+        private static DocumentItem ParseClipboardTextNode(string content)
+        {
+            if (content.Length >= 2 && content[0] == '[' && content[content.Length - 1] == ']')
+            {
+                return new DocumentItem
+                {
+                    Name = content.Substring(1, content.Length - 2).Trim(),
+                    IsFolder = true,
+                    Line = 1,
+                    Column = 1,
+                    Children = new ObservableCollection<DocumentItem>()
+                };
+            }
+
+            var item = new DocumentItem
+            {
+                Name = content,
+                IsFolder = false,
+                Line = 1,
+                Column = 1,
+                Children = new ObservableCollection<DocumentItem>()
+            };
+
+            var separatorIndex = content.LastIndexOf(" — ", StringComparison.Ordinal);
+            if (separatorIndex < 0)
+            {
+                return item;
+            }
+
+            item.Name = content.Substring(0, separatorIndex).Trim();
+            var location = content.Substring(separatorIndex + 3).Trim();
+
+            if (TryParseLocation(location, out var path, out var line, out var column))
+            {
+                item.Path = path;
+                item.Line = line;
+                item.Column = column;
+            }
+
+            return item;
+        }
+
+        private static bool TryParseLocation(string location, out string path, out int line, out int column)
+        {
+            path = string.Empty;
+            line = 1;
+            column = 1;
+
+            if (string.IsNullOrWhiteSpace(location)) return false;
+
+            var lastColon = location.LastIndexOf(':');
+            if (lastColon <= 0 || lastColon == location.Length - 1) return false;
+
+            var previousColon = location.LastIndexOf(':', lastColon - 1);
+            if (previousColon <= 0) return false;
+
+            if (!int.TryParse(location.Substring(previousColon + 1, lastColon - previousColon - 1), out line)) return false;
+            if (!int.TryParse(location.Substring(lastColon + 1), out column)) return false;
+
+            path = location.Substring(0, previousColon);
+            if (line < 1) line = 1;
+            if (column < 1) column = 1;
+            return !string.IsNullOrWhiteSpace(path);
+        }
+
+        private sealed class TextNodeFrame
+        {
+            public TextNodeFrame(int level, DocumentItem item)
+            {
+                Level = level;
+                Item = item;
+            }
+
+            public int Level { get; }
+            public DocumentItem Item { get; }
+        }
+
         private sealed class ClipboardNode
         {
             [JsonProperty("id")]
@@ -903,11 +1076,11 @@ namespace DocSets
             public string Comment { get; set; }
         }
 
-        private static bool ClipboardContainsNodes()
+        private static bool ClipboardContainsText()
         {
             try
             {
-                return Clipboard.ContainsData(ClipboardFormatV2);
+                return Clipboard.ContainsText() && !string.IsNullOrWhiteSpace(Clipboard.GetText());
             }
             catch
             {
