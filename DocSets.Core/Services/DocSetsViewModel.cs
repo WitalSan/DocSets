@@ -435,7 +435,8 @@ namespace DocSets
                 return;
             }
 
-            var targetSet = destinationSet ?? GetSetContainingNode(item) ?? SelectedSet;
+            var currentSet = GetSetContainingNode(item);
+            var targetSet = destinationSet ?? currentSet ?? SelectedSet;
             if (targetSet == null)
             {
                 return;
@@ -454,14 +455,24 @@ namespace DocSets
                 }
             }
 
-            var currentSet = GetSetContainingNode(item);
-            var currentOwner = currentSet == null ? null : FindOwnerCollection(currentSet.Files, item);
-            var targetCollection = destinationParent?.IsFolder == true ? destinationParent.Children : targetSet.Files;
+            var targetCollection = destinationParent?.IsFolder == true
+                ? destinationParent.Children
+                : targetSet.Files;
 
-            if (!ReferenceEquals(currentOwner, targetCollection))
+            // При редактировании свойств тот же экземпляр item не должен быть добавлен
+            // в дерево повторно. Если место назначения изменилось, удаляем все
+            // вхождения этой ссылки из всех групп и добавляем ровно один раз.
+            var currentOwner = currentSet == null ? null : FindOwnerCollection(currentSet.Files, item);
+            var destinationChanged = !ReferenceEquals(currentOwner, targetCollection);
+            var alreadyInTarget = ContainsReference(targetCollection, item);
+
+            if (destinationChanged || !alreadyInTarget)
             {
-                currentOwner?.Remove(item);
-                targetCollection.Add(item);
+                RemoveNodeReferenceFromAllSets(item);
+                if (!ContainsReference(targetCollection, item))
+                {
+                    targetCollection.Add(item);
+                }
             }
 
             if (destinationParent?.IsFolder == true)
@@ -772,6 +783,51 @@ namespace DocSets
             }
 
             return set?.Files ?? new ObservableCollection<DocumentItem>();
+        }
+
+        private void RemoveNodeReferenceFromAllSets(DocumentItem item)
+        {
+            if (item == null || state?.Sets == null)
+            {
+                return;
+            }
+
+            foreach (var set in state.Sets)
+            {
+                RemoveNodeReference(set.Files, item);
+            }
+        }
+
+        private static bool RemoveNodeReference(ObservableCollection<DocumentItem> nodes, DocumentItem item)
+        {
+            if (nodes == null || item == null)
+            {
+                return false;
+            }
+
+            var removed = false;
+            for (var i = nodes.Count - 1; i >= 0; i--)
+            {
+                var node = nodes[i];
+                if (ReferenceEquals(node, item))
+                {
+                    nodes.RemoveAt(i);
+                    removed = true;
+                    continue;
+                }
+
+                if (RemoveNodeReference(node.Children, item))
+                {
+                    removed = true;
+                }
+            }
+
+            return removed;
+        }
+
+        private static bool ContainsReference(IEnumerable<DocumentItem> nodes, DocumentItem item)
+        {
+            return nodes != null && item != null && nodes.Any(x => ReferenceEquals(x, item));
         }
 
         private static bool ContainsNode(IEnumerable<DocumentItem> nodes, DocumentItem item)
