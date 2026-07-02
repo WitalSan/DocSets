@@ -35,3 +35,7 @@ Aga.Controls/  сторонний TreeViewAdv, без бизнес-логики 
 - `UpgradeLog.htm`
 
 `DocSetsToolWindow` теперь создает `DocSetsWinFormsHostControl`, а тот размещает `DocSetsWinFormsControl`.
+
+## Storage id lifecycle
+
+`DocumentItem` does not keep JSON `id`/`parent` at runtime. The runtime model is a physical tree (`Files`/`Children`). During save, `DocumentSet.Items` builds a temporary flat DTO list and generates unique ids from `Name`, then `Name-1`, `Name-2`, etc. During load, the flat DTO list is converted back into the runtime tree and storage ids are discarded.

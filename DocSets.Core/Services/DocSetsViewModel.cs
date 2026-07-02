@@ -13,7 +13,6 @@ namespace DocSets
 {
     internal sealed class DocSetsViewModel : NotifyObject
     {
-        private const string ClipboardFormat = "DocSets.DocumentItems.Json";
         private const string ClipboardFormatV2 = "DocSets.DocumentItems.Json.V2";
 
         private readonly AsyncPackage package;
@@ -39,8 +38,9 @@ namespace DocSets
             MoveSetUpCommand = new RelayCommand(() => MoveSet(-1), () => IsLoaded && CanMove(Sets, SelectedSet, -1));
             MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && CanMove(Sets, SelectedSet, 1));
 
-            AddRootFolderCommand = new RelayCommand(AddRootFolder, () => IsLoaded && SelectedSet != null);
-            AddChildFolderCommand = new RelayCommand(p => AddChildFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanHaveChildren(p as DocumentItem ?? SelectedNode));
+            AddFolderCommand = new RelayCommand(p => AddFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
+            AddRootFolderCommand = AddFolderCommand;
+            AddChildFolderCommand = AddFolderCommand;
             AddBookmarkCommand = new RelayCommand(async p => await AddBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
             OpenBookmarkCommand = new RelayCommand(async p => await OpenBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && IsBookmark(p as DocumentItem ?? SelectedNode));
             UpdateBookmarkCommand = new RelayCommand(async p => await UpdateBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && IsBookmark(p as DocumentItem ?? SelectedNode));
@@ -194,6 +194,7 @@ namespace DocSets
         public ICommand DeleteSetCommand { get; }
         public ICommand MoveSetUpCommand { get; }
         public ICommand MoveSetDownCommand { get; }
+        public ICommand AddFolderCommand { get; }
         public ICommand AddRootFolderCommand { get; }
         public ICommand AddChildFolderCommand { get; }
         public ICommand AddBookmarkCommand { get; }
@@ -343,8 +344,7 @@ namespace DocSets
             _ = SaveAsync();
             InvalidateCommands();
         }
-
-        private void AddRootFolder()
+        private void AddFolder(DocumentItem parent)
         {
             var set = SelectedSet;
             if (set == null) return;
@@ -353,22 +353,16 @@ namespace DocSets
             if (string.IsNullOrWhiteSpace(name)) return;
 
             var folder = new DocumentItem { Name = name.Trim(), IsFolder = true, IsExpanded = true };
-            set.Files.Add(folder);
-            SelectedNode = folder;
-            _ = SaveAsync();
-            InvalidateCommands();
-        }
+            if (parent != null && parent.IsFolder)
+            {
+                parent.Children.Add(folder);
+                parent.IsExpanded = true;
+            }
+            else
+            {
+                set.Files.Add(folder);
+            }
 
-        private void AddChildFolder(DocumentItem parent)
-        {
-            if (!CanHaveChildren(parent)) return;
-
-            var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название папки:", "Новая папка");
-            if (string.IsNullOrWhiteSpace(name)) return;
-
-            var folder = new DocumentItem { Name = name.Trim(), IsFolder = true, IsExpanded = true };
-            parent.Children.Add(folder);
-            parent.IsExpanded = true;
             SelectedNode = folder;
             _ = SaveAsync();
             InvalidateCommands();
@@ -481,10 +475,7 @@ namespace DocSets
             var json = SerializeClipboardNodes(nodes);
 
             var data = new DataObject();
-            // V2 is an explicit clipboard DTO. It contains every bookmark field including Comment.
             data.SetData(ClipboardFormatV2, json);
-            // Keep old format name for compatibility with already installed builds.
-            data.SetData(ClipboardFormat, json);
             data.SetText(BuildText(nodes));
             Clipboard.SetDataObject(data, true);
         }
@@ -499,7 +490,6 @@ namespace DocSets
 
             var data = new DataObject();
             data.SetData(ClipboardFormatV2, json);
-            data.SetData(ClipboardFormat, json);
             data.SetText(json);
             Clipboard.SetDataObject(data, true);
         }
@@ -510,11 +500,7 @@ namespace DocSets
 
             try
             {
-                var json = Clipboard.ContainsData(ClipboardFormatV2)
-                    ? Clipboard.GetData(ClipboardFormatV2) as string
-                    : Clipboard.GetData(ClipboardFormat) as string;
-
-                PasteNodesFromJsonText(target, json);
+                PasteNodesFromJsonText(target, Clipboard.GetData(ClipboardFormatV2) as string);
             }
             catch
             {
@@ -775,7 +761,14 @@ namespace DocSets
 
         private static string SerializeClipboardNodes(IEnumerable<DocumentItem> nodes)
         {
-            var clipboardNodes = (nodes ?? Enumerable.Empty<DocumentItem>()).Select(ToClipboardNode).ToList();
+            var clipboardNodes = new List<ClipboardNode>();
+            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var node in nodes ?? Enumerable.Empty<DocumentItem>())
+            {
+                AppendClipboardNode(node, string.Empty, clipboardNodes, usedIds);
+            }
+
             return JsonConvert.SerializeObject(clipboardNodes, Formatting.Indented);
         }
 
@@ -786,47 +779,22 @@ namespace DocSets
                 return new List<DocumentItem>();
             }
 
-            try
-            {
-                var clipboardNodes = JsonConvert.DeserializeObject<List<ClipboardNode>>(json);
-                if (clipboardNodes != null)
-                {
-                    return clipboardNodes.Select(FromClipboardNode).ToList();
-                }
-            }
-            catch
-            {
-                // Try other supported JSON shapes below.
-            }
-
-            try
-            {
-                var clipboardNode = JsonConvert.DeserializeObject<ClipboardNode>(json);
-                if (clipboardNode != null && (!string.IsNullOrEmpty(clipboardNode.Name) || clipboardNode.Children != null))
-                {
-                    return new List<DocumentItem> { FromClipboardNode(clipboardNode) };
-                }
-            }
-            catch
-            {
-                // Fallback below supports the previous raw DocumentItem clipboard format.
-            }
-
-            try
-            {
-                return JsonConvert.DeserializeObject<List<DocumentItem>>(json) ?? new List<DocumentItem>();
-            }
-            catch
-            {
-                var item = JsonConvert.DeserializeObject<DocumentItem>(json);
-                return item == null ? new List<DocumentItem>() : new List<DocumentItem> { item };
-            }
+            var clipboardNodes = JsonConvert.DeserializeObject<List<ClipboardNode>>(json);
+            return BuildClipboardTree(clipboardNodes);
         }
 
-        private static ClipboardNode ToClipboardNode(DocumentItem item)
+        private static void AppendClipboardNode(DocumentItem item, string parentId, ICollection<ClipboardNode> result, ISet<string> usedIds)
         {
-            var node = new ClipboardNode
+            if (item == null)
             {
+                return;
+            }
+
+            var id = MakeUniqueClipboardId(item.Name, usedIds);
+            result.Add(new ClipboardNode
+            {
+                Id = id,
+                ParentId = parentId ?? string.Empty,
                 Name = item.Name ?? string.Empty,
                 IsFolder = item.IsFolder,
                 Symbol = item.Symbol ?? string.Empty,
@@ -834,21 +802,45 @@ namespace DocSets
                 Path = item.Path ?? string.Empty,
                 Line = item.Line,
                 Column = item.Column,
-                Comment = item.Comment ?? string.Empty,
-                Children = new List<ClipboardNode>()
-            };
+                Comment = item.Comment ?? string.Empty
+            });
 
-            if (item.Children != null)
+            foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
             {
-                node.Children.AddRange(item.Children.Select(ToClipboardNode));
+                AppendClipboardNode(child, id, result, usedIds);
+            }
+        }
+
+        private static List<DocumentItem> BuildClipboardTree(IEnumerable<ClipboardNode> flatNodes)
+        {
+            var roots = new List<DocumentItem>();
+            if (flatNodes == null)
+            {
+                return roots;
             }
 
-            return node;
+            var entries = flatNodes.Where(x => x != null).ToList();
+            var map = entries.ToDictionary(x => x.Id ?? string.Empty, FromClipboardNode, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in entries)
+            {
+                var item = map[entry.Id ?? string.Empty];
+                if (!string.IsNullOrWhiteSpace(entry.ParentId) && map.TryGetValue(entry.ParentId, out var parent))
+                {
+                    parent.Children.Add(item);
+                }
+                else
+                {
+                    roots.Add(item);
+                }
+            }
+
+            return roots;
         }
 
         private static DocumentItem FromClipboardNode(ClipboardNode source)
         {
-            var item = new DocumentItem
+            return new DocumentItem
             {
                 Name = source.Name ?? string.Empty,
                 IsFolder = source.IsFolder,
@@ -860,20 +852,32 @@ namespace DocSets
                 Comment = source.Comment ?? string.Empty,
                 Children = new ObservableCollection<DocumentItem>()
             };
+        }
 
-            if (source.Children != null)
+        private static string MakeUniqueClipboardId(string name, ISet<string> usedIds)
+        {
+            var baseId = string.IsNullOrWhiteSpace(name) ? "node" : name.Trim();
+            var id = baseId;
+            var index = 1;
+
+            while (usedIds.Contains(id))
             {
-                foreach (var child in source.Children)
-                {
-                    item.Children.Add(FromClipboardNode(child));
-                }
+                id = baseId + "-" + index;
+                index++;
             }
 
-            return item;
+            usedIds.Add(id);
+            return id;
         }
 
         private sealed class ClipboardNode
         {
+            [JsonProperty("id")]
+            public string Id { get; set; }
+
+            [JsonProperty("parent", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public string ParentId { get; set; }
+
             [JsonProperty("name")]
             public string Name { get; set; }
 
@@ -897,16 +901,13 @@ namespace DocSets
 
             [JsonProperty("comment")]
             public string Comment { get; set; }
-
-            [JsonProperty("children")]
-            public List<ClipboardNode> Children { get; set; }
         }
 
         private static bool ClipboardContainsNodes()
         {
             try
             {
-                return Clipboard.ContainsData(ClipboardFormatV2) || Clipboard.ContainsData(ClipboardFormat);
+                return Clipboard.ContainsData(ClipboardFormatV2);
             }
             catch
             {

@@ -423,7 +423,7 @@ namespace DocSets
             AddMenu("Переименовать", viewModel.RenameNodeCommand);
             AddMenu("Удалить", viewModel.DeleteNodeCommand);
             nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Добавить Папку", viewModel.AddChildFolderCommand);
+            AddMenu("Добавить Папку", viewModel.AddFolderCommand);
             AddMenu("Добавить Закладку", viewModel.AddBookmarkCommand);
             nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Копировать", viewModel.CopySelectedNodesCommand, "Ctrl+C");

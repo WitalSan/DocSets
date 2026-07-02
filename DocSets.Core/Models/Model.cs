@@ -1,6 +1,8 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json;
 
@@ -33,7 +35,6 @@ namespace DocSets
             set => SetProperty(ref ui, value ?? new DocumentSetsUiSettings());
         }
     }
-
 
     public sealed class DocumentSetsUiSettings : NotifyObject
     {
@@ -95,15 +96,181 @@ namespace DocSets
             set => SetProperty(ref name, value ?? "");
         }
 
-        // Backward-compatible json name. Now this is a tree root collection.
-        [JsonProperty("files")]
+        // Runtime tree roots. Id/parent are storage-only DTO fields and are not kept in DocumentItem.
+        [JsonIgnore]
         public ObservableCollection<DocumentItem> Files
         {
             get => files;
             set => SetProperty(ref files, value ?? new ObservableCollection<DocumentItem>());
         }
 
+        // Storage format is flat. Order is exactly JSON order; nesting is restored from parent id.
+        [JsonProperty("items", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<DocumentItemStorageDto> Items
+        {
+            get => BuildFlatItemsForStorage();
+            set => Files = BuildTreeFromFlatItems(value);
+        }
+
         public override string ToString() => Name;
+
+        private List<DocumentItemStorageDto> BuildFlatItemsForStorage()
+        {
+            var result = new List<DocumentItemStorageDto>();
+            var ids = new Dictionary<DocumentItem, string>();
+            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in Files ?? new ObservableCollection<DocumentItem>())
+            {
+                AppendFlatItem(item, parentId: "", result, ids, usedIds);
+            }
+
+            return result;
+        }
+
+        private static void AppendFlatItem(
+            DocumentItem item,
+            string parentId,
+            ICollection<DocumentItemStorageDto> result,
+            IDictionary<DocumentItem, string> ids,
+            ISet<string> usedIds)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            var id = CreateUniqueStorageId(item.Name, usedIds);
+            ids[item] = id;
+
+            result.Add(new DocumentItemStorageDto
+            {
+                Id = id,
+                ParentId = parentId ?? "",
+                Name = item.Name ?? "",
+                IsFolder = item.IsFolder,
+                Symbol = item.Symbol ?? "",
+                Project = item.Project ?? "",
+                Path = item.Path ?? "",
+                Line = item.Line,
+                Column = item.Column,
+                Comment = item.Comment ?? ""
+            });
+
+            foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
+            {
+                AppendFlatItem(child, id, result, ids, usedIds);
+            }
+        }
+
+        private static ObservableCollection<DocumentItem> BuildTreeFromFlatItems(IEnumerable<DocumentItemStorageDto> flatItems)
+        {
+            var roots = new ObservableCollection<DocumentItem>();
+            if (flatItems == null)
+            {
+                return roots;
+            }
+
+            var entries = flatItems.Where(x => x != null).ToList();
+            var map = new Dictionary<string, DocumentItem>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Id))
+                {
+                    continue;
+                }
+
+                if (!map.ContainsKey(entry.Id))
+                {
+                    map.Add(entry.Id, FromStorageDto(entry));
+                }
+            }
+
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Id) || !map.TryGetValue(entry.Id, out var item))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(entry.ParentId) && map.TryGetValue(entry.ParentId, out var parent))
+                {
+                    parent.Children.Add(item);
+                }
+                else
+                {
+                    roots.Add(item);
+                }
+            }
+
+            return roots;
+        }
+
+        private static DocumentItem FromStorageDto(DocumentItemStorageDto source)
+        {
+            return new DocumentItem
+            {
+                Name = source.Name ?? "",
+                IsFolder = source.IsFolder,
+                Symbol = source.Symbol ?? "",
+                Project = source.Project ?? "",
+                Path = source.Path ?? "",
+                Line = source.Line < 1 ? 1 : source.Line,
+                Column = source.Column < 1 ? 1 : source.Column,
+                Comment = source.Comment ?? "",
+                Children = new ObservableCollection<DocumentItem>()
+            };
+        }
+
+        private static string CreateUniqueStorageId(string name, ISet<string> usedIds)
+        {
+            var baseId = string.IsNullOrWhiteSpace(name) ? "node" : name.Trim();
+            var id = baseId;
+            var index = 1;
+
+            while (usedIds.Contains(id))
+            {
+                id = baseId + "-" + index;
+                index++;
+            }
+
+            usedIds.Add(id);
+            return id;
+        }
+    }
+
+    public sealed class DocumentItemStorageDto
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("parent", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public string ParentId { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("isFolder", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool IsFolder { get; set; }
+
+        [JsonProperty("symbol", NullValueHandling = NullValueHandling.Ignore)]
+        public string Symbol { get; set; }
+
+        [JsonProperty("project", NullValueHandling = NullValueHandling.Ignore)]
+        public string Project { get; set; }
+
+        [JsonProperty("path", NullValueHandling = NullValueHandling.Ignore)]
+        public string Path { get; set; }
+
+        [JsonProperty("line")]
+        public int Line { get; set; }
+
+        [JsonProperty("column")]
+        public int Column { get; set; }
+
+        [JsonProperty("comment", NullValueHandling = NullValueHandling.Ignore)]
+        public string Comment { get; set; }
     }
 
     public sealed class DocumentItem : NotifyObject
@@ -226,7 +393,7 @@ namespace DocSets
             set => SetProperty(ref column, value < 1 ? 1 : value);
         }
 
-        [JsonProperty("children")]
+        [JsonIgnore]
         public ObservableCollection<DocumentItem> Children
         {
             get => children;
@@ -266,8 +433,29 @@ namespace DocSets
 
         public DocumentItem Clone()
         {
-            var json = JsonConvert.SerializeObject(this);
-            return JsonConvert.DeserializeObject<DocumentItem>(json) ?? new DocumentItem();
+            var clone = new DocumentItem
+            {
+                Name = Name,
+                IsFolder = IsFolder,
+                Symbol = Symbol,
+                Project = Project,
+                Path = Path,
+                Line = Line,
+                Column = Column,
+                Comment = Comment,
+                IsExpanded = IsExpanded,
+                Children = new ObservableCollection<DocumentItem>()
+            };
+
+            if (Children != null)
+            {
+                foreach (var child in Children)
+                {
+                    clone.Children.Add(child.Clone());
+                }
+            }
+
+            return clone;
         }
 
         public override string ToString() => Display;
