@@ -49,7 +49,13 @@ namespace DocSets
                 return;
             }
 
-            using (var dialog = new BookmarkPropertiesDialog(bookmark))
+            var initialParent = viewModel.SelectedNode?.IsFolder == true ? viewModel.SelectedNode : null;
+
+            using (var dialog = new BookmarkPropertiesDialog(
+                bookmark,
+                viewModel.Sets,
+                viewModel.SelectedSet,
+                initialParent))
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK)
                 {
@@ -57,9 +63,9 @@ namespace DocSets
                 }
 
                 dialog.ApplyTo(bookmark);
+                await viewModel.AddPreparedBookmarkAsync(bookmark, dialog.SelectedSet, dialog.SelectedParent);
             }
 
-            await viewModel.AddPreparedBookmarkAsync(bookmark, viewModel.SelectedNode);
             RefreshAll();
         }
 
@@ -95,15 +101,15 @@ namespace DocSets
             root.Controls.Add(top, 0, 0);
 
             toolStrip.GripStyle = ToolStripGripStyle.Hidden;
-            AddButton("+Группа", viewModel.AddSetCommand);
-            AddButton("Переим.", viewModel.RenameSetCommand);
-            AddButton("-Группа", viewModel.DeleteSetCommand);
-            toolStrip.Items.Add(new ToolStripSeparator());
-            AddButton("+Папка", viewModel.AddRootFolderCommand);
-            AddButton("+Вложенная", viewModel.AddChildFolderCommand);
+            //AddButton("+Группа", viewModel.AddSetCommand);
+            //AddButton("Переим.", viewModel.RenameSetCommand);
+            //AddButton("-Группа", viewModel.DeleteSetCommand);
+            //toolStrip.Items.Add(new ToolStripSeparator());
+            //AddButton("+Папка", viewModel.AddRootFolderCommand);
+            //AddButton("+Вложенная", viewModel.AddChildFolderCommand);
             AddButton("+Закладка", viewModel.AddBookmarkCommand);
-            AddButton("Копировать", viewModel.CopySelectedNodesCommand);
-            AddButton("Вставить", viewModel.PasteNodesCommand);
+            //AddButton("Копировать", viewModel.CopySelectedNodesCommand);
+            //AddButton("Вставить", viewModel.PasteNodesCommand);
             top.Controls.Add(toolStrip);
 
             groupsStrip.Dock = DockStyle.Fill;

@@ -394,9 +394,14 @@ namespace DocSets
             return bookmark;
         }
 
-        public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentItem target)
+        public Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentItem target)
         {
-            var set = SelectedSet;
+            return AddPreparedBookmarkAsync(bookmark, SelectedSet, target);
+        }
+
+        public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentSet destinationSet, DocumentItem target)
+        {
+            var set = destinationSet ?? SelectedSet;
             if (set == null || bookmark == null)
             {
                 return;
@@ -405,9 +410,16 @@ namespace DocSets
             bookmark.IsFolder = false;
             bookmark.Children.Clear();
 
-            var collection = GetInsertCollection(target);
+            if (target != null && !ContainsNode(set.Files, target))
+            {
+                target = null;
+            }
+
+            var collection = GetInsertCollection(set, target);
             collection.Add(bookmark);
             if (target?.IsFolder == true) target.IsExpanded = true;
+
+            SelectedSet = set;
             SelectedNode = bookmark;
             SetSelectedNodes(new[] { bookmark });
             await SaveAsync();
@@ -671,12 +683,32 @@ namespace DocSets
 
         private ObservableCollection<DocumentItem> GetInsertCollection(DocumentItem target)
         {
+            return GetInsertCollection(SelectedSet, target);
+        }
+
+        private static ObservableCollection<DocumentItem> GetInsertCollection(DocumentSet set, DocumentItem target)
+        {
             if (target?.IsFolder == true)
             {
                 return target.Children;
             }
 
-            return SelectedSet?.Files ?? new ObservableCollection<DocumentItem>();
+            return set?.Files ?? new ObservableCollection<DocumentItem>();
+        }
+
+        private static bool ContainsNode(IEnumerable<DocumentItem> nodes, DocumentItem item)
+        {
+            if (nodes == null || item == null) return false;
+
+            foreach (var node in nodes)
+            {
+                if (ReferenceEquals(node, item) || ContainsNode(node.Children, item))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private ObservableCollection<DocumentItem> FindOwnerCollection(DocumentItem item)

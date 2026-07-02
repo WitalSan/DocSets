@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace DocSets
@@ -7,6 +9,8 @@ namespace DocSets
     internal sealed class BookmarkPropertiesDialog : Form
     {
         private readonly TextBox nameTextBox = new TextBox();
+        private readonly ComboBox setComboBox = new ComboBox();
+        private readonly ComboBox parentComboBox = new ComboBox();
         private readonly TextBox pathTextBox = new TextBox();
         private readonly TextBox symbolTextBox = new TextBox();
         private readonly TextBox projectTextBox = new TextBox();
@@ -17,12 +21,31 @@ namespace DocSets
         private readonly Button okButton = new Button();
         private readonly Button cancelButton = new Button();
 
+        private readonly bool showDestination;
+        private readonly IList<DocumentSet> availableSets;
+        private DocumentSet initialSet;
+        private DocumentItem initialParent;
+
         public BookmarkPropertiesDialog(DocumentItem item)
+            : this(item, null, null, null)
+        {
+        }
+
+        public BookmarkPropertiesDialog(
+            DocumentItem item,
+            IEnumerable<DocumentSet> sets,
+            DocumentSet selectedSet,
+            DocumentItem selectedParent)
         {
             if (item == null)
             {
                 throw new ArgumentNullException(nameof(item));
             }
+
+            availableSets = (sets ?? Enumerable.Empty<DocumentSet>()).Where(x => x != null).ToList();
+            showDestination = availableSets.Count > 0;
+            initialSet = selectedSet ?? availableSets.FirstOrDefault();
+            initialParent = selectedParent?.IsFolder == true ? selectedParent : null;
 
             Text = item.IsFolder ? "Свойства папки" : "Свойства закладки";
             StartPosition = FormStartPosition.CenterParent;
@@ -31,12 +54,20 @@ namespace DocSets
             ShowInTaskbar = false;
             FormBorderStyle = FormBorderStyle.Sizable;
             Font = new Font("Segoe UI", 10f);
-            MinimumSize = new Size(560, 480);
-            Size = new Size(720, 560);
+            MinimumSize = new Size(560, showDestination ? 540 : 480);
+            Size = new Size(720, showDestination ? 620 : 560);
 
             BuildLayout();
             LoadFrom(item);
+            if (showDestination)
+            {
+                LoadDestination();
+            }
         }
+
+        public DocumentSet SelectedSet => showDestination ? (setComboBox.SelectedItem as SetComboItem)?.Set : null;
+
+        public DocumentItem SelectedParent => showDestination ? (parentComboBox.SelectedItem as ParentComboItem)?.Parent : null;
 
         public void ApplyTo(DocumentItem item)
         {
@@ -61,46 +92,60 @@ namespace DocSets
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 9,
+                RowCount = showDestination ? 11 : 9,
                 Padding = new Padding(10)
             };
 
             root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             Controls.Add(root);
 
-            AddLabel(root, 0, "Название:");
-            nameTextBox.Dock = DockStyle.Fill;
-            root.Controls.Add(nameTextBox, 1, 0);
+            var row = 0;
 
-            AddLabel(root, 1, "Тип:");
+            if (showDestination)
+            {
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                AddLabel(root, row, "Группа:");
+                setComboBox.Dock = DockStyle.Fill;
+                setComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+                setComboBox.SelectedIndexChanged += (_, __) => RefreshParentCombo();
+                root.Controls.Add(setComboBox, 1, row++);
+
+                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                AddLabel(root, row, "Папка:");
+                parentComboBox.Dock = DockStyle.Fill;
+                parentComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+                root.Controls.Add(parentComboBox, 1, row++);
+            }
+
+            for (var i = row; i < root.RowCount; i++)
+            {
+                root.RowStyles.Add(new RowStyle(i == root.RowCount - 2 ? SizeType.Percent : SizeType.AutoSize, i == root.RowCount - 2 ? 100 : 0));
+            }
+
+            AddLabel(root, row, "Название:");
+            nameTextBox.Dock = DockStyle.Fill;
+            root.Controls.Add(nameTextBox, 1, row++);
+
+            AddLabel(root, row, "Тип:");
             folderCheckBox.Text = "Папка";
             folderCheckBox.AutoSize = true;
             folderCheckBox.CheckedChanged += (_, __) => UpdateEnabledState();
-            root.Controls.Add(folderCheckBox, 1, 1);
+            root.Controls.Add(folderCheckBox, 1, row++);
 
-            AddLabel(root, 2, "Файл:");
+            AddLabel(root, row, "Файл:");
             pathTextBox.Dock = DockStyle.Fill;
-            root.Controls.Add(pathTextBox, 1, 2);
+            root.Controls.Add(pathTextBox, 1, row++);
 
-            AddLabel(root, 3, "Символ:");
+            AddLabel(root, row, "Символ:");
             symbolTextBox.Dock = DockStyle.Fill;
-            root.Controls.Add(symbolTextBox, 1, 3);
+            root.Controls.Add(symbolTextBox, 1, row++);
 
-            AddLabel(root, 4, "Проект:");
+            AddLabel(root, row, "Проект:");
             projectTextBox.Dock = DockStyle.Fill;
-            root.Controls.Add(projectTextBox, 1, 4);
+            root.Controls.Add(projectTextBox, 1, row++);
 
-            AddLabel(root, 5, "Позиция:");
+            AddLabel(root, row, "Позиция:");
             var positionPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
             lineBox.Minimum = 1;
             lineBox.Maximum = 10000000;
@@ -112,16 +157,17 @@ namespace DocSets
             positionPanel.Controls.Add(lineBox);
             positionPanel.Controls.Add(new Label { Text = "Колонка", AutoSize = true, Padding = new Padding(12, 4, 4, 0) });
             positionPanel.Controls.Add(columnBox);
-            root.Controls.Add(positionPanel, 1, 5);
+            root.Controls.Add(positionPanel, 1, row++);
 
-            AddLabel(root, 6, "Комментарий:");
+            AddLabel(root, row, "Комментарий:");
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Multiline = true;
             commentTextBox.AcceptsReturn = true;
             commentTextBox.AcceptsTab = true;
             commentTextBox.ScrollBars = ScrollBars.Vertical;
-            root.Controls.Add(commentTextBox, 1, 6);
+            root.Controls.Add(commentTextBox, 1, row);
             root.SetRowSpan(commentTextBox, 2);
+            row += 2;
 
             var buttons = new FlowLayoutPanel
             {
@@ -139,11 +185,88 @@ namespace DocSets
             cancelButton.Width = 90;
             buttons.Controls.Add(cancelButton);
             buttons.Controls.Add(okButton);
-            root.Controls.Add(buttons, 0, 8);
+            root.Controls.Add(buttons, 0, row);
             root.SetColumnSpan(buttons, 2);
 
             AcceptButton = okButton;
             CancelButton = cancelButton;
+        }
+
+        private void LoadDestination()
+        {
+            setComboBox.Items.Clear();
+            foreach (var set in availableSets)
+            {
+                setComboBox.Items.Add(new SetComboItem(set));
+            }
+
+            var selectedIndex = 0;
+            for (var i = 0; i < setComboBox.Items.Count; i++)
+            {
+                if (ReferenceEquals(((SetComboItem)setComboBox.Items[i]).Set, initialSet))
+                {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+
+            if (setComboBox.Items.Count > 0)
+            {
+                setComboBox.SelectedIndex = selectedIndex;
+            }
+        }
+
+        private void RefreshParentCombo()
+        {
+            var selectedSet = SelectedSet;
+            parentComboBox.Items.Clear();
+            parentComboBox.Items.Add(new ParentComboItem(null, "<верхний уровень>"));
+
+            if (selectedSet != null)
+            {
+                foreach (var folder in FlattenFolders(selectedSet.Files, 0))
+                {
+                    parentComboBox.Items.Add(folder);
+                }
+            }
+
+            var selectedIndex = 0;
+            if (initialParent != null && selectedSet != null)
+            {
+                for (var i = 0; i < parentComboBox.Items.Count; i++)
+                {
+                    if (ReferenceEquals(((ParentComboItem)parentComboBox.Items[i]).Parent, initialParent))
+                    {
+                        selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            parentComboBox.SelectedIndex = selectedIndex;
+        }
+
+        private static IEnumerable<ParentComboItem> FlattenFolders(IEnumerable<DocumentItem> nodes, int level)
+        {
+            if (nodes == null)
+            {
+                yield break;
+            }
+
+            foreach (var node in nodes)
+            {
+                if (node == null || !node.IsFolder)
+                {
+                    continue;
+                }
+
+                yield return new ParentComboItem(node, new string(' ', level * 2) + node.Name);
+
+                foreach (var child in FlattenFolders(node.Children, level + 1))
+                {
+                    yield return child;
+                }
+            }
         }
 
         private static void AddLabel(TableLayoutPanel root, int row, string text)
@@ -178,6 +301,33 @@ namespace DocSets
             projectTextBox.Enabled = enabled;
             lineBox.Enabled = enabled;
             columnBox.Enabled = enabled;
+        }
+
+        private sealed class SetComboItem
+        {
+            public SetComboItem(DocumentSet set)
+            {
+                Set = set;
+            }
+
+            public DocumentSet Set { get; }
+
+            public override string ToString() => Set?.Name ?? string.Empty;
+        }
+
+        private sealed class ParentComboItem
+        {
+            public ParentComboItem(DocumentItem parent, string text)
+            {
+                Parent = parent;
+                Text = text ?? string.Empty;
+            }
+
+            public DocumentItem Parent { get; }
+
+            public string Text { get; }
+
+            public override string ToString() => Text;
         }
     }
 }
