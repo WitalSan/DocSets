@@ -413,18 +413,16 @@ namespace DocSets
 
         private void BuildMenus()
         {
-            AddMenu("Открыть", viewModel.OpenBookmarkCommand);
-            AddMenu("Обновить", viewModel.UpdateBookmarkCommand);
+            //AddMenu("Открыть", viewModel.OpenBookmarkCommand);
+            //AddMenu("Обновить", viewModel.UpdateBookmarkCommand);
             AddMenu("Переименовать", viewModel.RenameNodeCommand);
+            AddMenu("Удалить", viewModel.DeleteNodeCommand);
             nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Добавить вложенную папку", viewModel.AddChildFolderCommand);
-            AddMenu("Добавить закладку сюда", viewModel.AddBookmarkCommand);
+            AddMenu("Добавить Папку", viewModel.AddChildFolderCommand);
+            AddMenu("Добавить Закладку", viewModel.AddBookmarkCommand);
             nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Копировать", viewModel.CopySelectedNodesCommand, "Ctrl+C");
             AddMenu("Вставить", viewModel.PasteNodesCommand, "Ctrl+V");
-            nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Удалить", viewModel.DeleteNodeCommand);
-
             BuildGroupMenu();
         }
 
@@ -432,6 +430,7 @@ namespace DocSets
         {
             AddGroupMenu("Добавить группу", viewModel.AddSetCommand);
             groupMenu.Items.Add(new ToolStripSeparator());
+            AddRenameGroupMenu();
             AddGroupMenu("Удалить группу", viewModel.DeleteSetCommand);
             groupMenu.Items.Add(new ToolStripSeparator());
             AddGroupMenu("Передвинуть влево", viewModel.MoveSetUpCommand);
@@ -445,11 +444,39 @@ namespace DocSets
                 {
                     if (item is ToolStripMenuItem menuItem)
                     {
+                        if (string.Equals(menuItem.Name, "RenameGroupMenuItem", StringComparison.Ordinal))
+                        {
+                            menuItem.Enabled = viewModel.SelectedSet != null;
+                            continue;
+                        }
+
                         var command = menuItem.Tag as WpfCommand;
                         menuItem.Enabled = command == null || command.CanExecute(null);
                     }
                 }
             };
+        }
+
+
+        private void AddRenameGroupMenu()
+        {
+            var item = new ToolStripMenuItem("Переименовать")
+            {
+                Name = "RenameGroupMenuItem"
+            };
+
+            item.Click += (_, __) =>
+            {
+                SelectGroupMenuTarget();
+
+                var button = FindGroupButton(viewModel.SelectedSet);
+                if (button != null)
+                {
+                    BeginRenameGroup(button);
+                }
+            };
+
+            groupMenu.Items.Add(item);
         }
 
         private void AddGroupMenu(string text, WpfCommand command)
@@ -467,6 +494,19 @@ namespace DocSets
             };
 
             groupMenu.Items.Add(item);
+        }
+
+
+        private ToolStripButton FindGroupButton(DocumentSet set)
+        {
+            if (set == null)
+            {
+                return null;
+            }
+
+            return groupsStrip.Items
+                .OfType<ToolStripButton>()
+                .FirstOrDefault(x => ReferenceEquals(x.Tag, set));
         }
 
         private void GroupButton_MouseUp(object sender, MouseEventArgs e)
