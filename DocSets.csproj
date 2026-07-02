@@ -72,6 +72,9 @@
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsWinFormsControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\PromptDialog.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

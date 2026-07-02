@@ -1,4 +1,4 @@
-using Aga.Controls.Tree;
+﻿using Aga.Controls.Tree;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Drawing;
@@ -35,6 +35,7 @@ namespace DocSets
         public string Line => Item.IsFolder ? string.Empty : Item.Line.ToString();
         public string Project => Item.Project ?? string.Empty;
         public string Symbol => Item.Symbol ?? string.Empty;
+        public string Comment => Item.IsFolder ? string.Empty : Item.CommentFirstLine;
 
         public void RebuildChildren()
         {

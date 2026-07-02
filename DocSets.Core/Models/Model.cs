@@ -112,6 +112,7 @@ namespace DocSets
         private string symbol = "";
         private string project = "";
         private string path = "";
+        private string comment = "";
         private int line = 1;
         private int column = 1;
         private bool isFolder;
@@ -172,6 +173,35 @@ namespace DocSets
                     OnPropertyChanged(nameof(Display));
                     OnPropertyChanged(nameof(Header));
                 }
+            }
+        }
+
+        [JsonProperty("comment", NullValueHandling = NullValueHandling.Ignore)]
+        public string Comment
+        {
+            get => comment;
+            set
+            {
+                if (SetProperty(ref comment, value ?? ""))
+                {
+                    OnPropertyChanged(nameof(CommentFirstLine));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        public string CommentFirstLine
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(Comment))
+                {
+                    return string.Empty;
+                }
+
+                var normalized = Comment.Replace("\r\n", "\n").Replace('\r', '\n');
+                var index = normalized.IndexOf('\n');
+                return index < 0 ? normalized.Trim() : normalized.Substring(0, index).Trim();
             }
         }
 

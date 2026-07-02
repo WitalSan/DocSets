@@ -106,6 +106,7 @@ namespace DocSets
             yield return new ColumnSpec("name", "Название", 340);
             yield return new ColumnSpec("file", "Файл", 280);
             yield return new ColumnSpec("line", "Строка", 70);
+            yield return new ColumnSpec("comment", "Комментарий", 240);
             yield return new ColumnSpec("project", "Проект", 160);
             yield return new ColumnSpec("symbol", "Символ", 260);
         }
@@ -360,6 +361,7 @@ namespace DocSets
                 case "name": return item?.Name ?? string.Empty;
                 case "file": return item?.Path ?? string.Empty;
                 case "line": return item == null || item.IsFolder ? string.Empty : item.Line.ToString();
+                case "comment": return item?.CommentFirstLine ?? string.Empty;
                 case "project": return item?.Project ?? string.Empty;
                 case "symbol": return item?.Symbol ?? string.Empty;
                 default: return string.Empty;
@@ -393,6 +395,8 @@ namespace DocSets
             tree.AllowDrop = true;
             tree.AllowColumnReorder = true;
             tree.HighlightDropPosition = true;
+            tree.ShowNodeToolTips = true;
+            tree.DefaultToolTipProvider = new BookmarkToolTipProvider();
             tree.DragDropMarkColor = Color.DodgerBlue;
             tree.DragDropMarkWidth = 2;
             tree.TopEdgeSensivity = 0.25f;
@@ -407,6 +411,7 @@ namespace DocSets
             tree.NodeControls.Add(nameNode);
             tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = columnsByKey["file"] });
             tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Line), ParentColumn = columnsByKey["line"] });
+            tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = columnsByKey["comment"] });
             tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Project), ParentColumn = columnsByKey["project"] });
             tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Symbol), ParentColumn = columnsByKey["symbol"] });
         }
@@ -423,6 +428,7 @@ namespace DocSets
             nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Копировать", viewModel.CopySelectedNodesCommand, "Ctrl+C");
             AddMenu("Вставить", viewModel.PasteNodesCommand, "Ctrl+V");
+            AddPropertiesMenu();
             BuildGroupMenu();
         }
 
@@ -477,6 +483,36 @@ namespace DocSets
             };
 
             groupMenu.Items.Add(item);
+        }
+
+
+        private void AddPropertiesMenu()
+        {
+            var item = new ToolStripMenuItem("Свойства...");
+            item.Click += delegate { ShowBookmarkProperties(GetCurrentItem()); };
+            nodeMenu.Items.Add(item);
+        }
+
+        private void ShowBookmarkProperties(DocumentItem item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            using (var dialog = new BookmarkPropertiesDialog(item))
+            {
+                var result = dialog.ShowDialog(this);
+                if (result != DialogResult.OK)
+                {
+                    return;
+                }
+
+                dialog.ApplyTo(item);
+                _ = viewModel.SaveAsync();
+                RebuildTree();
+                RefreshStatus();
+            }
         }
 
         private void AddGroupMenu(string text, WpfCommand command)
@@ -965,7 +1001,28 @@ namespace DocSets
             if (e.Control && (e.KeyCode == Keys.C || e.KeyCode == Keys.Insert)) { Execute(viewModel.CopySelectedNodesCommand, GetCurrentItem()); e.Handled = true; }
             else if ((e.Control && e.KeyCode == Keys.V) || (e.Shift && e.KeyCode == Keys.Insert)) { Execute(viewModel.PasteNodesCommand, GetCurrentItem()); e.Handled = true; }
             else if (e.KeyCode == Keys.Delete) { Execute(viewModel.DeleteNodeCommand, GetCurrentItem()); e.Handled = true; }
+            else if (e.Alt && e.KeyCode == Keys.Enter) { ShowBookmarkProperties(GetCurrentItem()); e.Handled = true; }
             else if (e.KeyCode == Keys.Enter) { Execute(viewModel.OpenBookmarkCommand, GetCurrentItem()); e.Handled = true; }
+        }
+
+
+        private sealed class BookmarkToolTipProvider : IToolTipProvider
+        {
+            public string GetToolTip(TreeNodeAdv node, NodeControl nodeControl)
+            {
+                var item = (node?.Tag as BookmarkTreeNode)?.Item;
+                if (item == null)
+                {
+                    return string.Empty;
+                }
+
+                if (!string.IsNullOrWhiteSpace(item.Comment))
+                {
+                    return item.Comment;
+                }
+
+                return item.IsFolder ? item.Name : item.Display;
+            }
         }
 
         private sealed class ColumnSpec
