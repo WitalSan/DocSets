@@ -26,6 +26,9 @@ namespace DocSets
         private readonly Dictionary<TreeColumn, string> columnKeys = new Dictionary<TreeColumn, string>();
         private bool refreshing;
         private bool suppressColumnSave;
+        private ToolStripControlHost editingGroupHost;
+        private DocumentSet editingGroupSet;
+        private bool cancelGroupRename;
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -88,6 +91,7 @@ namespace DocSets
             groupsStrip.AutoSize = true;
             groupsStrip.Padding = new Padding(2, 1, 2, 1);
             groupsStrip.MouseUp += GroupsStrip_MouseUp;
+            groupsStrip.KeyDown += GroupsStrip_KeyDown;
             root.Controls.Add(groupsStrip, 0, 1);
 
             statusLabel.Dock = DockStyle.Fill;
@@ -622,6 +626,7 @@ namespace DocSets
                     };
 
                     button.Click += (_, __) => SelectSetFromButton(button);
+                    button.MouseDown += GroupButton_MouseDown;
                     button.MouseUp += GroupButton_MouseUp;
                     groupsStrip.Items.Add(button);
                 }
@@ -672,6 +677,134 @@ namespace DocSets
 
             RebuildTree();
             RefreshStatus();
+        }
+
+        private void GroupButton_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && e.Clicks == 2 && sender is ToolStripButton button)
+            {
+                BeginRenameGroup(button);
+            }
+        }
+
+        private void GroupsStrip_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.F2)
+            {
+                return;
+            }
+
+            var button = groupsStrip.Items
+                .OfType<ToolStripButton>()
+                .FirstOrDefault(x => x.Tag is DocumentSet set && ReferenceEquals(set, viewModel.SelectedSet));
+
+            if (button != null)
+            {
+                BeginRenameGroup(button);
+                e.Handled = true;
+            }
+        }
+
+        private void BeginRenameGroup(ToolStripButton button)
+        {
+            if (!(button.Tag is DocumentSet set))
+            {
+                return;
+            }
+
+            EndRenameGroup(commit: true);
+            SelectSetFromButton(button);
+
+            var index = groupsStrip.Items.IndexOf(button);
+            if (index < 0)
+            {
+                return;
+            }
+
+            var editor = new TextBox
+            {
+                Text = set.Name,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = groupsStrip.Font,
+                Margin = Padding.Empty
+            };
+
+            var textWidth = TextRenderer.MeasureText(editor.Text + "WW", editor.Font).Width;
+            var host = new ToolStripControlHost(editor)
+            {
+                AutoSize = false,
+                Width = Math.Max(button.Width + 20, Math.Max(90, textWidth)),
+                Height = Math.Max(groupsStrip.Height - 4, editor.PreferredHeight + 2),
+                Margin = button.Margin,
+                Padding = Padding.Empty,
+                Tag = set
+            };
+
+            editingGroupHost = host;
+            editingGroupSet = set;
+            cancelGroupRename = false;
+
+            groupsStrip.Items.RemoveAt(index);
+            groupsStrip.Items.Insert(index, host);
+
+            editor.KeyDown += GroupRenameEditor_KeyDown;
+            editor.LostFocus += GroupRenameEditor_LostFocus;
+            editor.SelectAll();
+            editor.Focus();
+        }
+
+        private void GroupRenameEditor_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                EndRenameGroup(commit: true);
+                e.SuppressKeyPress = true;
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                cancelGroupRename = true;
+                EndRenameGroup(commit: false);
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        private void GroupRenameEditor_LostFocus(object sender, EventArgs e)
+        {
+            EndRenameGroup(commit: !cancelGroupRename);
+        }
+
+        private void EndRenameGroup(bool commit)
+        {
+            var host = editingGroupHost;
+            var set = editingGroupSet;
+            if (host == null)
+            {
+                return;
+            }
+
+            editingGroupHost = null;
+            editingGroupSet = null;
+
+            var editor = host.Control as TextBox;
+            var newName = editor?.Text;
+            var index = groupsStrip.Items.IndexOf(host);
+
+            if (commit && set != null)
+            {
+                if (!viewModel.TryRenameSet(set, newName, showErrors: true))
+                {
+                    // Invalid or duplicate name: keep the old name and leave the UI consistent.
+                    cancelGroupRename = false;
+                }
+            }
+
+            if (index >= 0)
+            {
+                groupsStrip.Items.RemoveAt(index);
+            }
+
+            RefreshAll();
+            cancelGroupRename = false;
         }
 
         private void RebuildTree()

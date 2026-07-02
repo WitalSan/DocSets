@@ -283,17 +283,42 @@ namespace DocSets
             var set = SelectedSet;
             if (set == null) return;
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Новое название группы:", set.Name);
-            if (string.IsNullOrWhiteSpace(name)) return;
+            TryRenameSet(set, name, showErrors: true);
+        }
+
+        public bool TryRenameSelectedSet(string name)
+        {
+            return TryRenameSet(SelectedSet, name, showErrors: true);
+        }
+
+        public bool TryRenameSet(DocumentSet set, string name, bool showErrors)
+        {
+            if (set == null) return false;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
             name = name.Trim();
+            if (string.Equals(set.Name, name, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
             if (state.Sets.Any(x => !ReferenceEquals(x, set) && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
-                Show("Группа с таким именем уже есть.");
-                return;
+                if (showErrors)
+                {
+                    Show("Группа с таким именем уже есть.");
+                }
+
+                return false;
             }
 
             set.Name = name;
             state.ActiveSet = name;
+            OnPropertyChanged(nameof(Sets));
+            OnPropertyChanged(nameof(SelectedSet));
             _ = SaveAsync();
+            InvalidateCommands();
+            return true;
         }
 
         private void DeleteSet()
