@@ -31,6 +31,12 @@
     group; your package should define its own command set in order to avoid collisions
     with command ids defined by other packages. -->
 
+    <Groups>
+      <Group guid="guidDocSetsPackageCmdSet" id="DocSetsEditorContextGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN"/>
+      </Group>
+    </Groups>
+
     <!--Buttons section. -->
     <!--This section defines the elements the user can interact with, like a menu command or a button
         or combo box in a toolbar. -->
@@ -47,6 +53,14 @@
         <Icon guid="guidImages" id="bmpPic1" />
         <Strings>
           <ButtonText>DocSetsToolWindow</ButtonText>
+        </Strings>
+      </Button>
+
+      <Button guid="guidDocSetsPackageCmdSet" id="AddBookmarkFromEditorCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidDocSetsPackageCmdSet" id="DocSetsEditorContextGroup"/>
+        <Icon guid="guidImages" id="bmpPic1" />
+        <Strings>
+          <ButtonText>DocSets: добавить закладку...</ButtonText>
         </Strings>
       </Button>
     </Buttons>
@@ -69,6 +83,8 @@
     <!-- This is the guid used to group the menu commands together -->
     <GuidSymbol name="guidDocSetsPackageCmdSet" value="{b7b7b426-13b2-4c12-80a8-f369fa487757}">
       <IDSymbol name="DocSetsToolWindowCommandId" value="0x0100" />
+      <IDSymbol name="AddBookmarkFromEditorCommandId" value="0x0101" />
+      <IDSymbol name="DocSetsEditorContextGroup" value="0x1020" />
     </GuidSymbol>
 
     <GuidSymbol name="guidImages" value="{3853dfe8-8a8d-4a50-9682-ab089bb4a529}" >

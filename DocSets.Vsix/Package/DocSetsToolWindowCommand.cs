@@ -2,8 +2,6 @@
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.ComponentModel.Design;
-using System.Globalization;
-using System.Threading;
 using System.Threading.Tasks;
 using Task = System.Threading.Tasks.Task;
 
@@ -18,6 +16,7 @@ namespace DocSets
         /// Command ID.
         /// </summary>
         public const int CommandId = 0x0100;
+        public const int AddBookmarkFromEditorCommandId = 0x0101;
 
         /// <summary>
         /// Command menu group (command set GUID).
@@ -43,6 +42,10 @@ namespace DocSets
             var menuCommandID = new CommandID(CommandSet, CommandId);
             var menuItem = new MenuCommand(this.Execute, menuCommandID);
             commandService.AddCommand(menuItem);
+
+            var addBookmarkCommandId = new CommandID(CommandSet, AddBookmarkFromEditorCommandId);
+            var addBookmarkItem = new MenuCommand(this.ExecuteAddBookmarkFromEditor, addBookmarkCommandId);
+            commandService.AddCommand(addBookmarkItem);
         }
 
         /// <summary>
@@ -52,17 +55,6 @@ namespace DocSets
         {
             get;
             private set;
-        }
-
-        /// <summary>
-        /// Gets the service provider from the owner package.
-        /// </summary>
-        private Microsoft.VisualStudio.Shell.IAsyncServiceProvider ServiceProvider
-        {
-            get
-            {
-                return this.package;
-            }
         }
 
         /// <summary>
@@ -87,6 +79,28 @@ namespace DocSets
         private void Execute(object sender, EventArgs e)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
+            ShowToolWindow();
+        }
+
+        private void ExecuteAddBookmarkFromEditor(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            package.JoinableTaskFactory.RunAsync(async delegate
+            {
+                await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+
+                var window = ShowToolWindow();
+                if (window?.Content is DocSetsWinFormsHostControl host)
+                {
+                    await host.AddBookmarkFromEditorAsync();
+                }
+            });
+        }
+
+        private DocSetsToolWindow ShowToolWindow()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
 
             // Get the instance number 0 of this tool window. This window is single instance so this instance
             // is actually the only one.
@@ -99,6 +113,7 @@ namespace DocSets
 
             IVsWindowFrame windowFrame = (IVsWindowFrame)window.Frame;
             Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(windowFrame.Show());
+            return window as DocSetsToolWindow;
         }
     }
 }

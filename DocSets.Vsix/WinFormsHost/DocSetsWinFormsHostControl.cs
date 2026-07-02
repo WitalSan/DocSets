@@ -35,6 +35,21 @@ namespace DocSets
             };
         }
 
+        internal async System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
+        {
+            await EnsureLoadedAsync();
+            await winFormsControl.AddBookmarkFromEditorAsync();
+        }
+
+        private async System.Threading.Tasks.Task EnsureLoadedAsync()
+        {
+            if (!viewModel.IsLoaded)
+            {
+                await viewModel.LoadAsync();
+                winFormsControl.RefreshAll();
+            }
+        }
+
         private void RetryLoadAfterSolutionOpened()
         {
             ThreadHelper.JoinableTaskFactory.Run(viewModel.LoadAsync);

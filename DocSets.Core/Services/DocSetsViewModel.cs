@@ -366,14 +366,39 @@ namespace DocSets
             InvalidateCommands();
         }
 
-        private async Task AddBookmarkAsync(DocumentItem target)
+        public async Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync(bool showErrors)
         {
-            var set = SelectedSet;
-            if (set == null) return;
+            if (!IsLoaded || SelectedSet == null)
+            {
+                if (showErrors)
+                {
+                    Show("Откройте solution (.sln), чтобы создать закладку DocSets.");
+                }
+
+                return null;
+            }
+
             var bookmark = await store.CreateBookmarkFromActiveDocumentAsync();
             if (bookmark == null)
             {
-                Show("Не найден активный документ редактора.");
+                if (showErrors)
+                {
+                    Show("Не найден активный документ редактора.");
+                }
+
+                return null;
+            }
+
+            bookmark.IsFolder = false;
+            bookmark.Children.Clear();
+            return bookmark;
+        }
+
+        public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentItem target)
+        {
+            var set = SelectedSet;
+            if (set == null || bookmark == null)
+            {
                 return;
             }
 
@@ -384,8 +409,21 @@ namespace DocSets
             collection.Add(bookmark);
             if (target?.IsFolder == true) target.IsExpanded = true;
             SelectedNode = bookmark;
+            SetSelectedNodes(new[] { bookmark });
             await SaveAsync();
             OnPropertyChanged(nameof(CurrentNodes));
+            InvalidateCommands();
+        }
+
+        private async Task AddBookmarkAsync(DocumentItem target)
+        {
+            var bookmark = await CreateBookmarkFromActiveDocumentAsync(showErrors: true);
+            if (bookmark == null)
+            {
+                return;
+            }
+
+            await AddPreparedBookmarkAsync(bookmark, target);
         }
 
         private async Task OpenBookmarkAsync(DocumentItem item)

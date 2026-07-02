@@ -40,6 +40,29 @@ namespace DocSets
             WireEvents();
             RefreshAll();
         }
+
+        public async System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
+        {
+            var bookmark = await viewModel.CreateBookmarkFromActiveDocumentAsync(showErrors: true);
+            if (bookmark == null)
+            {
+                return;
+            }
+
+            using (var dialog = new BookmarkPropertiesDialog(bookmark))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                dialog.ApplyTo(bookmark);
+            }
+
+            await viewModel.AddPreparedBookmarkAsync(bookmark, viewModel.SelectedNode);
+            RefreshAll();
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
