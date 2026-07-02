@@ -428,6 +428,7 @@ namespace DocSets
             nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Копировать", viewModel.CopySelectedNodesCommand, "Ctrl+C");
             AddMenu("Вставить", viewModel.PasteNodesCommand, "Ctrl+V");
+            nodeMenu.Items.Add(new ToolStripSeparator());
             AddPropertiesMenu();
             BuildGroupMenu();
         }
