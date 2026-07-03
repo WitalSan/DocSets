@@ -65,6 +65,7 @@
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
     <Compile Include="DocSets.Core\Storage\DocSetsStore.cs" />
     <Compile Include="DocSets.Core\Services\DocSetsViewModel.cs" />
+    <Compile Include="DocSets.Core\Services\FileBookmarkTrackingService.cs" />
     <Compile Include="DocSets.Core\Services\RelayCommand.cs" />
     <Compile Include="DocSets.Core\Models\Model.cs" />
     <Compile Include="DocSets.Core\Roslyn\RoslynBookmarkResolver.cs" />

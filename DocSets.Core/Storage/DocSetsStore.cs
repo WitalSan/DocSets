@@ -194,7 +194,7 @@ namespace DocSets
                 .Replace('/', Path.DirectorySeparatorChar);
         }
 
-        private string ToFullPath(string path)
+        public string ToFullPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path) ||
                 Path.IsPathRooted(path) ||

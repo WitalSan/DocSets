@@ -15,6 +15,7 @@ namespace DocSets
     {
         private readonly AsyncPackage package;
         private readonly DocSetsStore store;
+        private readonly FileBookmarkTrackingService fileTracking;
         private readonly Func<Window> ownerAccessor;
         private DocumentSetsState state = new DocumentSetsState();
         private DocumentSet selectedSet;
@@ -29,6 +30,7 @@ namespace DocSets
             this.package = package ?? throw new ArgumentNullException(nameof(package));
             this.ownerAccessor = ownerAccessor ?? (() => null);
             store = new DocSetsStore(package);
+            fileTracking = new FileBookmarkTrackingService(package, store.ToFullPath);
 
             AddSetCommand = new RelayCommand(AddSet, () => IsLoaded);
             RenameSetCommand = new RelayCommand(RenameSet, () => IsLoaded && SelectedSet != null);
@@ -391,6 +393,10 @@ namespace DocSets
 
             bookmark.IsFolder = false;
             bookmark.Children.Clear();
+            if (bookmark.Type == BookmarkType.File)
+            {
+                await fileTracking.TrackFromActiveDocumentAsync(bookmark);
+            }
             return bookmark;
         }
 
@@ -511,6 +517,10 @@ namespace DocSets
             SelectedSet = set;
             SelectedNode = bookmark;
             SetSelectedNodes(new[] { bookmark });
+            if (bookmark.Type == BookmarkType.File)
+            {
+                await fileTracking.TrackFromActiveDocumentAsync(bookmark);
+            }
             await SaveAsync();
             OnPropertyChanged(nameof(CurrentNodes));
             InvalidateCommands();
@@ -531,6 +541,10 @@ namespace DocSets
         {
             if (!IsBookmark(item)) return;
             await store.OpenBookmarkAsync(item);
+            if (item.Type == BookmarkType.File)
+            {
+                await fileTracking.TrackAfterOpenAsync(item);
+            }
         }
 
         private async Task UpdateBookmarkAsync(DocumentItem item)
@@ -563,6 +577,10 @@ namespace DocSets
 
             item.IsFolder = false;
             SelectedNode = item;
+            if (item.Type == BookmarkType.File)
+            {
+                await fileTracking.TrackFromActiveDocumentAsync(item);
+            }
             await SaveAsync();
         }
 
@@ -1373,7 +1391,38 @@ namespace DocSets
                 return;
             }
 
+            await fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
             await store.SaveAsync(state);
+        }
+
+        private IEnumerable<DocumentItem> EnumerateAllNodes()
+        {
+            return state?.Sets == null
+                ? Enumerable.Empty<DocumentItem>()
+                : state.Sets.SelectMany(set => EnumerateNodes(set.Files));
+        }
+
+        private static IEnumerable<DocumentItem> EnumerateNodes(IEnumerable<DocumentItem> nodes)
+        {
+            if (nodes == null)
+            {
+                yield break;
+            }
+
+            foreach (var node in nodes)
+            {
+                if (node == null)
+                {
+                    continue;
+                }
+
+                yield return node;
+
+                foreach (var child in EnumerateNodes(node.Children))
+                {
+                    yield return child;
+                }
+            }
         }
 
         private void InvalidateCommands() => CommandManager.InvalidateRequerySuggested();
