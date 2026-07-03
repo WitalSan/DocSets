@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -11,6 +12,8 @@ namespace DocSets
         private readonly TextBox nameTextBox = new TextBox();
         private readonly ComboBox setComboBox = new ComboBox();
         private readonly ComboBox parentComboBox = new ComboBox();
+        private readonly RadioButton defaultBookmarkTypeButton = new RadioButton();
+        private readonly RadioButton fileBookmarkTypeButton = new RadioButton();
         private readonly TextBox pathTextBox = new TextBox();
         private readonly TextBox symbolTextBox = new TextBox();
         private readonly TextBox projectTextBox = new TextBox();
@@ -23,9 +26,10 @@ namespace DocSets
 
         private readonly bool showDestination;
         private readonly IList<DocumentSet> availableSets;
+        private readonly DocumentItem excludedParentRoot;
+        private readonly BookmarkType initialBookmarkType;
         private DocumentSet initialSet;
         private DocumentItem initialParent;
-        private readonly DocumentItem excludedParentRoot;
 
         public BookmarkPropertiesDialog(DocumentItem item)
             : this(item, null, null, null)
@@ -49,6 +53,7 @@ namespace DocSets
             initialSet = selectedSet ?? availableSets.FirstOrDefault();
             initialParent = selectedParent?.IsFolder == true ? selectedParent : null;
             this.excludedParentRoot = excludedParentRoot;
+            initialBookmarkType = item.Type;
 
             Text = item.IsFolder ? "Свойства папки" : "Свойства закладки";
             StartPosition = FormStartPosition.CenterParent;
@@ -57,8 +62,8 @@ namespace DocSets
             ShowInTaskbar = false;
             FormBorderStyle = FormBorderStyle.Sizable;
             Font = new Font("Segoe UI", 10f);
-            MinimumSize = new Size(560, showDestination ? 540 : 480);
-            Size = new Size(720, showDestination ? 620 : 560);
+            MinimumSize = new Size(560, showDestination ? 570 : 500);
+            Size = new Size(720, showDestination ? 650 : 590);
 
             BuildLayout();
             LoadFrom(item);
@@ -81,13 +86,22 @@ namespace DocSets
 
             item.Name = nameTextBox.Text?.Trim() ?? string.Empty;
             item.IsFolder = folderCheckBox.Checked;
+            item.Type = folderCheckBox.Checked ? BookmarkType.Default : SelectedBookmarkType;
             item.Path = pathTextBox.Text?.Trim() ?? string.Empty;
-            item.Symbol = symbolTextBox.Text?.Trim() ?? string.Empty;
-            item.Project = projectTextBox.Text?.Trim() ?? string.Empty;
+            item.Symbol = item.Type == BookmarkType.File ? string.Empty : symbolTextBox.Text?.Trim() ?? string.Empty;
+            item.Project = item.Type == BookmarkType.File ? string.Empty : projectTextBox.Text?.Trim() ?? string.Empty;
             item.Line = (int)lineBox.Value;
             item.Column = (int)columnBox.Value;
             item.Comment = commentTextBox.Text ?? string.Empty;
+
+            if (item.Type == BookmarkType.File && string.IsNullOrWhiteSpace(item.Name))
+            {
+                item.Name = CreateFileBookmarkName(item.Path, item.Line);
+            }
         }
+
+        private BookmarkType SelectedBookmarkType
+            => fileBookmarkTypeButton.Checked ? BookmarkType.File : BookmarkType.Default;
 
         private void BuildLayout()
         {
@@ -95,7 +109,7 @@ namespace DocSets
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = showDestination ? 11 : 9,
+                RowCount = showDestination ? 12 : 10,
                 Padding = new Padding(10)
             };
 
@@ -107,47 +121,80 @@ namespace DocSets
 
             if (showDestination)
             {
-                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                AddAutoRow(root);
                 AddLabel(root, row, "Группа:");
                 setComboBox.Dock = DockStyle.Fill;
                 setComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
                 setComboBox.SelectedIndexChanged += (_, __) => RefreshParentCombo();
                 root.Controls.Add(setComboBox, 1, row++);
 
-                root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                AddAutoRow(root);
                 AddLabel(root, row, "Папка:");
                 parentComboBox.Dock = DockStyle.Fill;
                 parentComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
                 root.Controls.Add(parentComboBox, 1, row++);
             }
 
-            for (var i = row; i < root.RowCount; i++)
-            {
-                root.RowStyles.Add(new RowStyle(i == root.RowCount - 2 ? SizeType.Percent : SizeType.AutoSize, i == root.RowCount - 2 ? 100 : 0));
-            }
-
+            AddAutoRow(root);
             AddLabel(root, row, "Название:");
             nameTextBox.Dock = DockStyle.Fill;
             root.Controls.Add(nameTextBox, 1, row++);
 
+            AddAutoRow(root);
             AddLabel(root, row, "Тип:");
             folderCheckBox.Text = "Папка";
             folderCheckBox.AutoSize = true;
             folderCheckBox.CheckedChanged += (_, __) => UpdateEnabledState();
             root.Controls.Add(folderCheckBox, 1, row++);
 
+            AddAutoRow(root);
+            AddLabel(root, row, "Тип ссылки:");
+            var bookmarkTypePanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                WrapContents = false,
+                Margin = Padding.Empty
+            };
+
+            defaultBookmarkTypeButton.Text = "Symbol";
+            defaultBookmarkTypeButton.Appearance = Appearance.Button;
+            defaultBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
+            defaultBookmarkTypeButton.AutoSize = false;
+            defaultBookmarkTypeButton.Width = 90;
+            defaultBookmarkTypeButton.Height = 28;
+            defaultBookmarkTypeButton.Margin = new Padding(0, 0, 4, 0);
+            defaultBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
+
+            fileBookmarkTypeButton.Text = "File";
+            fileBookmarkTypeButton.Appearance = Appearance.Button;
+            fileBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
+            fileBookmarkTypeButton.AutoSize = false;
+            fileBookmarkTypeButton.Width = 90;
+            fileBookmarkTypeButton.Height = 28;
+            fileBookmarkTypeButton.Margin = new Padding(0);
+            fileBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
+
+            bookmarkTypePanel.Controls.Add(defaultBookmarkTypeButton);
+            bookmarkTypePanel.Controls.Add(fileBookmarkTypeButton);
+            root.Controls.Add(bookmarkTypePanel, 1, row++);
+
+            AddAutoRow(root);
             AddLabel(root, row, "Файл:");
             pathTextBox.Dock = DockStyle.Fill;
             root.Controls.Add(pathTextBox, 1, row++);
 
+            AddAutoRow(root);
             AddLabel(root, row, "Символ:");
             symbolTextBox.Dock = DockStyle.Fill;
             root.Controls.Add(symbolTextBox, 1, row++);
 
+            AddAutoRow(root);
             AddLabel(root, row, "Проект:");
             projectTextBox.Dock = DockStyle.Fill;
             root.Controls.Add(projectTextBox, 1, row++);
 
+            AddAutoRow(root);
             AddLabel(root, row, "Позиция:");
             var positionPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
             lineBox.Minimum = 1;
@@ -162,6 +209,8 @@ namespace DocSets
             positionPanel.Controls.Add(columnBox);
             root.Controls.Add(positionPanel, 1, row++);
 
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             AddLabel(root, row, "Комментарий:");
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Multiline = true;
@@ -172,6 +221,7 @@ namespace DocSets
             root.SetRowSpan(commentTextBox, 2);
             row += 2;
 
+            AddAutoRow(root);
             var buttons = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -193,6 +243,11 @@ namespace DocSets
 
             AcceptButton = okButton;
             CancelButton = cancelButton;
+        }
+
+        private static void AddAutoRow(TableLayoutPanel root)
+        {
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
 
         private void LoadDestination()
@@ -320,6 +375,7 @@ namespace DocSets
         {
             nameTextBox.Text = item.Name ?? string.Empty;
             folderCheckBox.Checked = item.IsFolder;
+            SetSelectedBookmarkType(item.Type);
             pathTextBox.Text = item.Path ?? string.Empty;
             symbolTextBox.Text = item.Symbol ?? string.Empty;
             projectTextBox.Text = item.Project ?? string.Empty;
@@ -329,14 +385,52 @@ namespace DocSets
             UpdateEnabledState();
         }
 
+        private void SetSelectedBookmarkType(BookmarkType type)
+        {
+            if (type == BookmarkType.File)
+            {
+                fileBookmarkTypeButton.Checked = true;
+            }
+            else
+            {
+                defaultBookmarkTypeButton.Checked = true;
+            }
+        }
+
+        private void BookmarkTypeChanged()
+        {
+            if (SelectedBookmarkType == BookmarkType.File)
+            {
+                symbolTextBox.Text = string.Empty;
+                projectTextBox.Text = string.Empty;
+
+                if (initialBookmarkType != BookmarkType.File && !string.IsNullOrWhiteSpace(pathTextBox.Text))
+                {
+                    nameTextBox.Text = CreateFileBookmarkName(pathTextBox.Text, (int)lineBox.Value);
+                }
+            }
+
+            UpdateEnabledState();
+        }
+
         private void UpdateEnabledState()
         {
-            var enabled = !folderCheckBox.Checked;
-            pathTextBox.Enabled = enabled;
-            symbolTextBox.Enabled = enabled;
-            projectTextBox.Enabled = enabled;
-            lineBox.Enabled = enabled;
-            columnBox.Enabled = enabled;
+            var isFolder = folderCheckBox.Checked;
+            var isFileBookmark = SelectedBookmarkType == BookmarkType.File;
+
+            defaultBookmarkTypeButton.Enabled = !isFolder;
+            fileBookmarkTypeButton.Enabled = !isFolder;
+            pathTextBox.Enabled = !isFolder;
+            lineBox.Enabled = !isFolder;
+            columnBox.Enabled = !isFolder;
+            symbolTextBox.Enabled = !isFolder && !isFileBookmark;
+            projectTextBox.Enabled = !isFolder && !isFileBookmark;
+        }
+
+        private static string CreateFileBookmarkName(string path, int line)
+        {
+            var fileName = string.IsNullOrWhiteSpace(path) ? "File" : Path.GetFileName(path);
+            return string.IsNullOrWhiteSpace(fileName) ? $"File:{Math.Max(1, line)}" : $"{fileName}:{Math.Max(1, line)}";
         }
 
         private sealed class SetComboItem

@@ -99,7 +99,7 @@ namespace DocSets
 
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-            if (await roslyn.TryOpenBookmarkBySymbolAsync(item))
+            if (item.Type != BookmarkType.File && await roslyn.TryOpenBookmarkBySymbolAsync(item))
             {
                 return;
             }

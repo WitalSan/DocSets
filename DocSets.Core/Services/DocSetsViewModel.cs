@@ -543,12 +543,24 @@ namespace DocSets
                 return;
             }
 
-            item.Name = updated.Name;
-            item.Symbol = updated.Symbol;
-            item.Project = updated.Project;
-            item.Path = updated.Path;
-            item.Line = updated.Line;
-            item.Column = updated.Column;
+            if (item.Type == BookmarkType.File)
+            {
+                item.Symbol = string.Empty;
+                item.Project = string.Empty;
+                item.Path = updated.Path;
+                item.Line = updated.Line;
+                item.Column = updated.Column;
+            }
+            else
+            {
+                item.Name = updated.Name;
+                item.Symbol = updated.Symbol;
+                item.Project = updated.Project;
+                item.Path = updated.Path;
+                item.Line = updated.Line;
+                item.Column = updated.Column;
+            }
+
             item.IsFolder = false;
             SelectedNode = item;
             await SaveAsync();
@@ -1028,7 +1040,8 @@ namespace DocSets
                 ParentId = parentId ?? string.Empty,
                 Name = item.Name ?? string.Empty,
                 IsFolder = item.IsFolder,
-                Symbol = item.Symbol ?? string.Empty,
+                Type = item.Type,
+                Symbol = item.Type == BookmarkType.File ? string.Empty : item.Symbol ?? string.Empty,
                 Project = item.Project ?? string.Empty,
                 Path = item.Path ?? string.Empty,
                 Line = item.Line,
@@ -1075,7 +1088,8 @@ namespace DocSets
             {
                 Name = source.Name ?? string.Empty,
                 IsFolder = source.IsFolder,
-                Symbol = source.Symbol ?? string.Empty,
+                Type = source.Type,
+                Symbol = source.Type == BookmarkType.File ? string.Empty : source.Symbol ?? string.Empty,
                 Project = source.Project ?? string.Empty,
                 Path = source.Path ?? string.Empty,
                 Line = source.Line < 1 ? 1 : source.Line,
@@ -1281,6 +1295,10 @@ namespace DocSets
 
             [JsonProperty("isFolder")]
             public bool IsFolder { get; set; }
+
+            [JsonProperty("type", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+            public BookmarkType Type { get; set; }
 
             [JsonProperty("symbol")]
             public string Symbol { get; set; }

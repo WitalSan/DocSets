@@ -149,8 +149,9 @@ namespace DocSets
                 ParentId = parentId ?? "",
                 Name = item.Name ?? "",
                 IsFolder = item.IsFolder,
-                Symbol = item.Symbol ?? "",
-                Project = item.Project ?? "",
+                Type = item.Type,
+                Symbol = item.Type == BookmarkType.File ? "" : item.Symbol ?? "",
+                Project = item.Type == BookmarkType.File ? "" : item.Project ?? "",
                 Path = item.Path ?? "",
                 Line = item.Line,
                 Column = item.Column,
@@ -213,8 +214,9 @@ namespace DocSets
             {
                 Name = source.Name ?? "",
                 IsFolder = source.IsFolder,
-                Symbol = source.Symbol ?? "",
-                Project = source.Project ?? "",
+                Type = source.Type,
+                Symbol = source.Type == BookmarkType.File ? "" : source.Symbol ?? "",
+                Project = source.Type == BookmarkType.File ? "" : source.Project ?? "",
                 Path = source.Path ?? "",
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
@@ -254,6 +256,10 @@ namespace DocSets
         [JsonProperty("isFolder", DefaultValueHandling = DefaultValueHandling.Ignore)]
         public bool IsFolder { get; set; }
 
+        [JsonProperty("type", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public BookmarkType Type { get; set; }
+
         [JsonProperty("symbol", NullValueHandling = NullValueHandling.Ignore)]
         public string Symbol { get; set; }
 
@@ -273,9 +279,16 @@ namespace DocSets
         public string Comment { get; set; }
     }
 
+    public enum BookmarkType
+    {
+        Default = 0,
+        File = 1
+    }
+
     public sealed class DocumentItem : NotifyObject
     {
         private string name = "";
+        private BookmarkType type;
         private string symbol = "";
         private string project = "";
         private string path = "";
@@ -308,6 +321,21 @@ namespace DocSets
             set
             {
                 if (SetProperty(ref isFolder, value))
+                {
+                    OnPropertyChanged(nameof(Display));
+                    OnPropertyChanged(nameof(Header));
+                }
+            }
+        }
+
+        [JsonProperty("type", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public BookmarkType Type
+        {
+            get => type;
+            set
+            {
+                if (SetProperty(ref type, value))
                 {
                     OnPropertyChanged(nameof(Display));
                     OnPropertyChanged(nameof(Header));
@@ -437,7 +465,8 @@ namespace DocSets
             {
                 Name = Name,
                 IsFolder = IsFolder,
-                Symbol = Symbol,
+                Type = Type,
+                Symbol = Type == BookmarkType.File ? "" : Symbol,
                 Project = Project,
                 Path = Path,
                 Line = Line,
