@@ -435,7 +435,13 @@ namespace DocSets
 
             _tree.NodeControls.Add(new NodeStateIcon { LeftMargin = 1 });
             _tree.NodeControls.Add(new ExpandingIcon { LeftMargin = 1 });
-            var nameNode = new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Name), ParentColumn = _columnsByKey["name"], EditEnabled = true, IncrementalSearchEnabled = true };
+            _tree.NodeControls.Add(new NodeIcon
+            {
+                DataPropertyName = nameof(BookmarkTreeNode.Image),
+                ParentColumn = _columnsByKey["name"],
+                LeftMargin = 2
+            });
+            var nameNode = new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Name), ParentColumn = _columnsByKey["name"], EditEnabled = true, IncrementalSearchEnabled = true, LeftMargin = 3 };
             nameNode.DrawText += NameTextBox_DrawText;
             _tree.NodeControls.Add(nameNode);
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = _columnsByKey["file"] });
