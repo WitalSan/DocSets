@@ -511,4 +511,14 @@ namespace DocSets
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
+
+    internal sealed class ActiveDocumentContext
+    {
+        public string SolutionName { get; set; } = "";
+
+        public string ProjectName { get; set; } = "";
+
+        public string FileName { get; set; } = "";
+    }
+
 }

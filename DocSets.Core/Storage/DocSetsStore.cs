@@ -98,6 +98,24 @@ namespace DocSets
                 ToRelativePath);
         }
 
+
+        public async Task<ActiveDocumentContext> GetActiveDocumentContextAsync()
+        {
+            if (!await EnsureInitializedAsync())
+            {
+                return null;
+            }
+
+            var context = await roslyn.GetActiveDocumentContextAsync();
+            if (context == null)
+            {
+                return null;
+            }
+
+            context.SolutionName = Path.GetFileNameWithoutExtension(solutionFilePath) ?? "";
+            return context;
+        }
+
         public async Task OpenBookmarkAsync(DocumentItem item)
         {
             if (item == null)

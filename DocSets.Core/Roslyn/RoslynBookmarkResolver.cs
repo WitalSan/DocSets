@@ -84,6 +84,50 @@ namespace DocSets
             return item;
         }
 
+
+        public async Task<ActiveDocumentContext> GetActiveDocumentContextAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var dte = await package.GetServiceAsync(typeof(DTE)) as DTE;
+            var activeDocument = dte?.ActiveDocument;
+            if (activeDocument == null || string.IsNullOrWhiteSpace(activeDocument.FullName))
+            {
+                return null;
+            }
+
+            var context = new ActiveDocumentContext
+            {
+                FileName = Path.GetFileNameWithoutExtension(activeDocument.FullName)
+            };
+
+            try
+            {
+                var workspace = await GetWorkspaceAsync();
+                var document = FindDocument(workspace, activeDocument.FullName);
+                if (!string.IsNullOrWhiteSpace(document?.Project?.Name))
+                {
+                    context.ProjectName = document.Project.Name;
+                }
+            }
+            catch
+            {
+            }
+
+            if (string.IsNullOrWhiteSpace(context.ProjectName))
+            {
+                try
+                {
+                    context.ProjectName = activeDocument.ProjectItem?.ContainingProject?.Name ?? "";
+                }
+                catch
+                {
+                }
+            }
+
+            return context;
+        }
+
         public async Task<bool> TryOpenBookmarkBySymbolAsync(DocumentItem item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.Symbol))

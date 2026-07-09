@@ -24,6 +24,9 @@ namespace DocSets
         private readonly ContextMenuStrip _nodeMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip _headerMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip _groupMenu = new ContextMenuStrip();
+        private ToolStripMenuItem _addSolutionFolderMenuItem;
+        private ToolStripMenuItem _addProjectFolderMenuItem;
+        private ToolStripMenuItem _addFileFolderMenuItem;
         private readonly Dictionary<string, TreeColumn> _columnsByKey = new Dictionary<string, TreeColumn>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<TreeColumn, string> _columnKeys = new Dictionary<TreeColumn, string>();
         private bool _refreshing;
@@ -521,6 +524,7 @@ namespace DocSets
             //_nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Add Folder", _viewModel.AddFolderCommand);
             AddMenu("Add BookMark", _viewModel.AddBookmarkCommand);
+            AddContextFolderMenus();
             _nodeMenu.Items.Add(new ToolStripSeparator());
             AddMenu("Copy", _viewModel.CopySelectedNodesCommand, "Ctrl+C");
             AddMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V");
@@ -592,6 +596,63 @@ namespace DocSets
             var item = new ToolStripMenuItem("Properties...");
             item.Click += delegate { ShowBookmarkProperties(GetCurrentItem()); };
             _nodeMenu.Items.Add(item);
+        }
+
+        private void AddContextFolderMenus()
+        {
+            _addSolutionFolderMenuItem = AddContextFolderMenu("Создать закладку <Solution>", ActiveDocumentFolderKind.Solution);
+            _addProjectFolderMenuItem = AddContextFolderMenu("Создать закладку <Project>", ActiveDocumentFolderKind.Project);
+            _addFileFolderMenuItem = AddContextFolderMenu("Создать закладку <File>", ActiveDocumentFolderKind.File);
+        }
+
+        private ToolStripMenuItem AddContextFolderMenu(string text, ActiveDocumentFolderKind kind)
+        {
+            var item = new ToolStripMenuItem(text)
+            {
+                Tag = kind
+            };
+
+            item.Click += async (_, __) =>
+            {
+                await _viewModel.CreateFolderFromActiveDocumentAsync(kind, GetCurrentItem());
+                RebuildTree();
+                RefreshStatus();
+            };
+
+            _nodeMenu.Items.Add(item);
+            return item;
+        }
+
+        private async void RefreshContextFolderMenuTexts()
+        {
+            if (_addSolutionFolderMenuItem == null || _addProjectFolderMenuItem == null || _addFileFolderMenuItem == null)
+            {
+                return;
+            }
+
+            _addSolutionFolderMenuItem.Text = "Создать закладку <Solution>";
+            _addProjectFolderMenuItem.Text = "Создать закладку <Project>";
+            _addFileFolderMenuItem.Text = "Создать закладку <File>";
+
+            var context = await _viewModel.GetActiveDocumentContextAsync();
+            if (context == null)
+            {
+                _addSolutionFolderMenuItem.Enabled = false;
+                _addProjectFolderMenuItem.Enabled = false;
+                _addFileFolderMenuItem.Enabled = false;
+                return;
+            }
+
+            ApplyContextFolderMenuText(_addSolutionFolderMenuItem, context.SolutionName, "Solution");
+            ApplyContextFolderMenuText(_addProjectFolderMenuItem, context.ProjectName, "Project");
+            ApplyContextFolderMenuText(_addFileFolderMenuItem, context.FileName, "File");
+        }
+
+        private static void ApplyContextFolderMenuText(ToolStripMenuItem item, string name, string fallback)
+        {
+            var hasName = !string.IsNullOrWhiteSpace(name);
+            item.Text = $"Создать закладку <{(hasName ? name.Trim() : fallback)}>";
+            item.Enabled = hasName;
         }
 
         private void AddJsonMenu()
@@ -762,6 +823,7 @@ namespace DocSets
             _nodeMenu.Opening += (_, e) =>
             {
                 SyncSelectionFromTree();
+                RefreshContextFolderMenuTexts();
                 var current = GetCurrentItem();
                 UpdateNodeMenuEnabled(_nodeMenu.Items, current);
             };

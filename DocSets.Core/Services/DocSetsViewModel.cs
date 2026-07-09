@@ -11,6 +11,13 @@ using System.Windows.Input;
 
 namespace DocSets
 {
+    internal enum ActiveDocumentFolderKind
+    {
+        Solution,
+        Project,
+        File
+    }
+
     internal sealed class DocSetsViewModel : NotifyObject
     {
         private readonly AsyncPackage package;
@@ -526,6 +533,80 @@ namespace DocSets
             await SaveAsync();
             OnPropertyChanged(nameof(CurrentNodes));
             InvalidateCommands();
+        }
+
+        public async Task<DocumentItem> CreateFolderFromActiveDocumentAsync(ActiveDocumentFolderKind kind, DocumentItem target)
+        {
+            if (!IsLoaded || SelectedSet == null)
+            {
+                Show("Откройте solution (.sln), чтобы создать папку DocSets.");
+                return null;
+            }
+
+            var context = await store.GetActiveDocumentContextAsync();
+            if (context == null)
+            {
+                Show("Не найден активный документ редактора.");
+                return null;
+            }
+
+            var name = GetContextFolderName(context, kind);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                Show("Не удалось определить имя для папки.");
+                return null;
+            }
+
+            var set = SelectedSet;
+            var folder = new DocumentItem
+            {
+                Name = name.Trim(),
+                IsFolder = true,
+                IsExpanded = true
+            };
+
+            if (target != null && !ContainsNode(set.Files, target))
+            {
+                target = null;
+            }
+
+            var collection = GetInsertCollection(set, target);
+            collection.Add(folder);
+            if (target?.IsFolder == true) target.IsExpanded = true;
+
+            SelectedNode = folder;
+            SetSelectedNodes(new[] { folder });
+            await SaveAsync();
+            OnPropertyChanged(nameof(CurrentNodes));
+            InvalidateCommands();
+            return folder;
+        }
+
+        public async Task<ActiveDocumentContext> GetActiveDocumentContextAsync()
+        {
+            if (!IsLoaded || SelectedSet == null)
+            {
+                return null;
+            }
+
+            return await store.GetActiveDocumentContextAsync();
+        }
+
+        private static string GetContextFolderName(ActiveDocumentContext context, ActiveDocumentFolderKind kind)
+        {
+            if (context == null) return "";
+
+            switch (kind)
+            {
+                case ActiveDocumentFolderKind.Solution:
+                    return context.SolutionName;
+                case ActiveDocumentFolderKind.Project:
+                    return context.ProjectName;
+                case ActiveDocumentFolderKind.File:
+                    return context.FileName;
+                default:
+                    return "";
+            }
         }
 
         private async Task AddBookmarkAsync(DocumentItem target)

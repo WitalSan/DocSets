@@ -60,3 +60,13 @@ RepoRoot/
 ```
 
 You can also copy/rename an existing `<SolutionName>.docsets.json` to `DocSets.workspace.json`; paths will then be interpreted relative to the workspace file directory.
+
+## Context folder creation
+
+The tree context menu can create folders from the active editor context:
+
+- `Создать закладку <Solution>` creates a folder named after the current `.sln` file.
+- `Создать закладку <Project>` creates a folder named after the project containing the active document.
+- `Создать закладку <File>` creates a folder named after the active file without extension.
+
+These commands create folders, not navigable bookmarks. They use the same insertion target as the regular add-folder/add-bookmark commands: inside the selected folder, or at the root of the selected set otherwise.
