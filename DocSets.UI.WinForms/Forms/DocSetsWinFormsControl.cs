@@ -18,6 +18,10 @@ namespace DocSets
         private readonly ToolStrip _toolStrip = new ToolStrip();
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
         private readonly ToolStripButton _clickOpenActivationButton = new ToolStripButton("Click→Open");
+        private readonly ToolStripButton _findPreviousButton = new ToolStripButton("<");
+        private readonly ToolStripButton _findButton = new ToolStripButton("Найти");
+        private readonly ToolStripLabel _findCounterLabel = new ToolStripLabel("0:0");
+        private readonly ToolStripButton _findNextButton = new ToolStripButton(">");
         private readonly TreeViewAdv _tree = new TreeViewAdv();
         private readonly TreeModel _treeModel = new TreeModel();
         private readonly Label _statusLabel = new Label();
@@ -35,6 +39,9 @@ namespace DocSets
         private DocumentSet _editingGroupSet;
         private bool _cancelGroupRename;
         private TreeActivationMode _treeActivationMode = TreeActivationMode.ClassicDoubleClickOpen;
+        private readonly List<DocumentItem> _findResults = new List<DocumentItem>();
+        private int _findIndex = -1;
+        private bool _selectingFromFind;
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -115,7 +122,9 @@ namespace DocSets
             //AddButton("+Вложенная", _viewModel.AddChildFolderCommand);
             AddButton("+Закладка", _viewModel.AddBookmarkCommand);
             _toolStrip.Items.Add(new ToolStripSeparator());
-            AddTreeActivationModeButtons();
+            AddFindButtons();
+            _toolStrip.Items.Add(new ToolStripSeparator());
+            //AddTreeActivationModeButtons();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip);
@@ -449,6 +458,30 @@ namespace DocSets
             _clickOpenActivationButton.Checked = _treeActivationMode == TreeActivationMode.ClickOpenDoubleClickProperties;
         }
 
+        private void AddFindButtons()
+        {
+            _findPreviousButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _findPreviousButton.ToolTipText = "Предыдущая найденная закладка";
+            _findPreviousButton.Click += (_, __) => MoveFindSelection(-1);
+
+            _findButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _findButton.ToolTipText = "Найти закладку в текущем Set по активному документу";
+            _findButton.Click += async (_, __) => await FindBookmarksInCurrentSetAsync();
+
+            _findCounterLabel.AutoSize = true;
+            _findCounterLabel.ToolTipText = "Текущий результат: всего найдено";
+
+            _findNextButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _findNextButton.ToolTipText = "Следующая найденная закладка";
+            _findNextButton.Click += (_, __) => MoveFindSelection(1);
+
+            _toolStrip.Items.Add(_findPreviousButton);
+            _toolStrip.Items.Add(_findButton);
+            _toolStrip.Items.Add(_findCounterLabel);
+            _toolStrip.Items.Add(_findNextButton);
+            UpdateFindCounter();
+        }
+
         private void BuildTree()
         {
             _tree.Font = new Font("Segoe UI", 10f);
@@ -461,7 +494,7 @@ namespace DocSets
             _tree.UseColumns = true;
             _tree.FullRowSelect = true;
             _tree.FullRowSelectActiveColor = SystemColors.Highlight;
-            _tree.FullRowSelectInactiveColor = SystemColors.InactiveBorder;
+            _tree.FullRowSelectInactiveColor = Color.FromArgb(255, 226, 120);
 
             _tree.GridLineStyle = GridLineStyle.Horizontal;
             _tree.SelectionMode = TreeSelectionMode.Multi;
@@ -806,12 +839,19 @@ namespace DocSets
             {
                 if (_refreshing) return;
                 _viewModel.SelectedSet = _setsCombo.SelectedItem as DocumentSet;
+                ClearFindResults();
                 RefreshGroupsStrip();
                 RebuildTree();
                 RefreshStatus();
             };
 
-            _tree.SelectionChanged += (_, __) => SyncSelectionFromTree();
+            _tree.SelectionChanged += (_, __) =>
+            {
+                if (!_selectingFromFind)
+                {
+                    SyncSelectionFromTree();
+                }
+            };
             WireTreeActivationBehavior();
             _tree.ItemDrag += (_, __) => _tree.DoDragDropSelectedNodes(DragDropEffects.Move);
             _tree.DragOver += Tree_DragOver;
@@ -946,6 +986,7 @@ namespace DocSets
             {
                 _viewModel.SelectedSet = set;
                 _setsCombo.SelectedItem = set;
+                ClearFindResults();
 
                 UpdateGroupButtonsChecked();
             }
@@ -1103,6 +1144,139 @@ namespace DocSets
             SyncSelectionFromViewModel();
         }
 
+        private async System.Threading.Tasks.Task FindBookmarksInCurrentSetAsync()
+        {
+            _findResults.Clear();
+            _findIndex = -1;
+
+            var probe = await _viewModel.CreateBookmarkFromActiveDocumentAsync(showErrors: false);
+            if (probe != null && _viewModel.CurrentNodes != null)
+            {
+                _findResults.AddRange(FindMatchesInCurrentSet(probe));
+            }
+
+            if (_findResults.Count > 0)
+            {
+                _findIndex = 0;
+                SelectFindResult();
+            }
+            else
+            {
+                _viewModel.SetSelectedNodes(Enumerable.Empty<DocumentItem>());
+                SyncSelectionFromViewModel();
+            }
+
+            UpdateFindCounter();
+        }
+
+        private IEnumerable<DocumentItem> FindMatchesInCurrentSet(DocumentItem probe)
+        {
+            var items = EnumerateItems(_viewModel.CurrentNodes)
+                .Where(x => x != null && !x.IsFolder && SamePath(x.Path, probe.Path))
+                .ToList();
+
+            if (items.Count == 0)
+            {
+                return Enumerable.Empty<DocumentItem>();
+            }
+
+            var symbolMatches = items
+                .Where(x => !string.IsNullOrWhiteSpace(probe.Symbol) && SameText(x.Symbol, probe.Symbol))
+                .OrderBy(x => Distance(x.Line, probe.Line))
+                .ThenBy(x => x.Name)
+                .ToList();
+
+            if (symbolMatches.Count > 0)
+            {
+                return symbolMatches;
+            }
+
+            var fileBookmarks = items
+                .Where(x => x.Type == BookmarkType.File)
+                .OrderBy(x => x.Name)
+                .ToList();
+
+            if (fileBookmarks.Count > 0)
+            {
+                return fileBookmarks;
+            }
+
+            return Enumerable.Empty<DocumentItem>();
+
+            return items
+                .OrderBy(x => Distance(x.Line, probe.Line))
+                .ThenBy(x => x.Name)
+                .ToList();
+        }
+
+        private static int Distance(int a, int b)
+        {
+            return Math.Abs(Math.Max(1, a) - Math.Max(1, b));
+        }
+
+        private static bool SameText(string left, string right)
+        {
+            return string.Equals((left ?? string.Empty).Trim(), (right ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool SamePath(string left, string right)
+        {
+            var l = NormalizePathForCompare(left);
+            var r = NormalizePathForCompare(right);
+            return !string.IsNullOrWhiteSpace(l) && string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizePathForCompare(string path)
+        {
+            return (path ?? string.Empty).Replace('/', '\\').Trim();
+        }
+
+        private void MoveFindSelection(int delta)
+        {
+            if (_findResults.Count == 0)
+            {
+                UpdateFindCounter();
+                return;
+            }
+
+            _findIndex = (_findIndex + delta) % _findResults.Count;
+            if (_findIndex < 0)
+            {
+                _findIndex += _findResults.Count;
+            }
+
+            SelectFindResult();
+            UpdateFindCounter();
+        }
+
+        private void SelectFindResult()
+        {
+            if (_findIndex < 0 || _findIndex >= _findResults.Count)
+            {
+                return;
+            }
+
+            var item = _findResults[_findIndex];
+            _viewModel.SetSelectedNodes(new[] { item });
+            SyncSelectionFromViewModel();
+        }
+
+        private void ClearFindResults()
+        {
+            _findResults.Clear();
+            _findIndex = -1;
+            UpdateFindCounter();
+        }
+
+        private void UpdateFindCounter()
+        {
+            var current = _findResults.Count == 0 || _findIndex < 0 ? 0 : _findIndex + 1;
+            _findCounterLabel.Text = $"{current}:{_findResults.Count}";
+            var enabled = _findResults.Count > 0;
+            _findPreviousButton.Enabled = enabled;
+            _findNextButton.Enabled = enabled;
+        }
+
         private void RefreshStatus() => _statusLabel.Text = _viewModel.StorageText ?? string.Empty;
 
         private void SyncSelectionFromTree()
@@ -1114,12 +1288,36 @@ namespace DocSets
 
         private void SyncSelectionFromViewModel()
         {
-            _tree.ClearSelection();
-            var selected = new HashSet<DocumentItem>(_viewModel.SelectedNodes);
-            foreach (var node in EnumerateTreeNodes(_tree.Root))
+            _selectingFromFind = true;
+            try
             {
-                if ((node.Tag as BookmarkTreeNode)?.Item is DocumentItem item && selected.Contains(item))
-                    node.IsSelected = true;
+                _tree.ClearSelection();
+                var selected = new HashSet<DocumentItem>(_viewModel.SelectedNodes);
+                TreeNodeAdv firstSelected = null;
+
+                foreach (var node in EnumerateTreeNodes(_tree.Root))
+                {
+                    if ((node.Tag as BookmarkTreeNode)?.Item is DocumentItem item && selected.Contains(item))
+                    {
+                        node.IsSelected = true;
+                        if (firstSelected == null)
+                        {
+                            firstSelected = node;
+                        }
+                    }
+                }
+
+                if (firstSelected != null)
+                {
+                    _tree.SelectedNode = firstSelected;
+                    _tree.EnsureVisible(firstSelected);
+                }
+
+                _tree.Invalidate();
+            }
+            finally
+            {
+                _selectingFromFind = false;
             }
         }
 

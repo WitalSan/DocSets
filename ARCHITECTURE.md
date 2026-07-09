@@ -70,3 +70,13 @@ The tree context menu can create folders from the active editor context:
 - `Создать закладку <File>` creates a folder named after the active file without extension.
 
 These commands create folders, not navigable bookmarks. They use the same insertion target as the regular add-folder/add-bookmark commands: inside the selected folder, or at the root of the selected set otherwise.
+
+## DockSets-33
+
+Перезапуск поиска от версии 24: оставлен только компактный блок `< Найти 1:4 >` в ToolWindow.
+
+- `Найти` ищет закладки только в текущем активном Set.
+- `<` и `>` переключают найденные элементы внутри текущего Set.
+- При выборе найденного элемента используется штатный `TreeViewAdv.SelectedNode` setter, без записи в `CurrentNode`.
+- Неактивное дерево показывает выделение через яркий `FullRowSelectInactiveColor`.
+- AutoFind и поиск по всем Set в этой версии не добавлялись.
