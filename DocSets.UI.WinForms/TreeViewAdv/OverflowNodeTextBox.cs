@@ -16,22 +16,33 @@ namespace DocSets
         {
             var bounds = base.GetBounds(node, context);
 
+            return ExtendBoundsToEmptyColumns(node, bounds);
+        }
+
+        private Rectangle ExtendBoundsToEmptyColumns(TreeNodeAdv node, Rectangle bounds)
+        {
             if (!AllowOverflowToEmptyColumns || Parent == null || !Parent.UseColumns || ParentColumn == null || node == null)
             {
-                return bounds;
+                {
+                    return bounds;
+                }
             }
 
             var resolver = ColumnTextResolver;
             if (resolver == null)
             {
-                return bounds;
+                {
+                    return bounds;
+                }
             }
 
             var columns = Parent.Columns.Cast<TreeColumn>().ToList();
             var index = columns.IndexOf(ParentColumn);
             if (index < 0)
             {
-                return bounds;
+                {
+                    return bounds;
+                }
             }
 
             for (var i = index + 1; i < columns.Count; i++)
@@ -53,6 +64,7 @@ namespace DocSets
 
             return bounds;
         }
+
         public override void Draw(TreeNodeAdv node, DrawContext context)
         {
             var oldClip = context.Graphics.Clip;
