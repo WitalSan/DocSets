@@ -59,6 +59,9 @@
     <LangVersion>9</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
     <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
     <Compile Include="DocSets.Vsix\Package\DocSetsPackage.cs" />

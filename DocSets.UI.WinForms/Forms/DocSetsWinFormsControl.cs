@@ -16,6 +16,8 @@ namespace DocSets
         private readonly ComboBox _setsCombo = new ComboBox();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
+        private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
+        private readonly ToolStripButton _clickOpenActivationButton = new ToolStripButton("Click→Open");
         private readonly TreeViewAdv _tree = new TreeViewAdv();
         private readonly TreeModel _treeModel = new TreeModel();
         private readonly Label _statusLabel = new Label();
@@ -29,6 +31,7 @@ namespace DocSets
         private ToolStripControlHost _editingGroupHost;
         private DocumentSet _editingGroupSet;
         private bool _cancelGroupRename;
+        private TreeActivationMode _treeActivationMode = TreeActivationMode.ClassicDoubleClickOpen;
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -108,6 +111,8 @@ namespace DocSets
             //AddButton("+Папка", _viewModel.AddRootFolderCommand);
             //AddButton("+Вложенная", _viewModel.AddChildFolderCommand);
             AddButton("+Закладка", _viewModel.AddBookmarkCommand);
+            _toolStrip.Items.Add(new ToolStripSeparator());
+            AddTreeActivationModeButtons();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip);
@@ -404,6 +409,43 @@ namespace DocSets
             _toolStrip.Items.Add(button);
         }
 
+        private void AddTreeActivationModeButtons()
+        {
+            _toolStrip.Items.Add(new ToolStripLabel("Клик:"));
+
+            SetupActivationModeButton(
+                _classicActivationButton,
+                "Classic",
+                "Старое поведение: одинарный клик выбирает, двойной клик открывает закладку",
+                TreeActivationMode.ClassicDoubleClickOpen);
+
+            SetupActivationModeButton(
+                _clickOpenActivationButton,
+                "Click→Open",
+                "Новое поведение: одинарный клик открывает закладку, двойной клик открывает свойства",
+                TreeActivationMode.ClickOpenDoubleClickProperties);
+
+            _toolStrip.Items.Add(_classicActivationButton);
+            _toolStrip.Items.Add(_clickOpenActivationButton);
+            UpdateActivationModeButtons();
+        }
+
+        private void SetupActivationModeButton(ToolStripButton button, string text, string tooltip, TreeActivationMode mode)
+        {
+            button.Text = text;
+            button.ToolTipText = tooltip;
+            button.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            button.CheckOnClick = false;
+            button.Tag = mode;
+            button.Click += (_, __) => SetTreeActivationMode(mode);
+        }
+
+        private void UpdateActivationModeButtons()
+        {
+            _classicActivationButton.Checked = _treeActivationMode == TreeActivationMode.ClassicDoubleClickOpen;
+            _clickOpenActivationButton.Checked = _treeActivationMode == TreeActivationMode.ClickOpenDoubleClickProperties;
+        }
+
         private void BuildTree()
         {
             _tree.Font = new Font("Segoe UI", 10f);
@@ -441,14 +483,33 @@ namespace DocSets
                 ParentColumn = _columnsByKey["name"],
                 LeftMargin = 2
             });
-            var nameNode = new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Name), ParentColumn = _columnsByKey["name"], EditEnabled = true, IncrementalSearchEnabled = true, LeftMargin = 3 };
+            var nameNode = new OverflowNodeTextBox
+            {
+                DataPropertyName = nameof(BookmarkTreeNode.Name),
+                ParentColumn = _columnsByKey["name"],
+                EditEnabled = true,
+                IncrementalSearchEnabled = true,
+                LeftMargin = 3,
+                ColumnTextResolver = GetColumnTextForOverflow
+            };
             nameNode.DrawText += NameTextBox_DrawText;
+
             _tree.NodeControls.Add(nameNode);
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = _columnsByKey["file"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Line), ParentColumn = _columnsByKey["line"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = _columnsByKey["comment"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Project), ParentColumn = _columnsByKey["project"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Symbol), ParentColumn = _columnsByKey["symbol"] });
+        }
+        private string GetColumnTextForOverflow(TreeColumn column, TreeNodeAdv node)
+        {
+            if (column == null || node == null || !_columnKeys.TryGetValue(column, out var key))
+            {
+                return string.Empty;
+            }
+
+            var item = (node.Tag as BookmarkTreeNode)?.Item;
+            return GetColumnText(item, key);
         }
 
         private void BuildMenus()
@@ -690,7 +751,7 @@ namespace DocSets
             };
 
             _tree.SelectionChanged += (_, __) => SyncSelectionFromTree();
-            _tree.NodeMouseDoubleClick += (_, e) => Execute(_viewModel.OpenBookmarkCommand, (e.Node?.Tag as BookmarkTreeNode)?.Item);
+            WireTreeActivationBehavior();
             _tree.ItemDrag += (_, __) => _tree.DoDragDropSelectedNodes(DragDropEffects.Move);
             _tree.DragOver += Tree_DragOver;
             _tree.DragDrop += Tree_DragDrop;
@@ -1023,6 +1084,100 @@ namespace DocSets
             RefreshAll();
         }
 
+        private void SetTreeActivationMode(TreeActivationMode mode)
+        {
+            if (_treeActivationMode == mode)
+            {
+                UpdateActivationModeButtons();
+                return;
+            }
+
+            UnwireTreeActivationBehavior();
+            _treeActivationMode = mode;
+            WireTreeActivationBehavior();
+            UpdateActivationModeButtons();
+        }
+
+        private void WireTreeActivationBehavior()
+        {
+            UnwireTreeActivationBehavior();
+
+            if (_treeActivationMode == TreeActivationMode.ClickOpenDoubleClickProperties)
+            {
+                WireClickOpenDoubleClickPropertiesBehavior();
+            }
+            else
+            {
+                WireClassicTreeActivationBehavior();
+            }
+
+            UpdateActivationModeButtons();
+        }
+
+        private void UnwireTreeActivationBehavior()
+        {
+            _tree.NodeMouseClick -= Tree_NodeMouseClick_OpenBookmark;
+            _tree.NodeMouseDoubleClick -= Tree_NodeMouseDoubleClick_OpenBookmark;
+            _tree.NodeMouseDoubleClick -= Tree_NodeMouseDoubleClick_ShowProperties;
+        }
+
+        private void WireClassicTreeActivationBehavior()
+        {
+            // Старое поведение: одиночный клик только выбирает, двойной клик открывает закладку.
+            _tree.NodeMouseDoubleClick += Tree_NodeMouseDoubleClick_OpenBookmark;
+        }
+
+        private void WireClickOpenDoubleClickPropertiesBehavior()
+        {
+            // Новое поведение без таймера: одиночный клик сразу открывает закладку,
+            // двойной клик открывает свойства. При двойном клике первый клик уже успевает открыть файл.
+            _tree.NodeMouseClick += Tree_NodeMouseClick_OpenBookmark;
+            _tree.NodeMouseDoubleClick += Tree_NodeMouseDoubleClick_ShowProperties;
+        }
+
+        private void Tree_NodeMouseClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
+        {
+            var item = GetBookmarkFromMouseEvent(e);
+            if (item == null || item.IsFolder)
+            {
+                return;
+            }
+
+            Execute(_viewModel.OpenBookmarkCommand, item);
+        }
+
+        private void Tree_NodeMouseDoubleClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
+        {
+            var item = GetBookmarkFromMouseEvent(e);
+            if (item == null || item.IsFolder)
+            {
+                return;
+            }
+
+            Execute(_viewModel.OpenBookmarkCommand, item);
+        }
+
+        private void Tree_NodeMouseDoubleClick_ShowProperties(object sender, TreeNodeAdvMouseEventArgs e)
+        {
+            var item = GetBookmarkFromMouseEvent(e);
+            if (item == null)
+            {
+                return;
+            }
+
+            ShowBookmarkProperties(item);
+        }
+
+        private static DocumentItem GetBookmarkFromMouseEvent(TreeNodeAdvMouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || e.Node == null)
+            {
+                return null;
+            }
+
+            return (e.Node.Tag as BookmarkTreeNode)?.Item;
+        }
+
         private void Tree_MouseUp(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right)
@@ -1085,6 +1240,12 @@ namespace DocSets
             else if (e.KeyCode == Keys.Enter) { Execute(_viewModel.OpenBookmarkCommand, GetCurrentItem()); e.Handled = true; }
         }
 
+
+        private enum TreeActivationMode
+        {
+            ClassicDoubleClickOpen,
+            ClickOpenDoubleClickProperties
+        }
 
         private sealed class BookmarkToolTipProvider : IToolTipProvider
         {
