@@ -12,9 +12,13 @@ namespace DocSets
         private readonly AsyncPackage package;
         private readonly RoslynBookmarkResolver roslyn;
 
+        private const string WorkspaceFileName = "DocSets.workspace.json";
+
         private string solutionDirectory = "";
         private string solutionFilePath = "";
+        private string storageDirectory = "";
         private string stateFilePath = "";
+        private bool isSharedWorkspace;
 
         public DocSetsStore(AsyncPackage package)
         {
@@ -25,6 +29,10 @@ namespace DocSets
         public string SolutionDirectory => solutionDirectory;
 
         public string SolutionFilePath => solutionFilePath;
+
+        public string StorageDirectory => storageDirectory;
+
+        public bool IsSharedWorkspace => isSharedWorkspace;
 
         public string StateFilePath => stateFilePath;
 
@@ -63,7 +71,7 @@ namespace DocSets
             {
                 VsShellUtilities.ShowMessageBox(
                     package,
-                    "Откройте solution (.sln), чтобы сохранить настройки DocSets рядом с ним.",
+                    "Откройте solution (.sln), чтобы сохранить настройки DocSets.",
                     "DocSets",
                     OLEMSGICON.OLEMSGICON_WARNING,
                     OLEMSGBUTTON.OLEMSGBUTTON_OK,
@@ -72,7 +80,7 @@ namespace DocSets
                 return;
             }
 
-            Directory.CreateDirectory(solutionDirectory);
+            Directory.CreateDirectory(storageDirectory);
 
             var json = JsonConvert.SerializeObject(state, Formatting.Indented);
             File.WriteAllText(StateFilePath, json);
@@ -86,7 +94,7 @@ namespace DocSets
             }
 
             return await roslyn.CreateBookmarkFromActiveDocumentAsync(
-                SolutionDirectory,
+                StorageDirectory,
                 ToRelativePath);
         }
 
@@ -163,8 +171,19 @@ namespace DocSets
                 ? directory
                 : Path.GetDirectoryName(normalizedSolutionFile);
 
+            var workspaceFile = FindWorkspaceFile(solutionDirectory);
+            if (!string.IsNullOrWhiteSpace(workspaceFile))
+            {
+                stateFilePath = workspaceFile;
+                storageDirectory = Path.GetDirectoryName(workspaceFile);
+                isSharedWorkspace = true;
+                return true;
+            }
+
             var solutionName = Path.GetFileNameWithoutExtension(normalizedSolutionFile);
+            storageDirectory = solutionDirectory;
             stateFilePath = Path.Combine(solutionDirectory, $"{solutionName}.docsets.json");
+            isSharedWorkspace = false;
 
             return true;
         }
@@ -173,37 +192,75 @@ namespace DocSets
         {
             solutionDirectory = "";
             solutionFilePath = "";
+            storageDirectory = "";
             stateFilePath = "";
+            isSharedWorkspace = false;
         }
 
         private string ToRelativePath(string fullPath)
         {
-            if (string.IsNullOrWhiteSpace(solutionDirectory) ||
+            if (string.IsNullOrWhiteSpace(storageDirectory) ||
                 string.IsNullOrWhiteSpace(fullPath))
             {
                 return fullPath ?? "";
             }
 
-            var solutionUri = new Uri(AppendDirectorySeparator(solutionDirectory));
-            var fileUri = new Uri(fullPath);
+            try
+            {
+                var storageUri = new Uri(AppendDirectorySeparator(storageDirectory));
+                var fileUri = new Uri(Path.GetFullPath(fullPath));
 
-            return Uri.UnescapeDataString(
-                    solutionUri
-                        .MakeRelativeUri(fileUri)
-                        .ToString())
-                .Replace('/', Path.DirectorySeparatorChar);
+                return Uri.UnescapeDataString(
+                        storageUri
+                            .MakeRelativeUri(fileUri)
+                            .ToString())
+                    .Replace('/', Path.DirectorySeparatorChar);
+            }
+            catch
+            {
+                return fullPath ?? "";
+            }
         }
 
         public string ToFullPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path) ||
                 Path.IsPathRooted(path) ||
-                string.IsNullOrWhiteSpace(solutionDirectory))
+                string.IsNullOrWhiteSpace(storageDirectory))
             {
                 return path;
             }
 
-            return Path.GetFullPath(Path.Combine(solutionDirectory, path));
+            return Path.GetFullPath(Path.Combine(storageDirectory, path));
+        }
+
+        private static string FindWorkspaceFile(string directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return "";
+            }
+
+            try
+            {
+                var current = new DirectoryInfo(directory);
+                while (current != null)
+                {
+                    var candidate = Path.Combine(current.FullName, WorkspaceFileName);
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+
+                    current = current.Parent;
+                }
+            }
+            catch
+            {
+                // Keep the old per-solution behavior when the workspace search fails.
+            }
+
+            return "";
         }
 
         private static string AppendDirectorySeparator(string path)

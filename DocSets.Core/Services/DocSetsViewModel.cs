@@ -256,7 +256,9 @@ namespace DocSets
                 SelectedSet = state.Sets.FirstOrDefault(x => x.Name == state.ActiveSet) ?? state.Sets.FirstOrDefault();
                 StorageText = string.IsNullOrWhiteSpace(store.StateFilePath)
                     ? "DocSets: откройте solution (.sln)"
-                    : $"DocSets: {store.StateFilePath}";
+                    : store.IsSharedWorkspace
+                        ? $"DocSets workspace: {store.StateFilePath}"
+                        : $"DocSets solution: {store.StateFilePath}";
             }
             finally
             {
