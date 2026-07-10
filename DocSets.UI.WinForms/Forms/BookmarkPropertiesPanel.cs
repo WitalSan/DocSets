@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace DocSets
@@ -19,6 +20,7 @@ namespace DocSets
         private readonly NumericUpDown columnBox = new NumericUpDown();
         private readonly TextBox commentTextBox = new TextBox();
         private readonly RichTextBox codeTextBox = new RichTextBox();
+        private readonly Label codeSymbolLabel = new Label();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly TabControl tabs = new TabControl();
@@ -135,10 +137,20 @@ namespace DocSets
             commentTextBox.ScrollBars = ScrollBars.Vertical;
             commentTab.Controls.Add(commentTextBox);
 
-            var codeRoot = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
+            var codeRoot = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
+            codeRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             codeRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             codeRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             codeTab.Controls.Add(codeRoot);
+
+            codeSymbolLabel.AutoSize = true;
+            codeSymbolLabel.Dock = DockStyle.Fill;
+            codeSymbolLabel.Font = new Font("Consolas", 10F, FontStyle.Bold);
+            codeSymbolLabel.ForeColor = Color.FromArgb(86, 156, 214);
+            codeSymbolLabel.Padding = new Padding(3, 5, 3, 3);
+            codeSymbolLabel.AutoEllipsis = true;
+            codeRoot.Controls.Add(codeSymbolLabel, 0, 0);
+
             var codeButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 2, 0, 2) };
             copyCodeButton.Text = "Копировать";
             copyCodeButton.AutoSize = true;
@@ -154,7 +166,7 @@ namespace DocSets
             refreshCodeButton.Click += (_, __) => RefreshCodeRequested?.Invoke(this, EventArgs.Empty);
             codeButtons.Controls.Add(copyCodeButton);
             codeButtons.Controls.Add(refreshCodeButton);
-            codeRoot.Controls.Add(codeButtons, 0, 0);
+            codeRoot.Controls.Add(codeButtons, 0, 1);
 
             codeTextBox.Dock = DockStyle.Fill;
             codeTextBox.ReadOnly = true;
@@ -163,7 +175,7 @@ namespace DocSets
             codeTextBox.HideSelection = false;
             codeTextBox.ScrollBars = RichTextBoxScrollBars.Both;
             codeTextBox.Font = new Font("Consolas", 9F);
-            codeRoot.Controls.Add(codeTextBox, 0, 1);
+            codeRoot.Controls.Add(codeTextBox, 0, 2);
 
             detailsHost.Dock = DockStyle.Fill;
             detailsHost.AutoScroll = true;
@@ -224,8 +236,31 @@ namespace DocSets
                 ? state.SelectedText ?? string.Empty
                 : state?.CodePreview ?? state?.SelectedText ?? string.Empty;
             var path = value?.Path ?? string.Empty;
+            codeSymbolLabel.Text = FormatCodeSymbol(value);
+            codeSymbolLabel.Visible = value != null;
             CodePreviewHighlighter.Apply(codeTextBox, code, path);
             copyCodeButton.Enabled = !string.IsNullOrEmpty(code);
+        }
+
+        private static string FormatCodeSymbol(DocumentItem value)
+        {
+            if (value == null)
+            {
+                return string.Empty;
+            }
+
+            if (value.Type == BookmarkType.File)
+            {
+                var fileName = Path.GetFileName(value.Path ?? string.Empty);
+                if (string.IsNullOrWhiteSpace(fileName))
+                {
+                    fileName = value.Path ?? string.Empty;
+                }
+
+                return string.Format("{0} : {1}", fileName, Math.Max(1, value.Line));
+            }
+
+            return (value.Symbol ?? string.Empty);
         }
 
         private Control CreateDetailsLayout()
