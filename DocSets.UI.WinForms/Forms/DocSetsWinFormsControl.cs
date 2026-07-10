@@ -561,6 +561,7 @@ namespace DocSets
             _nodeMenu.ImageScalingSize = new Size(16, 16);
             _groupMenu.ImageScalingSize = new Size(16, 16);
             AddMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
+            AddSyncWithCurrentPositionMenu();
             //AddMenu("Обновить", _viewModel.UpdateBookmarkCommand);
             //AddMenu("Переименовать", _viewModel.RenameNodeCommand);
             //AddMenu("Удалить", _viewModel.DeleteNodeCommand);
@@ -632,6 +633,30 @@ namespace DocSets
             _groupMenu.Items.Add(item);
         }
 
+
+        private void AddSyncWithCurrentPositionMenu()
+        {
+            var item = new ToolStripMenuItem("Синхронизировать с текущей позицией")
+            {
+                Tag = _viewModel.SyncWithCurrentPositionCommand,
+                Image = IconProvider.Get(AppIcon.Find, 16)
+            };
+
+            item.Click += async (_, __) =>
+            {
+                var current = GetCurrentItem();
+                if (current == null)
+                {
+                    return;
+                }
+
+                await _viewModel.SyncWithCurrentPositionAsync(current);
+                RebuildTree();
+                RefreshStatus();
+            };
+
+            _nodeMenu.Items.Add(item);
+        }
 
         private void AddPropertiesMenu()
         {

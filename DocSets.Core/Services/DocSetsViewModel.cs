@@ -55,6 +55,7 @@ namespace DocSets
             AddBookmarkCommand = new RelayCommand(async p => await AddBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
             OpenBookmarkCommand = new RelayCommand(async p => await OpenBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && IsBookmark(p as DocumentItem ?? SelectedNode));
             UpdateBookmarkCommand = new RelayCommand(async p => await UpdateBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && IsBookmark(p as DocumentItem ?? SelectedNode));
+            SyncWithCurrentPositionCommand = new RelayCommand(async p => await SyncWithCurrentPositionAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && (p as DocumentItem ?? SelectedNode) != null);
             RenameNodeCommand = new RelayCommand(p => RenameNode(p as DocumentItem ?? SelectedNode), p => IsLoaded && (p as DocumentItem ?? SelectedNode) != null);
             DeleteNodeCommand = new RelayCommand(p => DeleteNodes(p as DocumentItem ?? SelectedNode), p => IsLoaded && ((p as DocumentItem ?? SelectedNode) != null || SelectedNodes.Count > 0));
             MoveNodeUpCommand = new RelayCommand(() => MoveNode(-1), () => IsLoaded && CanMoveNode(SelectedNode, -1));
@@ -211,6 +212,7 @@ namespace DocSets
         public ICommand AddBookmarkCommand { get; }
         public ICommand OpenBookmarkCommand { get; }
         public ICommand UpdateBookmarkCommand { get; }
+        public ICommand SyncWithCurrentPositionCommand { get; }
         public ICommand RenameNodeCommand { get; }
         public ICommand DeleteNodeCommand { get; }
         public ICommand MoveNodeUpCommand { get; }
@@ -785,6 +787,58 @@ namespace DocSets
             {
                 await fileTracking.TrackAfterOpenAsync(item);
             }
+        }
+
+        public async Task SyncWithCurrentPositionAsync(DocumentItem item)
+        {
+            if (item == null)
+            {
+                return;
+            }
+
+            var updated = await store.CreateBookmarkFromActiveDocumentAsync();
+            if (updated == null)
+            {
+                Show("Не найден активный документ редактора.");
+                return;
+            }
+
+            var targetType = item.Type;
+            if (targetType == BookmarkType.Empty)
+            {
+                targetType = string.IsNullOrWhiteSpace(updated.Symbol)
+                    ? BookmarkType.File
+                    : BookmarkType.Symbol;
+            }
+
+            if (targetType == BookmarkType.Symbol && string.IsNullOrWhiteSpace(updated.Symbol))
+            {
+                Show("Не удалось определить символ в текущей позиции редактора.");
+                return;
+            }
+
+            item.Type = targetType;
+            item.Path = updated.Path;
+            item.Line = updated.Line;
+            item.Column = updated.Column;
+
+            if (targetType == BookmarkType.File)
+            {
+                item.Symbol = string.Empty;
+                item.Project = string.Empty;
+                await fileTracking.TrackFromActiveDocumentAsync(item);
+            }
+            else
+            {
+                item.Symbol = updated.Symbol;
+                item.Project = updated.Project;
+            }
+
+            SelectedNode = item;
+            SetSelectedNodes(new[] { item });
+            await SaveAsync();
+            OnPropertyChanged(nameof(CurrentNodes));
+            InvalidateCommands();
         }
 
         private async Task UpdateBookmarkAsync(DocumentItem item)
