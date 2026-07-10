@@ -219,7 +219,10 @@ namespace DocSets
 
         private void UpdateCodePreview(DocumentItem value)
         {
-            var code = value?.EditorState?.SelectedText ?? string.Empty;
+            var state = value?.EditorState;
+            var code = state?.HasSelection == true
+                ? state.SelectedText ?? string.Empty
+                : state?.CodePreview ?? state?.SelectedText ?? string.Empty;
             var path = value?.Path ?? string.Empty;
             CodePreviewHighlighter.Apply(codeTextBox, code, path);
             copyCodeButton.Enabled = !string.IsNullOrEmpty(code);

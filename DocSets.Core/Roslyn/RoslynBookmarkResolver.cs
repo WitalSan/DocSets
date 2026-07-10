@@ -113,7 +113,24 @@ namespace DocSets
                 item.Project = document.Project.Name ?? "";
                 var symbolLocation = symbol.Locations.FirstOrDefault(x => x.IsInSource);
                 var symbolAnchorLine = symbolLocation?.GetLineSpan().StartLinePosition.Line + 1 ?? line;
-                item.EditorState = await editorState.CaptureAsync(symbolAnchorLine);
+                var previewStartLine = symbolAnchorLine;
+                var previewEndLine = symbolAnchorLine + 5;
+
+                var syntaxReference = symbol.DeclaringSyntaxReferences.FirstOrDefault();
+                if (syntaxReference != null)
+                {
+                    var declaration = await syntaxReference.GetSyntaxAsync();
+                    var declarationSpan = declaration.GetLocation().GetLineSpan();
+                    var declarationStartLine = declarationSpan.StartLinePosition.Line + 1;
+                    var declarationEndLine = declarationSpan.EndLinePosition.Line + 1;
+
+                    previewStartLine = GetAttachedCommentStartLine(text, declarationStartLine);
+                    previewEndLine = declarationEndLine - declarationStartLine + 1 <= 6
+                        ? declarationEndLine
+                        : declarationStartLine + 5;
+                }
+
+                item.EditorState = await editorState.CaptureAsync(symbolAnchorLine, previewStartLine, previewEndLine);
             }
             catch
             {
@@ -128,6 +145,56 @@ namespace DocSets
             return item;
         }
 
+
+
+        private static int GetAttachedCommentStartLine(SourceText text, int declarationStartLine)
+        {
+            if (text == null || text.Lines.Count == 0 || declarationStartLine <= 1)
+            {
+                return declarationStartLine;
+            }
+
+            var lineIndex = Math.Min(text.Lines.Count - 1, declarationStartLine - 2);
+            var lineText = text.Lines[lineIndex].ToString().Trim();
+            if (lineText.Length == 0)
+            {
+                return declarationStartLine;
+            }
+
+            if (lineText.StartsWith("//", StringComparison.Ordinal))
+            {
+                var startLineIndex = lineIndex;
+                while (startLineIndex > 0)
+                {
+                    var previous = text.Lines[startLineIndex - 1].ToString().Trim();
+                    if (!previous.StartsWith("//", StringComparison.Ordinal))
+                    {
+                        break;
+                    }
+
+                    startLineIndex--;
+                }
+
+                return startLineIndex + 1;
+            }
+
+            if (lineText.EndsWith("*/", StringComparison.Ordinal))
+            {
+                var startLineIndex = lineIndex;
+                while (startLineIndex >= 0)
+                {
+                    var current = text.Lines[startLineIndex].ToString();
+                    if (current.IndexOf("/*", StringComparison.Ordinal) >= 0)
+                    {
+                        return startLineIndex + 1;
+                    }
+
+                    startLineIndex--;
+                }
+            }
+
+            return declarationStartLine;
+        }
 
         public async Task<ActiveDocumentContext> GetActiveDocumentContextAsync()
         {

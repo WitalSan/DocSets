@@ -350,6 +350,9 @@ namespace DocSets
         [JsonProperty("selectedText", NullValueHandling = NullValueHandling.Ignore)]
         public string SelectedText { get; set; }
 
+        [JsonProperty("codePreview", NullValueHandling = NullValueHandling.Ignore)]
+        public string CodePreview { get; set; }
+
         public EditorState Clone()
         {
             return (EditorState)MemberwiseClone();

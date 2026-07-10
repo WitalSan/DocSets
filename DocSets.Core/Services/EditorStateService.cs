@@ -18,7 +18,12 @@ namespace DocSets
             this.package = package ?? throw new ArgumentNullException(nameof(package));
         }
 
-        public async Task<EditorState> CaptureAsync(int anchorLine)
+        public Task<EditorState> CaptureAsync(int anchorLine)
+        {
+            return CaptureAsync(anchorLine, anchorLine, anchorLine + 5);
+        }
+
+        public async Task<EditorState> CaptureAsync(int anchorLine, int previewStartLine, int previewEndLine)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
             var view = await GetActiveTextViewAsync();
@@ -47,6 +52,11 @@ namespace DocSets
                 state.SelectionEndLineOffset = endLine.LineNumber + 1 - Math.Max(1, anchorLine);
                 state.SelectionEndColumn = span.End.Position - endLine.Start.Position + 1;
                 state.SelectedText = span.GetText();
+                state.CodePreview = state.SelectedText;
+            }
+            else
+            {
+                state.CodePreview = GetLineRangeText(snapshot, previewStartLine, previewEndLine);
             }
 
             var firstVisible = view.TextViewLines?.FirstVisibleLine;
@@ -183,6 +193,20 @@ namespace DocSets
             }
 
             return builder.ToString().Trim();
+        }
+
+        private static string GetLineRangeText(ITextSnapshot snapshot, int oneBasedStartLine, int oneBasedEndLine)
+        {
+            if (snapshot == null || snapshot.LineCount == 0)
+            {
+                return string.Empty;
+            }
+
+            var startLineNumber = Math.Max(0, Math.Min(snapshot.LineCount - 1, oneBasedStartLine - 1));
+            var endLineNumber = Math.Max(startLineNumber, Math.Min(snapshot.LineCount - 1, oneBasedEndLine - 1));
+            var start = snapshot.GetLineFromLineNumber(startLineNumber).Start.Position;
+            var end = snapshot.GetLineFromLineNumber(endLineNumber).End.Position;
+            return snapshot.GetText(start, Math.Max(0, end - start));
         }
 
         private static SnapshotPoint GetPoint(ITextSnapshot snapshot, int oneBasedLine, int oneBasedColumn)
