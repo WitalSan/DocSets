@@ -26,11 +26,11 @@ namespace DocSets
 
         public DocumentItem Item { get; }
 
-        public override bool IsLeaf => !Item.IsFolder || Item.Children.Count == 0;
+        public override bool IsLeaf => Item.NodeType != NodeType.Folder || Item.Children.Count == 0;
 
         public string Name
         {
-            get => Item.IsFolder ? (string.IsNullOrWhiteSpace(Item.Name) ? "Новая папка" : Item.Name) : Item.Name;
+            get => Item.NodeType == NodeType.Folder ? (string.IsNullOrWhiteSpace(Item.Name) ? "Новая папка" : Item.Name) : Item.Name;
             set
             {
                 Item.Name = value ?? string.Empty;
@@ -38,7 +38,7 @@ namespace DocSets
             }
         }
 
-        public string Kind => Item.IsFolder ? "Папка" : "Закладка";
+        public string Kind => Item.NodeType == NodeType.Folder ? "Папка" : "Закладка";
         public string File => Item.Type == BookmarkType.Empty ? string.Empty : Item.Path;
         public string Line => Item.Type == BookmarkType.Empty ? string.Empty : Item.Line.ToString();
         public string Project => Item.Type == BookmarkType.Symbol ? Item.Project ?? string.Empty : string.Empty;
@@ -62,7 +62,7 @@ namespace DocSets
             if (item == null)
                 return EmptyItemImage;
 
-            if (item.IsFolder)
+            if (item.NodeType == NodeType.Folder)
             {
                 switch (item.Type)
                 {

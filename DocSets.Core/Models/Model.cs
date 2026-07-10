@@ -148,7 +148,7 @@ namespace DocSets
                 Id = id,
                 ParentId = parentId ?? "",
                 Name = item.Name ?? "",
-                IsFolder = item.IsFolder,
+                NodeType = item.NodeType,
                 Type = item.Type,
                 Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? "" : "",
                 Project = item.Type == BookmarkType.Symbol ? item.Project ?? "" : "",
@@ -212,7 +212,7 @@ namespace DocSets
         {
             var type = source.Type;
             // Old folders had no link type and were stored as the default enum value.
-            if (source.IsFolder && type == BookmarkType.Symbol
+            if (source.NodeType == NodeType.Folder && type == BookmarkType.Symbol
                 && string.IsNullOrWhiteSpace(source.Symbol)
                 && string.IsNullOrWhiteSpace(source.Path))
             {
@@ -222,7 +222,7 @@ namespace DocSets
             return new DocumentItem
             {
                 Name = source.Name ?? "",
-                IsFolder = source.IsFolder,
+                NodeType = source.NodeType,
                 Type = type,
                 Symbol = type == BookmarkType.Symbol ? source.Symbol ?? "" : "",
                 Project = type == BookmarkType.Symbol ? source.Project ?? "" : "",
@@ -262,8 +262,22 @@ namespace DocSets
         [JsonProperty("name")]
         public string Name { get; set; }
 
-        [JsonProperty("isFolder", DefaultValueHandling = DefaultValueHandling.Ignore)]
-        public bool IsFolder { get; set; }
+        [JsonProperty("nodeType", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public NodeType NodeType { get; set; }
+
+        // Read-only migration path for files created before NodeType was introduced.
+        [JsonProperty("isFolder")]
+        private bool LegacyIsFolder
+        {
+            set
+            {
+                if (value)
+                {
+                    NodeType = NodeType.Folder;
+                }
+            }
+        }
 
         [JsonProperty("type", DefaultValueHandling = DefaultValueHandling.Ignore)]
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
@@ -288,6 +302,12 @@ namespace DocSets
         public string Comment { get; set; }
     }
 
+    public enum NodeType
+    {
+        Item = 0,
+        Folder = 1
+    }
+
     public enum BookmarkType
     {
         // Symbol keeps value 0 for compatibility with existing files where Default was omitted.
@@ -307,7 +327,7 @@ namespace DocSets
         private string comment = "";
         private int line = 1;
         private int column = 1;
-        private bool isFolder;
+        private NodeType nodeType;
         private bool isExpanded;
         private bool isMultiSelected;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
@@ -326,13 +346,14 @@ namespace DocSets
             }
         }
 
-        [JsonProperty("isFolder", DefaultValueHandling = DefaultValueHandling.Ignore)]
-        public bool IsFolder
+        [JsonProperty("nodeType", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public NodeType NodeType
         {
-            get => isFolder;
+            get => nodeType;
             set
             {
-                if (SetProperty(ref isFolder, value))
+                if (SetProperty(ref nodeType, value))
                 {
                     OnPropertyChanged(nameof(Display));
                     OnPropertyChanged(nameof(Header));
@@ -459,7 +480,7 @@ namespace DocSets
         {
             get
             {
-                if (IsFolder)
+                if (NodeType == NodeType.Folder)
                 {
                     return string.IsNullOrWhiteSpace(Name) ? "Новая папка" : Name;
                 }
@@ -469,14 +490,14 @@ namespace DocSets
         }
 
         [JsonIgnore]
-        public string Header => IsFolder ? $"📁 {Display}" : Display;
+        public string Header => NodeType == NodeType.Folder ? $"📁 {Display}" : Display;
 
         public DocumentItem Clone()
         {
             var clone = new DocumentItem
             {
                 Name = Name,
-                IsFolder = IsFolder,
+                NodeType = NodeType,
                 Type = Type,
                 Symbol = Type == BookmarkType.Symbol ? Symbol : "",
                 Project = Project,

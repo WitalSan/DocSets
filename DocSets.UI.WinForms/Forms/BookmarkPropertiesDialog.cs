@@ -52,11 +52,11 @@ namespace DocSets
             availableSets = (sets ?? Enumerable.Empty<DocumentSet>()).Where(x => x != null).ToList();
             showDestination = availableSets.Count > 0;
             initialSet = selectedSet ?? availableSets.FirstOrDefault();
-            initialParent = selectedParent?.IsFolder == true ? selectedParent : null;
+            initialParent = selectedParent?.NodeType == NodeType.Folder ? selectedParent : null;
             this.excludedParentRoot = excludedParentRoot;
             initialBookmarkType = item.Type;
 
-            Text = item.IsFolder ? "Свойства папки" : "Свойства закладки";
+            Text = item.NodeType == NodeType.Folder ? "Свойства папки" : "Свойства закладки";
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
             MaximizeBox = false;
@@ -86,7 +86,7 @@ namespace DocSets
             }
 
             item.Name = nameTextBox.Text?.Trim() ?? string.Empty;
-            item.IsFolder = folderCheckBox.Checked;
+            item.NodeType = folderCheckBox.Checked ? NodeType.Folder : NodeType.Item;
             item.Type = SelectedBookmarkType;
             item.Path = item.Type == BookmarkType.Empty ? string.Empty : pathTextBox.Text?.Trim() ?? string.Empty;
             item.Symbol = item.Type == BookmarkType.Symbol ? symbolTextBox.Text?.Trim() ?? string.Empty : string.Empty;
@@ -326,7 +326,7 @@ namespace DocSets
 
             foreach (var node in nodes)
             {
-                if (node == null || !node.IsFolder || IsSelfOrDescendant(node, excludedRoot))
+                if (node == null || node.NodeType != NodeType.Folder || IsSelfOrDescendant(node, excludedRoot))
                 {
                     continue;
                 }
@@ -387,7 +387,7 @@ namespace DocSets
         private void LoadFrom(DocumentItem item)
         {
             nameTextBox.Text = item.Name ?? string.Empty;
-            folderCheckBox.Checked = item.IsFolder;
+            folderCheckBox.Checked = item.NodeType == NodeType.Folder;
             SetSelectedBookmarkType(item.Type);
             pathTextBox.Text = item.Path ?? string.Empty;
             symbolTextBox.Text = item.Symbol ?? string.Empty;

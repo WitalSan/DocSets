@@ -62,7 +62,7 @@ namespace DocSets
                 return;
             }
 
-            var initialParent = _viewModel.SelectedNode?.IsFolder == true ? _viewModel.SelectedNode : null;
+            var initialParent = _viewModel.SelectedNode?.NodeType == NodeType.Folder ? _viewModel.SelectedNode : null;
 
             using (var dialog = new BookmarkPropertiesDialog(
                 bookmark,
@@ -406,7 +406,7 @@ namespace DocSets
             {
                 case "name": return item?.Name ?? string.Empty;
                 case "file": return item?.Path ?? string.Empty;
-                case "line": return item == null || item.IsFolder ? string.Empty : item.Line.ToString();
+                case "line": return item == null || item.NodeType == NodeType.Folder ? string.Empty : item.Line.ToString();
                 case "comment": return item?.CommentFirstLine ?? string.Empty;
                 case "project": return item?.Project ?? string.Empty;
                 case "symbol": return item?.Symbol ?? string.Empty;
@@ -1173,7 +1173,7 @@ namespace DocSets
         private IEnumerable<DocumentItem> FindMatchesInCurrentSet(DocumentItem probe)
         {
             var items = EnumerateItems(_viewModel.CurrentNodes)
-                .Where(x => x != null && !x.IsFolder && SamePath(x.Path, probe.Path))
+                .Where(x => x != null && SamePath(x.Path, probe.Path))
                 .ToList();
 
             if (items.Count == 0)
@@ -1526,7 +1526,7 @@ namespace DocSets
                     return item.Comment;
                 }
 
-                return item.IsFolder ? item.Name : item.Display;
+                return item.NodeType == NodeType.Folder ? item.Name : item.Display;
             }
         }
 
@@ -1556,7 +1556,7 @@ namespace DocSets
                 return;
             }
 
-            if (item.Item.IsFolder)
+            if (item.Item.NodeType == NodeType.Folder)
             {
                 e.Font = GetBoldFont(e.Font);
             }

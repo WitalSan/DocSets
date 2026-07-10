@@ -361,8 +361,8 @@ namespace DocSets
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название папки:", "Новая папка");
             if (string.IsNullOrWhiteSpace(name)) return;
 
-            var folder = new DocumentItem { Name = name.Trim(), IsFolder = true, Type = BookmarkType.Empty, IsExpanded = true };
-            if (parent != null && parent.IsFolder)
+            var folder = new DocumentItem { Name = name.Trim(), NodeType = NodeType.Folder, Type = BookmarkType.Empty, IsExpanded = true };
+            if (parent != null && parent.NodeType == NodeType.Folder)
             {
                 parent.Children.Add(folder);
                 parent.IsExpanded = true;
@@ -400,7 +400,7 @@ namespace DocSets
                 return null;
             }
 
-            bookmark.IsFolder = false;
+            bookmark.NodeType = NodeType.Item;
             bookmark.Children.Clear();
             if (bookmark.Type == BookmarkType.File)
             {
@@ -459,7 +459,7 @@ namespace DocSets
 
             if (destinationParent != null)
             {
-                if (!destinationParent.IsFolder || !ContainsNode(targetSet.Files, destinationParent))
+                if (destinationParent.NodeType != NodeType.Folder || !ContainsNode(targetSet.Files, destinationParent))
                 {
                     destinationParent = null;
                 }
@@ -470,7 +470,7 @@ namespace DocSets
                 }
             }
 
-            var targetCollection = destinationParent?.IsFolder == true
+            var targetCollection = destinationParent?.NodeType == NodeType.Folder
                 ? destinationParent.Children
                 : targetSet.Files;
 
@@ -490,7 +490,7 @@ namespace DocSets
                 }
             }
 
-            if (destinationParent?.IsFolder == true)
+            if (destinationParent?.NodeType == NodeType.Folder)
             {
                 destinationParent.IsExpanded = true;
             }
@@ -511,7 +511,7 @@ namespace DocSets
                 return;
             }
 
-            bookmark.IsFolder = false;
+            bookmark.NodeType = NodeType.Item;
             bookmark.Children.Clear();
 
             if (target != null && !ContainsNode(set.Files, target))
@@ -521,7 +521,7 @@ namespace DocSets
 
             var collection = GetInsertCollection(set, target);
             collection.Add(bookmark);
-            if (target?.IsFolder == true) target.IsExpanded = true;
+            if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
 
             SelectedSet = set;
             SelectedNode = bookmark;
@@ -561,7 +561,7 @@ namespace DocSets
             var folder = new DocumentItem
             {
                 Name = name.Trim(),
-                IsFolder = true,
+                NodeType = NodeType.Folder,
                 Type = BookmarkType.Empty,
                 IsExpanded = true
             };
@@ -573,7 +573,7 @@ namespace DocSets
 
             var collection = GetInsertCollection(set, target);
             collection.Add(folder);
-            if (target?.IsFolder == true) target.IsExpanded = true;
+            if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
 
             SelectedNode = folder;
             SetSelectedNodes(new[] { folder });
@@ -670,7 +670,7 @@ namespace DocSets
         private void RenameNode(DocumentItem item)
         {
             if (item == null) return;
-            var caption = item.IsFolder ? "Новое название папки:" : "Новое название закладки:";
+            var caption = item.NodeType == NodeType.Folder ? "Новое название папки:" : "Новое название закладки:";
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", caption, item.Name);
             if (string.IsNullOrWhiteSpace(name)) return;
 
@@ -687,7 +687,7 @@ namespace DocSets
             if (nodes.Count == 0) return;
 
             var text = nodes.Count == 1
-                ? (nodes[0].IsFolder ? $"Удалить папку '{nodes[0].Name}' и все вложенные элементы?" : $"Удалить закладку '{nodes[0].Name}'?")
+                ? (nodes[0].NodeType == NodeType.Folder ? $"Удалить папку '{nodes[0].Name}' и все вложенные элементы?" : $"Удалить закладку '{nodes[0].Name}'?")
                 : $"Удалить выбранные элементы ({nodes.Count})?";
 
             if (MessageBox.Show(ownerAccessor(), text, "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
@@ -795,7 +795,7 @@ namespace DocSets
                 last = node;
             }
 
-            if (target?.IsFolder == true) target.IsExpanded = true;
+            if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
             if (last != null) SelectedNode = last;
             _ = SaveAsync();
             InvalidateCommands();
@@ -826,7 +826,7 @@ namespace DocSets
                 plan.Collection.Insert(insertIndex++, node);
             }
 
-            if (target?.IsFolder == true && position == DropPosition.Inside)
+            if (target?.NodeType == NodeType.Folder && position == DropPosition.Inside)
             {
                 target.IsExpanded = true;
             }
@@ -856,7 +856,7 @@ namespace DocSets
                 return new MovePlan(SelectedSet.Files, SelectedSet.Files.Count);
             }
 
-            if (position == DropPosition.Inside && target.IsFolder)
+            if (position == DropPosition.Inside && target.NodeType == NodeType.Folder)
             {
                 return new MovePlan(target.Children, target.Children.Count);
             }
@@ -890,7 +890,7 @@ namespace DocSets
 
         private static ObservableCollection<DocumentItem> GetInsertCollection(DocumentSet set, DocumentItem target)
         {
-            if (target?.IsFolder == true)
+            if (target?.NodeType == NodeType.Folder)
             {
                 return target.Children;
             }
@@ -1054,7 +1054,7 @@ namespace DocSets
 
         private static bool IsBookmark(DocumentItem item) => item != null && item.Type != BookmarkType.Empty;
 
-        private static bool CanHaveChildren(DocumentItem item) => item != null && item.IsFolder;
+        private static bool CanHaveChildren(DocumentItem item) => item != null && item.NodeType == NodeType.Folder;
 
         private static void NormalizeNodes(IEnumerable<DocumentItem> nodes)
         {
@@ -1085,7 +1085,7 @@ namespace DocSets
         private static void AppendText(DocumentItem node, int level, ICollection<string> lines)
         {
             var indent = new string(' ', level * 2);
-            if (node.IsFolder)
+            if (node.NodeType == NodeType.Folder)
             {
                 lines.Add($"{indent}[{node.Name}]");
                 foreach (var child in node.Children)
@@ -1145,7 +1145,7 @@ namespace DocSets
                 Id = id,
                 ParentId = parentId ?? string.Empty,
                 Name = item.Name ?? string.Empty,
-                IsFolder = item.IsFolder,
+                NodeType = item.NodeType,
                 Type = item.Type,
                 Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? string.Empty : string.Empty,
                 Project = item.Project ?? string.Empty,
@@ -1193,7 +1193,7 @@ namespace DocSets
             return new DocumentItem
             {
                 Name = source.Name ?? string.Empty,
-                IsFolder = source.IsFolder,
+                NodeType = source.NodeType,
                 Type = source.Type,
                 Symbol = source.Type == BookmarkType.Symbol ? source.Symbol ?? string.Empty : string.Empty,
                 Project = source.Project ?? string.Empty,
@@ -1282,7 +1282,7 @@ namespace DocSets
                 }
 
                 var parent = stack.Count == 0 ? null : stack[stack.Count - 1].Item;
-                if (parent != null && parent.IsFolder)
+                if (parent != null && parent.NodeType == NodeType.Folder)
                 {
                     parent.Children.Add(item);
                 }
@@ -1318,7 +1318,7 @@ namespace DocSets
                 return new DocumentItem
                 {
                     Name = content.Substring(1, content.Length - 2).Trim(),
-                    IsFolder = true,
+                    NodeType = NodeType.Folder,
                     Line = 1,
                     Column = 1,
                     Children = new ObservableCollection<DocumentItem>()
@@ -1328,7 +1328,7 @@ namespace DocSets
             var item = new DocumentItem
             {
                 Name = content,
-                IsFolder = false,
+                NodeType = NodeType.Item,
                 Line = 1,
                 Column = 1,
                 Children = new ObservableCollection<DocumentItem>()
@@ -1399,8 +1399,21 @@ namespace DocSets
             [JsonProperty("name")]
             public string Name { get; set; }
 
+            [JsonProperty("nodeType", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+            public NodeType NodeType { get; set; }
+
             [JsonProperty("isFolder")]
-            public bool IsFolder { get; set; }
+            private bool LegacyIsFolder
+            {
+                set
+                {
+                    if (value)
+                    {
+                        NodeType = NodeType.Folder;
+                    }
+                }
+            }
 
             [JsonProperty("type", DefaultValueHandling = DefaultValueHandling.Ignore)]
             [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
