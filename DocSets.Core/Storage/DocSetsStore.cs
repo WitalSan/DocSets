@@ -259,6 +259,7 @@ namespace DocSets
                 fullPath,
                 Math.Max(1, item.Line),
                 Math.Max(1, item.Column));
+            await roslyn.RestoreEditorStateAsync(item, Math.Max(1, item.Line));
         }
 
         private async Task<bool> EnsureInitializedAsync()

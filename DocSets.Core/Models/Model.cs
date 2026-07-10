@@ -164,7 +164,8 @@ namespace DocSets
                 Line = item.Line,
                 Column = item.Column,
                 Comment = item.Comment ?? "",
-                Color = item.Color
+                Color = item.Color,
+                EditorState = item.EditorState?.Clone()
             });
 
             foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
@@ -240,6 +241,7 @@ namespace DocSets
                 Column = source.Column < 1 ? 1 : source.Column,
                 Comment = source.Comment ?? "",
                 Color = source.Color,
+                EditorState = source.EditorState?.Clone(),
                 Children = new ObservableCollection<DocumentItem>()
             };
         }
@@ -314,6 +316,41 @@ namespace DocSets
         [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public BookmarkColor Color { get; set; }
+
+        [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
+        public EditorState EditorState { get; set; }
+    }
+
+    public sealed class EditorState
+    {
+        [JsonProperty("caretLineOffset")]
+        public int CaretLineOffset { get; set; }
+
+        [JsonProperty("caretColumn")]
+        public int CaretColumn { get; set; } = 1;
+
+        [JsonProperty("hasSelection", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public bool HasSelection { get; set; }
+
+        [JsonProperty("selectionStartLineOffset", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public int SelectionStartLineOffset { get; set; }
+
+        [JsonProperty("selectionStartColumn", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public int SelectionStartColumn { get; set; } = 1;
+
+        [JsonProperty("selectionEndLineOffset", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public int SelectionEndLineOffset { get; set; }
+
+        [JsonProperty("selectionEndColumn", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        public int SelectionEndColumn { get; set; } = 1;
+
+        [JsonProperty("firstVisibleLineOffset")]
+        public int FirstVisibleLineOffset { get; set; }
+
+        public EditorState Clone()
+        {
+            return (EditorState)MemberwiseClone();
+        }
     }
 
     public enum NodeType
@@ -356,6 +393,7 @@ namespace DocSets
         private int line = 1;
         private int column = 1;
         private NodeType nodeType;
+        private EditorState editorState;
         private bool isExpanded;
         private bool isMultiSelected;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
@@ -490,6 +528,13 @@ namespace DocSets
             set => SetProperty(ref column, value < 1 ? 1 : value);
         }
 
+        [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
+        public EditorState EditorState
+        {
+            get => editorState;
+            set => SetProperty(ref editorState, value);
+        }
+
         [JsonIgnore]
         public ObservableCollection<DocumentItem> Children
         {
@@ -542,6 +587,7 @@ namespace DocSets
                 Column = Column,
                 Comment = Comment,
                 Color = Color,
+                EditorState = EditorState?.Clone(),
                 IsExpanded = IsExpanded,
                 Children = new ObservableCollection<DocumentItem>()
             };

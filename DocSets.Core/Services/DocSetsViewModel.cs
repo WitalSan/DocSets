@@ -821,6 +821,7 @@ namespace DocSets
             item.Path = updated.Path;
             item.Line = updated.Line;
             item.Column = updated.Column;
+            item.EditorState = updated.EditorState?.Clone();
 
             if (targetType == BookmarkType.File)
             {
@@ -858,6 +859,7 @@ namespace DocSets
                 item.Path = updated.Path;
                 item.Line = updated.Line;
                 item.Column = updated.Column;
+                item.EditorState = updated.EditorState?.Clone();
             }
             else
             {
@@ -867,6 +869,7 @@ namespace DocSets
                 item.Path = updated.Path;
                 item.Line = updated.Line;
                 item.Column = updated.Column;
+                item.EditorState = updated.EditorState?.Clone();
             }
 
             SelectedNode = item;
@@ -1363,7 +1366,8 @@ namespace DocSets
                 Line = item.Line,
                 Column = item.Column,
                 Comment = item.Comment ?? string.Empty,
-                Color = item.Color
+                Color = item.Color,
+                EditorState = item.EditorState?.Clone()
             });
 
             foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
@@ -1413,6 +1417,7 @@ namespace DocSets
                 Column = source.Column < 1 ? 1 : source.Column,
                 Comment = source.Comment ?? string.Empty,
                 Color = source.Color,
+                EditorState = source.EditorState?.Clone(),
                 Children = new ObservableCollection<DocumentItem>()
             };
         }
@@ -1652,6 +1657,9 @@ namespace DocSets
             [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
             [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
             public BookmarkColor Color { get; set; }
+
+            [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
+            public EditorState EditorState { get; set; }
         }
 
         private static bool ClipboardContainsText()

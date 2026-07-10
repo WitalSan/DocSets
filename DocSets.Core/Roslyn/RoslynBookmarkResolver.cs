@@ -15,6 +15,7 @@ namespace DocSets
     internal sealed class RoslynBookmarkResolver
     {
         private readonly AsyncPackage package;
+        private readonly EditorStateService editorState;
 
         private static readonly SymbolDisplayFormat StoredSymbolFormat = new SymbolDisplayFormat(
             globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
@@ -36,6 +37,7 @@ namespace DocSets
         public RoslynBookmarkResolver(AsyncPackage package)
         {
             this.package = package ?? throw new ArgumentNullException(nameof(package));
+            editorState = new EditorStateService(package);
         }
 
         public Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync(string solutionDirectory, Func<string, string> toRelativePath)
@@ -75,6 +77,8 @@ namespace DocSets
                 Column = column
             };
 
+            item.EditorState = await editorState.CaptureAsync(line);
+
             try
             {
                 var workspace = await GetWorkspaceAsync();
@@ -107,6 +111,9 @@ namespace DocSets
                 item.Name = CreateDisplayName(symbol);
                 item.Symbol = symbol.ToDisplayString(StoredSymbolFormat);
                 item.Project = document.Project.Name ?? "";
+                var symbolLocation = symbol.Locations.FirstOrDefault(x => x.IsInSource);
+                var symbolAnchorLine = symbolLocation?.GetLineSpan().StartLinePosition.Line + 1 ?? line;
+                item.EditorState = await editorState.CaptureAsync(symbolAnchorLine);
             }
             catch
             {
@@ -235,7 +242,9 @@ namespace DocSets
                         }
 
                         var lineSpan = location.GetLineSpan();
-                        await OpenFileAtAsync(sourcePath, lineSpan.StartLinePosition.Line + 1, lineSpan.StartLinePosition.Character + 1);
+                        var anchorLine = lineSpan.StartLinePosition.Line + 1;
+                        await OpenFileAtAsync(sourcePath, anchorLine, lineSpan.StartLinePosition.Character + 1);
+                        await editorState.RestoreAsync(item.EditorState, anchorLine);
                         return true;
                     }
                 }
@@ -254,6 +263,11 @@ namespace DocSets
             dte.ItemOperations.OpenFile(fullPath);
             var selection = dte.ActiveDocument?.Selection as TextSelection;
             selection?.MoveToLineAndOffset(Math.Max(1, line), Math.Max(1, column), false);
+        }
+
+        public Task RestoreEditorStateAsync(DocumentItem item, int anchorLine)
+        {
+            return editorState.RestoreAsync(item?.EditorState, anchorLine);
         }
 
         private async Task<VisualStudioWorkspace> GetWorkspaceAsync()
