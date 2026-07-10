@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Drawing;
@@ -160,7 +160,10 @@ namespace Aga.Controls.Tree.NodeControls
 		{
 			string label = GetLabel(node);
 			DrawContext context = new DrawContext();
-			context.Font = control.Font;
+			// A newly-created TextBox uses the WinForms default font, which can be
+			// noticeably smaller than the TreeViewAdv font. Start from the tree font
+			// and then apply the same DrawText customization used for the node itself.
+			context.Font = Parent != null ? Parent.Font : control.Font;
 			control.Font = GetDrawingFont(node, context, label);
 		}
 

@@ -922,6 +922,28 @@ namespace DocSets
             _ = SaveAsync();
         }
 
+        public void MoveSetRelative(DocumentSet source, DocumentSet target, bool after)
+        {
+            if (source == null || target == null || ReferenceEquals(source, target))
+                return;
+
+            var sourceIndex = state.Sets.IndexOf(source);
+            var targetIndex = state.Sets.IndexOf(target);
+            if (sourceIndex < 0 || targetIndex < 0)
+                return;
+
+            state.Sets.RemoveAt(sourceIndex);
+            targetIndex = state.Sets.IndexOf(target);
+            var insertIndex = after ? targetIndex + 1 : targetIndex;
+            if (insertIndex < 0) insertIndex = 0;
+            if (insertIndex > state.Sets.Count) insertIndex = state.Sets.Count;
+            state.Sets.Insert(insertIndex, source);
+            state.ActiveSet = SelectedSet?.Name ?? "";
+            OnPropertyChanged(nameof(Sets));
+            _ = SaveAsync();
+            InvalidateCommands();
+        }
+
         private void MoveNode(int delta)
         {
             var collection = FindOwnerCollection(SelectedNode);

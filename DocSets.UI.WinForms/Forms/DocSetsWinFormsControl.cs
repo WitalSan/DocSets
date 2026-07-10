@@ -27,6 +27,7 @@ namespace DocSets
         private readonly ToolStripButton _findNextButton = new ToolStripButton(">");
         private readonly TreeViewAdv _tree = new TreeViewAdv();
         private readonly TreeModel _treeModel = new TreeModel();
+        private OverflowNodeTextBox _nameNode;
         private readonly SplitContainer _contentSplit = new SplitContainer();
         private readonly BookmarkPropertiesPanel _propertiesPanel = new BookmarkPropertiesPanel();
         private readonly Timer _propertiesSaveTimer = new Timer();
@@ -60,6 +61,9 @@ namespace DocSets
         private int _findIndex = -1;
         private bool _selectingFromFind;
         private bool _propertiesVisible = true;
+        private bool _showSetsOverview;
+        private readonly Dictionary<DocumentItem, DocumentSet> _setOverviewMap = new Dictionary<DocumentItem, DocumentSet>();
+        private const string SetsOverviewTag = "__SETS_OVERVIEW__";
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -947,7 +951,7 @@ namespace DocSets
             colorNode.DrawText += ColorNode_DrawText;
             _tree.NodeControls.Add(colorNode);
 
-            var nameNode = new OverflowNodeTextBox
+            _nameNode = new OverflowNodeTextBox
             {
                 DataPropertyName = nameof(BookmarkTreeNode.Name),
                 ParentColumn = _columnsByKey["name"],
@@ -956,9 +960,10 @@ namespace DocSets
                 LeftMargin = 3,
                 ColumnTextResolver = GetColumnTextForOverflow
             };
-            nameNode.DrawText += NameTextBox_DrawText;
+            _nameNode.DrawText += NameTextBox_DrawText;
+            _nameNode.LabelChanged += NameNode_LabelChanged;
 
-            _tree.NodeControls.Add(nameNode);
+            _tree.NodeControls.Add(_nameNode);
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = _columnsByKey["file"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Line), ParentColumn = _columnsByKey["line"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = _columnsByKey["comment"] });
@@ -1373,9 +1378,12 @@ namespace DocSets
         {
             foreach (ToolStripItem item in _groupsStrip.Items)
             {
-                if (item is ToolStripButton groupButton && groupButton.Tag is DocumentSet group)
+                if (item is ToolStripButton groupButton)
                 {
-                    groupButton.Checked = ReferenceEquals(group, _viewModel.SelectedSet);
+                    if (Equals(groupButton.Tag, SetsOverviewTag))
+                        groupButton.Checked = _showSetsOverview;
+                    else if (groupButton.Tag is DocumentSet group)
+                        groupButton.Checked = !_showSetsOverview && ReferenceEquals(group, _viewModel.SelectedSet);
                 }
             }
         }
@@ -1396,6 +1404,7 @@ namespace DocSets
             _setsCombo.SelectedIndexChanged += (_, __) =>
             {
                 if (_refreshing) return;
+                _showSetsOverview = false;
                 _viewModel.SelectedSet = _setsCombo.SelectedItem as DocumentSet;
                 ClearFindResults();
                 RefreshGroupsStrip();
@@ -1542,13 +1551,26 @@ namespace DocSets
             {
                 _groupsStrip.Items.Clear();
 
+                var setsButton = new ToolStripButton("Sets")
+                {
+                    Tag = SetsOverviewTag,
+                    CheckOnClick = false,
+                    Checked = _showSetsOverview,
+                    DisplayStyle = ToolStripItemDisplayStyle.Text,
+                    AutoSize = true,
+                    ToolTipText = "Управление наборами и их порядком"
+                };
+                setsButton.Click += (_, __) => SelectSetsOverview();
+                _groupsStrip.Items.Add(setsButton);
+                _groupsStrip.Items.Add(new ToolStripSeparator());
+
                 foreach (var set in _viewModel.Sets)
                 {
                     var button = new ToolStripButton(set.Name)
                     {
                         Tag = set,
                         CheckOnClick = false,
-                        Checked = ReferenceEquals(set, _viewModel.SelectedSet),
+                        Checked = !_showSetsOverview && ReferenceEquals(set, _viewModel.SelectedSet),
                         DisplayStyle = ToolStripItemDisplayStyle.Text,
                         AutoSize = true,
                         ToolTipText = set.Name
@@ -1579,6 +1601,18 @@ namespace DocSets
             }
         }
 
+        private void SelectSetsOverview()
+        {
+            if (_refreshing)
+                return;
+
+            _showSetsOverview = true;
+            ClearFindResults();
+            UpdateGroupButtonsChecked();
+            RebuildTree();
+            RefreshStatus();
+        }
+
         private void SelectSetFromButton(ToolStripButton button)
         {
             if (_refreshing)
@@ -1594,6 +1628,7 @@ namespace DocSets
             _refreshing = true;
             try
             {
+                _showSetsOverview = false;
                 _viewModel.SelectedSet = set;
                 _setsCombo.SelectedItem = set;
                 ClearFindResults();
@@ -1745,7 +1780,22 @@ namespace DocSets
             try
             {
                 _treeModel.Nodes.Clear();
-                if (_viewModel.CurrentNodes != null)
+                _setOverviewMap.Clear();
+                if (_showSetsOverview)
+                {
+                    foreach (var set in _viewModel.Sets)
+                    {
+                        var item = new DocumentItem
+                        {
+                            Name = set.Name,
+                            NodeType = NodeType.Folder,
+                            Type = BookmarkType.Empty
+                        };
+                        _setOverviewMap[item] = set;
+                        _treeModel.Nodes.Add(new BookmarkTreeNode(item));
+                    }
+                }
+                else if (_viewModel.CurrentNodes != null)
                 {
                     foreach (var item in _viewModel.CurrentNodes)
                     {
@@ -1918,6 +1968,19 @@ namespace DocSets
             }
 
             var items = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).Where(x => x != null).ToList();
+            if (_showSetsOverview)
+            {
+                var selected = items.FirstOrDefault();
+                if (selected != null && _setOverviewMap.TryGetValue(selected, out var set))
+                {
+                    _viewModel.SelectedSet = set;
+                    UpdateGroupButtonsChecked();
+                }
+                _viewModel.SetSelectedNodes(Enumerable.Empty<DocumentItem>());
+                LoadPropertiesPanel(null);
+                return;
+            }
+
             _viewModel.SetSelectedNodes(items);
             LoadPropertiesPanel(items.FirstOrDefault());
         }
@@ -2060,8 +2123,18 @@ namespace DocSets
             _tree.NodeMouseDoubleClick += Tree_NodeMouseDoubleClick_ShowProperties;
         }
 
+        private void SelectSet(DocumentSet set)
+        {
+            var button = FindGroupButton(set);
+            if (button != null)
+                SelectSetFromButton(button);
+        }
+
         private void Tree_NodeMouseClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
+            if (_showSetsOverview)
+                return;
+
             var item = GetBookmarkFromMouseEvent(e);
             if (item == null || item.Type == BookmarkType.Empty)
             {
@@ -2074,6 +2147,11 @@ namespace DocSets
         private void Tree_NodeMouseDoubleClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
             var item = GetBookmarkFromMouseEvent(e);
+            if (_showSetsOverview && item != null && _setOverviewMap.TryGetValue(item, out var overviewSet))
+            {
+                SelectSet(overviewSet);
+                return;
+            }
             if (item == null || item.Type == BookmarkType.Empty)
             {
                 return;
@@ -2084,6 +2162,9 @@ namespace DocSets
 
         private void Tree_NodeMouseDoubleClick_ShowProperties(object sender, TreeNodeAdvMouseEventArgs e)
         {
+            if (_showSetsOverview)
+                return;
+
             var item = GetBookmarkFromMouseEvent(e);
             if (item == null)
             {
@@ -2126,16 +2207,38 @@ namespace DocSets
                 SyncSelectionFromTree();
             }
 
-            _nodeMenu.Show(_tree, e.Location);
+            if (_showSetsOverview)
+            {
+                var item = (node?.Tag as BookmarkTreeNode)?.Item;
+                _groupMenu.Tag = item != null && _setOverviewMap.TryGetValue(item, out var set) ? set : null;
+                _groupMenu.Show(_tree, e.Location);
+            }
+            else
+            {
+                _nodeMenu.Show(_tree, e.Location);
+            }
         }
 
         private async void Tree_DragDrop(object sender, DragEventArgs e)
         {
             var target = (_tree.DropPosition.Node?.Tag as BookmarkTreeNode)?.Item;
             var position = ConvertDropPosition(_tree.DropPosition.Position);
-            if (_viewModel.CanMoveSelectedNodesTo(target, position))
+            if (_showSetsOverview)
+            {
+                var sourceItem = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).FirstOrDefault(x => x != null);
+                if (sourceItem != null && target != null
+                    && _setOverviewMap.TryGetValue(sourceItem, out var sourceSet)
+                    && _setOverviewMap.TryGetValue(target, out var targetSet))
+                {
+                    _viewModel.MoveSetRelative(sourceSet, targetSet, position == DocSets.DropPosition.After);
+                }
+            }
+            else if (_viewModel.CanMoveSelectedNodesTo(target, position))
+            {
                 await _viewModel.MoveSelectedNodesToAsync(target, position);
+            }
             RebuildTree();
+            RefreshGroupsStrip();
             RefreshStatus();
         }
 
@@ -2143,7 +2246,18 @@ namespace DocSets
         {
             var target = (_tree.DropPosition.Node?.Tag as BookmarkTreeNode)?.Item;
             var position = ConvertDropPosition(_tree.DropPosition.Position);
-            e.Effect = _viewModel.CanMoveSelectedNodesTo(target, position) ? DragDropEffects.Move : DragDropEffects.None;
+            if (_showSetsOverview)
+            {
+                var sourceItem = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).FirstOrDefault(x => x != null);
+                e.Effect = sourceItem != null && target != null && !ReferenceEquals(sourceItem, target)
+                    && _setOverviewMap.ContainsKey(sourceItem) && _setOverviewMap.ContainsKey(target)
+                    && position != DocSets.DropPosition.Inside
+                    ? DragDropEffects.Move : DragDropEffects.None;
+            }
+            else
+            {
+                e.Effect = _viewModel.CanMoveSelectedNodesTo(target, position) ? DragDropEffects.Move : DragDropEffects.None;
+            }
         }
 
         private static DocSets.DropPosition ConvertDropPosition(NodePosition position)
@@ -2158,6 +2272,29 @@ namespace DocSets
 
         private void Tree_KeyDown(object sender, KeyEventArgs e)
         {
+            if (_showSetsOverview)
+            {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    var item = GetCurrentItem();
+                    if (item != null && _setOverviewMap.TryGetValue(item, out var set)) SelectSet(set);
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.F2)
+                {
+                    _nameNode?.BeginEdit();
+                    e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Delete)
+                {
+                    _viewModel.DeleteSetCommand.Execute(null);
+                    _showSetsOverview = true;
+                    RefreshAll();
+                    e.Handled = true;
+                }
+                return;
+            }
+
             if (e.Control && (e.KeyCode == Keys.C || e.KeyCode == Keys.Insert)) { Execute(_viewModel.CopySelectedNodesCommand, GetCurrentItem()); e.Handled = true; }
             else if ((e.Control && e.KeyCode == Keys.V) || (e.Shift && e.KeyCode == Keys.Insert)) { Execute(_viewModel.PasteNodesCommand, GetCurrentItem()); e.Handled = true; }
             else if (e.KeyCode == Keys.Delete) { Execute(_viewModel.DeleteNodeCommand, GetCurrentItem()); e.Handled = true; }
@@ -2219,6 +2356,34 @@ namespace DocSets
             }
 
             e.TextColor = GetBookmarkColor(node.Item.Color);
+        }
+
+
+        private void NameNode_LabelChanged(object sender, LabelEventArgs e)
+        {
+            if (!_showSetsOverview || !(e.Subject is BookmarkTreeNode treeNode))
+            {
+                return;
+            }
+
+            if (!_setOverviewMap.TryGetValue(treeNode.Item, out var set))
+            {
+                return;
+            }
+
+            if (!_viewModel.TryRenameSet(set, e.NewLabel, showErrors: true))
+            {
+                treeNode.Name = e.OldLabel;
+                return;
+            }
+
+            // ApplyChanges is called while the inline editor is still being closed.
+            // Refresh on the next UI turn so the tab caption and combo are rebuilt safely.
+            BeginInvoke(new Action(() =>
+            {
+                _showSetsOverview = true;
+                RefreshAll();
+            }));
         }
 
         private void NameTextBox_DrawText(object sender, DrawTextEventArgs e)
