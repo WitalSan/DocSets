@@ -18,9 +18,9 @@ namespace DocSets
         private readonly ToolStrip _toolStrip = new ToolStrip();
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
         private readonly ToolStripButton _clickOpenActivationButton = new ToolStripButton("Click→Open");
-        private readonly ToolStripButton _collapseAllButton = new ToolStripButton("[-]");
-        private readonly ToolStripButton _previousTreeNodeButton = new ToolStripButton("^");
-        private readonly ToolStripButton _nextTreeNodeButton = new ToolStripButton("v");
+        private readonly ToolStripButton _collapseAllButton = new ToolStripButton();
+        private readonly ToolStripButton _previousTreeNodeButton = new ToolStripButton();
+        private readonly ToolStripButton _nextTreeNodeButton = new ToolStripButton();
         private readonly ToolStripButton _findPreviousButton = new ToolStripButton("<");
         private readonly ToolStripButton _findButton = new ToolStripButton("Найти");
         private readonly ToolStripLabel _findCounterLabel = new ToolStripLabel("0:0");
@@ -760,15 +760,18 @@ namespace DocSets
 
         private void AddTreeNavigationButtons()
         {
-            _collapseAllButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _collapseAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, 20);
             _collapseAllButton.ToolTipText = "Свернуть все узлы дерева";
             _collapseAllButton.Click += (_, __) => _tree.CollapseAll();
 
-            _previousTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _previousTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, 20);
             _previousTreeNodeButton.ToolTipText = "Перейти к предыдущей видимой закладке";
             _previousTreeNodeButton.Click += (_, __) => MoveTreeBookmark(-1);
 
-            _nextTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _nextTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, 20);
             _nextTreeNodeButton.ToolTipText = "Перейти к следующей видимой закладке";
             _nextTreeNodeButton.Click += (_, __) => MoveTreeBookmark(1);
 

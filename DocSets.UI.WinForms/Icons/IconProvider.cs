@@ -18,7 +18,10 @@ namespace DocSets
         Copy,
         Paste,
         Find,
-        Properties
+        Properties,
+        CollapseAll,
+        NavigatePrevious,
+        NavigateNext
     }
 
     internal static class IconProvider
