@@ -12,7 +12,8 @@ namespace DocSets
         private readonly TextBox nameTextBox = new TextBox();
         private readonly ComboBox setComboBox = new ComboBox();
         private readonly ComboBox parentComboBox = new ComboBox();
-        private readonly RadioButton defaultBookmarkTypeButton = new RadioButton();
+        private readonly RadioButton emptyBookmarkTypeButton = new RadioButton();
+        private readonly RadioButton symbolBookmarkTypeButton = new RadioButton();
         private readonly RadioButton fileBookmarkTypeButton = new RadioButton();
         private readonly TextBox pathTextBox = new TextBox();
         private readonly TextBox symbolTextBox = new TextBox();
@@ -86,10 +87,10 @@ namespace DocSets
 
             item.Name = nameTextBox.Text?.Trim() ?? string.Empty;
             item.IsFolder = folderCheckBox.Checked;
-            item.Type = folderCheckBox.Checked ? BookmarkType.Default : SelectedBookmarkType;
-            item.Path = pathTextBox.Text?.Trim() ?? string.Empty;
-            item.Symbol = item.Type == BookmarkType.File ? string.Empty : symbolTextBox.Text?.Trim() ?? string.Empty;
-            item.Project = item.Type == BookmarkType.File ? string.Empty : projectTextBox.Text?.Trim() ?? string.Empty;
+            item.Type = SelectedBookmarkType;
+            item.Path = item.Type == BookmarkType.Empty ? string.Empty : pathTextBox.Text?.Trim() ?? string.Empty;
+            item.Symbol = item.Type == BookmarkType.Symbol ? symbolTextBox.Text?.Trim() ?? string.Empty : string.Empty;
+            item.Project = item.Type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty;
             item.Line = (int)lineBox.Value;
             item.Column = (int)columnBox.Value;
             item.Comment = commentTextBox.Text ?? string.Empty;
@@ -101,7 +102,9 @@ namespace DocSets
         }
 
         private BookmarkType SelectedBookmarkType
-            => fileBookmarkTypeButton.Checked ? BookmarkType.File : BookmarkType.Default;
+            => emptyBookmarkTypeButton.Checked
+                ? BookmarkType.Empty
+                : fileBookmarkTypeButton.Checked ? BookmarkType.File : BookmarkType.Symbol;
 
         private void BuildLayout()
         {
@@ -157,14 +160,23 @@ namespace DocSets
                 Margin = Padding.Empty
             };
 
-            defaultBookmarkTypeButton.Text = "Symbol";
-            defaultBookmarkTypeButton.Appearance = Appearance.Button;
-            defaultBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
-            defaultBookmarkTypeButton.AutoSize = false;
-            defaultBookmarkTypeButton.Width = 90;
-            defaultBookmarkTypeButton.Height = 28;
-            defaultBookmarkTypeButton.Margin = new Padding(0, 0, 4, 0);
-            defaultBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
+            emptyBookmarkTypeButton.Text = "Empty";
+            emptyBookmarkTypeButton.Appearance = Appearance.Button;
+            emptyBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
+            emptyBookmarkTypeButton.AutoSize = false;
+            emptyBookmarkTypeButton.Width = 90;
+            emptyBookmarkTypeButton.Height = 28;
+            emptyBookmarkTypeButton.Margin = new Padding(0, 0, 4, 0);
+            emptyBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
+
+            symbolBookmarkTypeButton.Text = "Symbol";
+            symbolBookmarkTypeButton.Appearance = Appearance.Button;
+            symbolBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
+            symbolBookmarkTypeButton.AutoSize = false;
+            symbolBookmarkTypeButton.Width = 90;
+            symbolBookmarkTypeButton.Height = 28;
+            symbolBookmarkTypeButton.Margin = new Padding(0, 0, 4, 0);
+            symbolBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
 
             fileBookmarkTypeButton.Text = "File";
             fileBookmarkTypeButton.Appearance = Appearance.Button;
@@ -175,7 +187,8 @@ namespace DocSets
             fileBookmarkTypeButton.Margin = new Padding(0);
             fileBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
 
-            bookmarkTypePanel.Controls.Add(defaultBookmarkTypeButton);
+            bookmarkTypePanel.Controls.Add(emptyBookmarkTypeButton);
+            bookmarkTypePanel.Controls.Add(symbolBookmarkTypeButton);
             bookmarkTypePanel.Controls.Add(fileBookmarkTypeButton);
             root.Controls.Add(bookmarkTypePanel, 1, row++);
 
@@ -387,13 +400,17 @@ namespace DocSets
 
         private void SetSelectedBookmarkType(BookmarkType type)
         {
-            if (type == BookmarkType.File)
+            if (type == BookmarkType.Empty)
+            {
+                emptyBookmarkTypeButton.Checked = true;
+            }
+            else if (type == BookmarkType.File)
             {
                 fileBookmarkTypeButton.Checked = true;
             }
             else
             {
-                defaultBookmarkTypeButton.Checked = true;
+                symbolBookmarkTypeButton.Checked = true;
             }
         }
 
@@ -415,16 +432,14 @@ namespace DocSets
 
         private void UpdateEnabledState()
         {
-            var isFolder = folderCheckBox.Checked;
+            var isEmpty = SelectedBookmarkType == BookmarkType.Empty;
             var isFileBookmark = SelectedBookmarkType == BookmarkType.File;
 
-            defaultBookmarkTypeButton.Enabled = !isFolder;
-            fileBookmarkTypeButton.Enabled = !isFolder;
-            pathTextBox.Enabled = !isFolder;
-            lineBox.Enabled = !isFolder;
-            columnBox.Enabled = !isFolder;
-            symbolTextBox.Enabled = !isFolder && !isFileBookmark;
-            projectTextBox.Enabled = !isFolder && !isFileBookmark;
+            pathTextBox.Enabled = !isEmpty;
+            lineBox.Enabled = !isEmpty;
+            columnBox.Enabled = !isEmpty;
+            symbolTextBox.Enabled = !isEmpty && !isFileBookmark;
+            projectTextBox.Enabled = !isEmpty && !isFileBookmark;
         }
 
         private static string CreateFileBookmarkName(string path, int line)

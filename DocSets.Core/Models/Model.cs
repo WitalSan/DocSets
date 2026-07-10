@@ -150,8 +150,8 @@ namespace DocSets
                 Name = item.Name ?? "",
                 IsFolder = item.IsFolder,
                 Type = item.Type,
-                Symbol = item.Type == BookmarkType.File ? "" : item.Symbol ?? "",
-                Project = item.Type == BookmarkType.File ? "" : item.Project ?? "",
+                Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? "" : "",
+                Project = item.Type == BookmarkType.Symbol ? item.Project ?? "" : "",
                 Path = item.Path ?? "",
                 Line = item.Line,
                 Column = item.Column,
@@ -210,13 +210,22 @@ namespace DocSets
 
         private static DocumentItem FromStorageDto(DocumentItemStorageDto source)
         {
+            var type = source.Type;
+            // Old folders had no link type and were stored as the default enum value.
+            if (source.IsFolder && type == BookmarkType.Symbol
+                && string.IsNullOrWhiteSpace(source.Symbol)
+                && string.IsNullOrWhiteSpace(source.Path))
+            {
+                type = BookmarkType.Empty;
+            }
+
             return new DocumentItem
             {
                 Name = source.Name ?? "",
                 IsFolder = source.IsFolder,
-                Type = source.Type,
-                Symbol = source.Type == BookmarkType.File ? "" : source.Symbol ?? "",
-                Project = source.Type == BookmarkType.File ? "" : source.Project ?? "",
+                Type = type,
+                Symbol = type == BookmarkType.Symbol ? source.Symbol ?? "" : "",
+                Project = type == BookmarkType.Symbol ? source.Project ?? "" : "",
                 Path = source.Path ?? "",
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
@@ -281,8 +290,11 @@ namespace DocSets
 
     public enum BookmarkType
     {
-        Default = 0,
-        File = 1
+        // Symbol keeps value 0 for compatibility with existing files where Default was omitted.
+        Symbol = 0,
+        Default = Symbol,
+        File = 1,
+        Empty = 2
     }
 
     public sealed class DocumentItem : NotifyObject
@@ -466,7 +478,7 @@ namespace DocSets
                 Name = Name,
                 IsFolder = IsFolder,
                 Type = Type,
-                Symbol = Type == BookmarkType.File ? "" : Symbol,
+                Symbol = Type == BookmarkType.Symbol ? Symbol : "",
                 Project = Project,
                 Path = Path,
                 Line = Line,

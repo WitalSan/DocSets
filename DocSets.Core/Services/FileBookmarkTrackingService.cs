@@ -1,4 +1,4 @@
-using Microsoft.VisualStudio.ComponentModelHost;
+﻿using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
@@ -214,7 +214,7 @@ namespace DocSets
 
         private static bool CanTrack(DocumentItem item)
         {
-            return item != null && !item.IsFolder && item.Type == BookmarkType.File;
+            return item != null && item.Type == BookmarkType.File;
         }
 
         private async Task<IWpfTextView> GetActiveTextViewAsync()

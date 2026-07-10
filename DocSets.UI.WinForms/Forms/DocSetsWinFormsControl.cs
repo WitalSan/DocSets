@@ -124,7 +124,7 @@ namespace DocSets
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddFindButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
-            //AddTreeActivationModeButtons();
+            AddTreeActivationModeButtons();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip);
@@ -423,6 +423,7 @@ namespace DocSets
 
         private void AddTreeActivationModeButtons()
         {
+            return;
             _toolStrip.Items.Add(new ToolStripLabel("Клик:"));
 
             SetupActivationModeButton(
@@ -555,7 +556,6 @@ namespace DocSets
             //AddMenu("Переименовать", _viewModel.RenameNodeCommand);
             //AddMenu("Удалить", _viewModel.DeleteNodeCommand);
             //_nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Add Folder", _viewModel.AddFolderCommand);
             AddMenu("Add BookMark", _viewModel.AddBookmarkCommand);
             AddContextFolderMenus();
             _nodeMenu.Items.Add(new ToolStripSeparator());
@@ -633,9 +633,10 @@ namespace DocSets
 
         private void AddContextFolderMenus()
         {
-            _addSolutionFolderMenuItem = AddContextFolderMenu("Создать закладку <Solution>", ActiveDocumentFolderKind.Solution);
-            _addProjectFolderMenuItem = AddContextFolderMenu("Создать закладку <Project>", ActiveDocumentFolderKind.Project);
-            _addFileFolderMenuItem = AddContextFolderMenu("Создать закладку <File>", ActiveDocumentFolderKind.File);
+            AddMenu("Add Folder", _viewModel.AddFolderCommand);
+            _addSolutionFolderMenuItem = AddContextFolderMenu("Add Folder <Solution>", ActiveDocumentFolderKind.Solution);
+            _addProjectFolderMenuItem = AddContextFolderMenu("Add Folder <Project>", ActiveDocumentFolderKind.Project);
+            _addFileFolderMenuItem = AddContextFolderMenu("Add Folder <File>", ActiveDocumentFolderKind.File);
         }
 
         private ToolStripMenuItem AddContextFolderMenu(string text, ActiveDocumentFolderKind kind)
@@ -663,9 +664,9 @@ namespace DocSets
                 return;
             }
 
-            _addSolutionFolderMenuItem.Text = "Создать закладку <Solution>";
-            _addProjectFolderMenuItem.Text = "Создать закладку <Project>";
-            _addFileFolderMenuItem.Text = "Создать закладку <File>";
+            _addSolutionFolderMenuItem.Text = "Add Folder <Solution>";
+            _addProjectFolderMenuItem.Text = "Add Folder <Project>";
+            _addFileFolderMenuItem.Text = "Add Folder <File>";
 
             var context = await _viewModel.GetActiveDocumentContextAsync();
             if (context == null)
@@ -684,7 +685,7 @@ namespace DocSets
         private static void ApplyContextFolderMenuText(ToolStripMenuItem item, string name, string fallback)
         {
             var hasName = !string.IsNullOrWhiteSpace(name);
-            item.Text = $"Создать закладку <{(hasName ? name.Trim() : fallback)}>";
+            item.Text = $"Add Folder <{(hasName ? name.Trim() : fallback)}>";
             item.Enabled = hasName;
         }
 
@@ -1201,12 +1202,15 @@ namespace DocSets
                 return fileBookmarks;
             }
 
-            return Enumerable.Empty<DocumentItem>();
+            if (false)
+            {
+                return items
+                    .OrderBy(x => Distance(x.Line, probe.Line))
+                    .ThenBy(x => x.Name)
+                    .ToList();
+            }
 
-            return items
-                .OrderBy(x => Distance(x.Line, probe.Line))
-                .ThenBy(x => x.Name)
-                .ToList();
+            return Enumerable.Empty<DocumentItem>();
         }
 
         private static int Distance(int a, int b)
@@ -1398,7 +1402,7 @@ namespace DocSets
         private void Tree_NodeMouseClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
             var item = GetBookmarkFromMouseEvent(e);
-            if (item == null || item.IsFolder)
+            if (item == null || item.Type == BookmarkType.Empty)
             {
                 return;
             }
@@ -1409,7 +1413,7 @@ namespace DocSets
         private void Tree_NodeMouseDoubleClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
             var item = GetBookmarkFromMouseEvent(e);
-            if (item == null || item.IsFolder)
+            if (item == null || item.Type == BookmarkType.Empty)
             {
                 return;
             }

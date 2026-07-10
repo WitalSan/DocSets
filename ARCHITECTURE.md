@@ -80,3 +80,9 @@ These commands create folders, not navigable bookmarks. They use the same insert
 - При выборе найденного элемента используется штатный `TreeViewAdv.SelectedNode` setter, без записи в `CurrentNode`.
 - Неактивное дерево показывает выделение через яркий `FullRowSelectInactiveColor`.
 - AutoFind и поиск по всем Set в этой версии не добавлялись.
+
+## DockSets-34
+
+- Имена symbol-закладок теперь формируются без списка аргументов: `ClassName.MemberName`.
+- Хранимый `Symbol` тоже включает контекст класса/namespace без списка аргументов, чтобы одинаковые методы в разных классах не конфликтовали.
+- Открытие старых закладок с legacy `FullyQualifiedFormat` сохранено.

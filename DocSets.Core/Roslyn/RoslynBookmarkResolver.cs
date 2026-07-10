@@ -16,8 +16,22 @@ namespace DocSets
     {
         private readonly AsyncPackage package;
 
-        private static readonly SymbolDisplayFormat StoredSymbolFormat = SymbolDisplayFormat.FullyQualifiedFormat;
-        private static readonly SymbolDisplayFormat TypeDisplayFormat = SymbolDisplayFormat.MinimallyQualifiedFormat;
+        private static readonly SymbolDisplayFormat StoredSymbolFormat = new SymbolDisplayFormat(
+            globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+            memberOptions: SymbolDisplayMemberOptions.IncludeContainingType,
+            parameterOptions: SymbolDisplayParameterOptions.None,
+            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
+        private static readonly SymbolDisplayFormat LegacyStoredSymbolFormat = SymbolDisplayFormat.FullyQualifiedFormat;
+
+        private static readonly SymbolDisplayFormat BookmarkNameFormat = new SymbolDisplayFormat(
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypes,
+            memberOptions: SymbolDisplayMemberOptions.IncludeContainingType,
+            parameterOptions: SymbolDisplayParameterOptions.None,
+            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
 
         public RoslynBookmarkResolver(AsyncPackage package)
         {
@@ -165,7 +179,7 @@ namespace DocSets
                         var match = root.DescendantNodesAndSelf()
                             .Select(node => GetDeclaredSymbolForNode(node, semanticModel))
                             .Where(symbol => symbol != null)
-                            .FirstOrDefault(symbol => string.Equals(symbol.ToDisplayString(StoredSymbolFormat), item.Symbol, StringComparison.Ordinal));
+                            .FirstOrDefault(symbol => IsSameStoredSymbol(symbol, item.Symbol));
 
                         var location = match?.Locations.FirstOrDefault(x => x.IsInSource);
                         var sourcePath = location?.SourceTree?.FilePath;
@@ -280,6 +294,17 @@ namespace DocSets
             }
         }
 
+        private static bool IsSameStoredSymbol(ISymbol symbol, string storedSymbol)
+        {
+            if (symbol == null || string.IsNullOrWhiteSpace(storedSymbol))
+            {
+                return false;
+            }
+
+            return string.Equals(symbol.ToDisplayString(StoredSymbolFormat), storedSymbol, StringComparison.Ordinal)
+                || string.Equals(symbol.ToDisplayString(LegacyStoredSymbolFormat), storedSymbol, StringComparison.Ordinal);
+        }
+
         private static string CreateDisplayName(ISymbol symbol)
         {
             if (symbol == null)
@@ -287,24 +312,13 @@ namespace DocSets
                 return "Bookmark";
             }
 
-            var typeName = symbol.ContainingType?.Name;
-
-            if (symbol is IMethodSymbol method)
+            if (symbol is IMethodSymbol method && method.MethodKind == MethodKind.Constructor)
             {
-                var methodName = method.MethodKind == MethodKind.Constructor ? method.ContainingType?.Name ?? method.Name : method.Name;
-                var parameters = string.Join(", ", method.Parameters.Select(p => p.Type.ToDisplayString(TypeDisplayFormat)));
-                return string.IsNullOrWhiteSpace(typeName)
-                    ? $"{methodName}({parameters})"
-                    : $"{typeName}.{methodName}({parameters})";
+                var typeName = method.ContainingType?.ToDisplayString(BookmarkNameFormat);
+                return string.IsNullOrWhiteSpace(typeName) ? method.Name : $"{typeName}.{method.ContainingType.Name}";
             }
 
-            if (!string.IsNullOrWhiteSpace(typeName) &&
-                (symbol is IPropertySymbol || symbol is IFieldSymbol || symbol is IEventSymbol))
-            {
-                return $"{typeName}.{symbol.Name}";
-            }
-
-            return symbol.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat);
+            return symbol.ToDisplayString(BookmarkNameFormat);
         }
 
         private static string GetFallbackName(EnvDTE.Document document, TextSelection selection, int line)

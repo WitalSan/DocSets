@@ -361,7 +361,7 @@ namespace DocSets
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название папки:", "Новая папка");
             if (string.IsNullOrWhiteSpace(name)) return;
 
-            var folder = new DocumentItem { Name = name.Trim(), IsFolder = true, IsExpanded = true };
+            var folder = new DocumentItem { Name = name.Trim(), IsFolder = true, Type = BookmarkType.Empty, IsExpanded = true };
             if (parent != null && parent.IsFolder)
             {
                 parent.Children.Add(folder);
@@ -562,6 +562,7 @@ namespace DocSets
             {
                 Name = name.Trim(),
                 IsFolder = true,
+                Type = BookmarkType.Empty,
                 IsExpanded = true
             };
 
@@ -658,7 +659,6 @@ namespace DocSets
                 item.Column = updated.Column;
             }
 
-            item.IsFolder = false;
             SelectedNode = item;
             if (item.Type == BookmarkType.File)
             {
@@ -1047,7 +1047,7 @@ namespace DocSets
             return CanMove(collection, item, delta);
         }
 
-        private static bool IsBookmark(DocumentItem item) => item != null && !item.IsFolder;
+        private static bool IsBookmark(DocumentItem item) => item != null && item.Type != BookmarkType.Empty;
 
         private static bool CanHaveChildren(DocumentItem item) => item != null && item.IsFolder;
 
@@ -1142,7 +1142,7 @@ namespace DocSets
                 Name = item.Name ?? string.Empty,
                 IsFolder = item.IsFolder,
                 Type = item.Type,
-                Symbol = item.Type == BookmarkType.File ? string.Empty : item.Symbol ?? string.Empty,
+                Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? string.Empty : string.Empty,
                 Project = item.Project ?? string.Empty,
                 Path = item.Path ?? string.Empty,
                 Line = item.Line,
@@ -1190,7 +1190,7 @@ namespace DocSets
                 Name = source.Name ?? string.Empty,
                 IsFolder = source.IsFolder,
                 Type = source.Type,
-                Symbol = source.Type == BookmarkType.File ? string.Empty : source.Symbol ?? string.Empty,
+                Symbol = source.Type == BookmarkType.Symbol ? source.Symbol ?? string.Empty : string.Empty,
                 Project = source.Project ?? string.Empty,
                 Path = source.Path ?? string.Empty,
                 Line = source.Line < 1 ? 1 : source.Line,
