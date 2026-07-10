@@ -11,7 +11,7 @@ namespace DocSets
     public sealed class DocumentSetsState : NotifyObject
     {
         private string activeSet = "";
-        private ObservableCollection<DocumentSet> sets = new ObservableCollection<DocumentSet>();
+        private ObservableCollection<DocumentItem> sets = new ObservableCollection<DocumentItem>();
         private DocumentSetsUiSettings ui = new DocumentSetsUiSettings();
 
         [JsonProperty("activeSet")]
@@ -21,11 +21,45 @@ namespace DocSets
             set => SetProperty(ref activeSet, value ?? "");
         }
 
-        [JsonProperty("sets")]
-        public ObservableCollection<DocumentSet> Sets
+        // Runtime representation. The persisted representation is one flat items list.
+        [JsonIgnore]
+        public ObservableCollection<DocumentItem> Sets
         {
             get => sets;
-            set => SetProperty(ref sets, value ?? new ObservableCollection<DocumentSet>());
+            set => SetProperty(ref sets, value ?? new ObservableCollection<DocumentItem>());
+        }
+
+        [JsonProperty("items", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<DocumentItemStorageDto> Items
+        {
+            get => BuildFlatItemsForStorage();
+            set => Sets = BuildTreeFromFlatItems(value);
+        }
+
+        // Compatibility with workspaces produced by earlier versions where each Set
+        // was serialized as a separate object containing its own flat items list.
+        [JsonProperty("sets", NullValueHandling = NullValueHandling.Ignore)]
+        private List<LegacyDocumentSetDto> LegacySets
+        {
+            set
+            {
+                if (value == null || value.Count == 0 || (Sets != null && Sets.Count > 0))
+                    return;
+
+                var migrated = new ObservableCollection<DocumentItem>();
+                foreach (var legacySet in value.Where(x => x != null))
+                {
+                    var set = new DocumentItem
+                    {
+                        Name = legacySet.Name ?? "",
+                        NodeType = NodeType.Set,
+                        Type = BookmarkType.Empty,
+                        Children = BuildTreeFromFlatItems(legacySet.Items)
+                    };
+                    migrated.Add(set);
+                }
+                Sets = migrated;
+            }
         }
 
         [JsonProperty("ui")]
@@ -34,6 +68,120 @@ namespace DocSets
             get => ui;
             set => SetProperty(ref ui, value ?? new DocumentSetsUiSettings());
         }
+
+        private List<DocumentItemStorageDto> BuildFlatItemsForStorage()
+        {
+            var result = new List<DocumentItemStorageDto>();
+            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var set in Sets ?? new ObservableCollection<DocumentItem>())
+            {
+                if (set == null) continue;
+                set.NodeType = NodeType.Set;
+                AppendFlatItem(set, "", result, usedIds);
+            }
+
+            return result;
+        }
+
+        private static void AppendFlatItem(DocumentItem item, string parentId,
+            ICollection<DocumentItemStorageDto> result, ISet<string> usedIds)
+        {
+            var id = CreateUniqueStorageId(item.Name, usedIds);
+            result.Add(new DocumentItemStorageDto
+            {
+                Id = id,
+                ParentId = parentId ?? "",
+                Name = item.Name ?? "",
+                NodeType = item.NodeType,
+                Type = item.Type,
+                Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? "" : "",
+                Project = item.Type == BookmarkType.Symbol ? item.Project ?? "" : "",
+                Path = item.Path ?? "",
+                Line = item.Line,
+                Column = item.Column,
+                Comment = item.Comment ?? "",
+                Color = item.Color,
+                EditorState = item.EditorState?.Clone()
+            });
+
+            foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
+                AppendFlatItem(child, id, result, usedIds);
+        }
+
+        private static ObservableCollection<DocumentItem> BuildTreeFromFlatItems(IEnumerable<DocumentItemStorageDto> flatItems)
+        {
+            var roots = new ObservableCollection<DocumentItem>();
+            if (flatItems == null) return roots;
+
+            var entries = flatItems.Where(x => x != null).ToList();
+            var map = new Dictionary<string, DocumentItem>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Id) || map.ContainsKey(entry.Id)) continue;
+                map.Add(entry.Id, FromStorageDto(entry));
+            }
+
+            foreach (var entry in entries)
+            {
+                if (string.IsNullOrWhiteSpace(entry.Id) || !map.TryGetValue(entry.Id, out var item)) continue;
+                if (!string.IsNullOrWhiteSpace(entry.ParentId) && map.TryGetValue(entry.ParentId, out var parent))
+                    parent.Children.Add(item);
+                else
+                {
+                    item.NodeType = NodeType.Set;
+                    roots.Add(item);
+                }
+            }
+
+            return roots;
+        }
+
+        private static DocumentItem FromStorageDto(DocumentItemStorageDto source)
+        {
+            var type = source.Type;
+            if ((source.NodeType == NodeType.Folder || source.NodeType == NodeType.Set)
+                && type == BookmarkType.Symbol
+                && string.IsNullOrWhiteSpace(source.Symbol)
+                && string.IsNullOrWhiteSpace(source.Path))
+                type = BookmarkType.Empty;
+
+            return new DocumentItem
+            {
+                Name = source.Name ?? "",
+                NodeType = source.NodeType,
+                Type = type,
+                Symbol = type == BookmarkType.Symbol ? source.Symbol ?? "" : "",
+                Project = type == BookmarkType.Symbol ? source.Project ?? "" : "",
+                Path = source.Path ?? "",
+                Line = source.Line < 1 ? 1 : source.Line,
+                Column = source.Column < 1 ? 1 : source.Column,
+                Comment = source.Comment ?? "",
+                Color = source.Color,
+                EditorState = source.EditorState?.Clone(),
+                Children = new ObservableCollection<DocumentItem>()
+            };
+        }
+
+        private static string CreateUniqueStorageId(string name, ISet<string> usedIds)
+        {
+            var baseId = string.IsNullOrWhiteSpace(name) ? "node" : name.Trim();
+            var id = baseId;
+            var index = 1;
+            while (usedIds.Contains(id)) id = baseId + "-" + index++;
+            usedIds.Add(id);
+            return id;
+        }
+    }
+
+    internal sealed class LegacyDocumentSetDto
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("items")]
+        public List<DocumentItemStorageDto> Items { get; set; }
     }
 
     public sealed class DocumentSetsUiSettings : NotifyObject
@@ -89,177 +237,6 @@ namespace DocSets
         {
             get => isVisible;
             set => SetProperty(ref isVisible, value);
-        }
-    }
-
-    public sealed class DocumentSet : NotifyObject
-    {
-        private string name = "";
-        private ObservableCollection<DocumentItem> files = new ObservableCollection<DocumentItem>();
-
-        [JsonProperty("name")]
-        public string Name
-        {
-            get => name;
-            set => SetProperty(ref name, value ?? "");
-        }
-
-        // Runtime tree roots. Id/parent are storage-only DTO fields and are not kept in DocumentItem.
-        [JsonIgnore]
-        public ObservableCollection<DocumentItem> Files
-        {
-            get => files;
-            set => SetProperty(ref files, value ?? new ObservableCollection<DocumentItem>());
-        }
-
-        // Storage format is flat. Order is exactly JSON order; nesting is restored from parent id.
-        [JsonProperty("items", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-        public List<DocumentItemStorageDto> Items
-        {
-            get => BuildFlatItemsForStorage();
-            set => Files = BuildTreeFromFlatItems(value);
-        }
-
-        public override string ToString() => Name;
-
-        private List<DocumentItemStorageDto> BuildFlatItemsForStorage()
-        {
-            var result = new List<DocumentItemStorageDto>();
-            var ids = new Dictionary<DocumentItem, string>();
-            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var item in Files ?? new ObservableCollection<DocumentItem>())
-            {
-                AppendFlatItem(item, parentId: "", result, ids, usedIds);
-            }
-
-            return result;
-        }
-
-        private static void AppendFlatItem(
-            DocumentItem item,
-            string parentId,
-            ICollection<DocumentItemStorageDto> result,
-            IDictionary<DocumentItem, string> ids,
-            ISet<string> usedIds)
-        {
-            if (item == null)
-            {
-                return;
-            }
-
-            var id = CreateUniqueStorageId(item.Name, usedIds);
-            ids[item] = id;
-
-            result.Add(new DocumentItemStorageDto
-            {
-                Id = id,
-                ParentId = parentId ?? "",
-                Name = item.Name ?? "",
-                NodeType = item.NodeType,
-                Type = item.Type,
-                Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? "" : "",
-                Project = item.Type == BookmarkType.Symbol ? item.Project ?? "" : "",
-                Path = item.Path ?? "",
-                Line = item.Line,
-                Column = item.Column,
-                Comment = item.Comment ?? "",
-                Color = item.Color,
-                EditorState = item.EditorState?.Clone()
-            });
-
-            foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
-            {
-                AppendFlatItem(child, id, result, ids, usedIds);
-            }
-        }
-
-        private static ObservableCollection<DocumentItem> BuildTreeFromFlatItems(IEnumerable<DocumentItemStorageDto> flatItems)
-        {
-            var roots = new ObservableCollection<DocumentItem>();
-            if (flatItems == null)
-            {
-                return roots;
-            }
-
-            var entries = flatItems.Where(x => x != null).ToList();
-            var map = new Dictionary<string, DocumentItem>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrWhiteSpace(entry.Id))
-                {
-                    continue;
-                }
-
-                if (!map.ContainsKey(entry.Id))
-                {
-                    map.Add(entry.Id, FromStorageDto(entry));
-                }
-            }
-
-            foreach (var entry in entries)
-            {
-                if (string.IsNullOrWhiteSpace(entry.Id) || !map.TryGetValue(entry.Id, out var item))
-                {
-                    continue;
-                }
-
-                if (!string.IsNullOrWhiteSpace(entry.ParentId) && map.TryGetValue(entry.ParentId, out var parent))
-                {
-                    parent.Children.Add(item);
-                }
-                else
-                {
-                    roots.Add(item);
-                }
-            }
-
-            return roots;
-        }
-
-        private static DocumentItem FromStorageDto(DocumentItemStorageDto source)
-        {
-            var type = source.Type;
-            // Old folders had no link type and were stored as the default enum value.
-            if (source.NodeType == NodeType.Folder && type == BookmarkType.Symbol
-                && string.IsNullOrWhiteSpace(source.Symbol)
-                && string.IsNullOrWhiteSpace(source.Path))
-            {
-                type = BookmarkType.Empty;
-            }
-
-            return new DocumentItem
-            {
-                Name = source.Name ?? "",
-                NodeType = source.NodeType,
-                Type = type,
-                Symbol = type == BookmarkType.Symbol ? source.Symbol ?? "" : "",
-                Project = type == BookmarkType.Symbol ? source.Project ?? "" : "",
-                Path = source.Path ?? "",
-                Line = source.Line < 1 ? 1 : source.Line,
-                Column = source.Column < 1 ? 1 : source.Column,
-                Comment = source.Comment ?? "",
-                Color = source.Color,
-                EditorState = source.EditorState?.Clone(),
-                Children = new ObservableCollection<DocumentItem>()
-            };
-        }
-
-        private static string CreateUniqueStorageId(string name, ISet<string> usedIds)
-        {
-            var baseId = string.IsNullOrWhiteSpace(name) ? "node" : name.Trim();
-            var id = baseId;
-            var index = 1;
-
-            while (usedIds.Contains(id))
-            {
-                id = baseId + "-" + index;
-                index++;
-            }
-
-            usedIds.Add(id);
-            return id;
         }
     }
 
@@ -362,7 +339,8 @@ namespace DocSets
     public enum NodeType
     {
         Item = 0,
-        Folder = 1
+        Folder = 1,
+        Set = 2
     }
 
     public enum BookmarkColor
@@ -567,6 +545,11 @@ namespace DocSets
         {
             get
             {
+                if (NodeType == NodeType.Set)
+                {
+                    return string.IsNullOrWhiteSpace(Name) ? "Новый Set" : Name;
+                }
+
                 if (NodeType == NodeType.Folder)
                 {
                     return string.IsNullOrWhiteSpace(Name) ? "Новая папка" : Name;

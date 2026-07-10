@@ -54,7 +54,7 @@ namespace DocSets
         private bool _refreshing;
         private bool _suppressColumnSave;
         private ToolStripControlHost _editingGroupHost;
-        private DocumentSet _editingGroupSet;
+        private DocumentItem _editingGroupSet;
         private bool _cancelGroupRename;
         private TreeActivationMode _treeActivationMode = TreeActivationMode.ClassicDoubleClickOpen;
         private readonly List<DocumentItem> _findResults = new List<DocumentItem>();
@@ -62,7 +62,7 @@ namespace DocSets
         private bool _selectingFromFind;
         private bool _propertiesVisible = true;
         private bool _showSetsOverview;
-        private readonly Dictionary<DocumentItem, DocumentSet> _setOverviewMap = new Dictionary<DocumentItem, DocumentSet>();
+        private readonly Dictionary<DocumentItem, DocumentItem> _setOverviewMap = new Dictionary<DocumentItem, DocumentItem>();
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
@@ -1315,7 +1315,7 @@ namespace DocSets
         }
 
 
-        private ToolStripButton FindGroupButton(DocumentSet set)
+        private ToolStripButton FindGroupButton(DocumentItem set)
         {
             if (set == null)
             {
@@ -1340,7 +1340,7 @@ namespace DocSets
                 return;
             }
 
-            _groupMenu.Tag = button.Tag as DocumentSet;
+            _groupMenu.Tag = button.Tag as DocumentItem;
             SelectSetFromButton(button);
             _groupMenu.Show(Cursor.Position);
         }
@@ -1353,7 +1353,7 @@ namespace DocSets
             }
 
             var item = _groupsStrip.GetItemAt(e.Location) as ToolStripButton;
-            if (item != null && item.Tag is DocumentSet)
+            if (item != null && item.Tag is DocumentItem)
             {
                 return;
             }
@@ -1364,7 +1364,7 @@ namespace DocSets
 
         private void SelectGroupMenuTarget()
         {
-            if (_groupMenu.Tag is DocumentSet set && !ReferenceEquals(_viewModel.SelectedSet, set))
+            if (_groupMenu.Tag is DocumentItem set && !ReferenceEquals(_viewModel.SelectedSet, set))
             {
                 _viewModel.SelectedSet = set;
                 _setsCombo.SelectedItem = set;
@@ -1382,7 +1382,7 @@ namespace DocSets
                 {
                     if (Equals(groupButton.Tag, SetsOverviewTag))
                         groupButton.Checked = _showSetsOverview;
-                    else if (groupButton.Tag is DocumentSet group)
+                    else if (groupButton.Tag is DocumentItem group)
                         groupButton.Checked = !_showSetsOverview && ReferenceEquals(group, _viewModel.SelectedSet);
                 }
             }
@@ -1405,7 +1405,7 @@ namespace DocSets
             {
                 if (_refreshing) return;
                 _showSetsOverview = false;
-                _viewModel.SelectedSet = _setsCombo.SelectedItem as DocumentSet;
+                _viewModel.SelectedSet = _setsCombo.SelectedItem as DocumentItem;
                 ClearFindResults();
                 RefreshGroupsStrip();
                 RebuildTree();
@@ -1620,7 +1620,7 @@ namespace DocSets
                 return;
             }
 
-            if (!(button.Tag is DocumentSet set))
+            if (!(button.Tag is DocumentItem set))
             {
                 return;
             }
@@ -1661,7 +1661,7 @@ namespace DocSets
 
             var button = _groupsStrip.Items
                 .OfType<ToolStripButton>()
-                .FirstOrDefault(x => x.Tag is DocumentSet set && ReferenceEquals(set, _viewModel.SelectedSet));
+                .FirstOrDefault(x => x.Tag is DocumentItem set && ReferenceEquals(set, _viewModel.SelectedSet));
 
             if (button != null)
             {
@@ -1672,7 +1672,7 @@ namespace DocSets
 
         private void BeginRenameGroup(ToolStripButton button)
         {
-            if (!(button.Tag is DocumentSet set))
+            if (!(button.Tag is DocumentItem set))
             {
                 return;
             }
@@ -2123,7 +2123,7 @@ namespace DocSets
             _tree.NodeMouseDoubleClick += Tree_NodeMouseDoubleClick_ShowProperties;
         }
 
-        private void SelectSet(DocumentSet set)
+        private void SelectSet(DocumentItem set)
         {
             var button = FindGroupButton(set);
             if (button != null)

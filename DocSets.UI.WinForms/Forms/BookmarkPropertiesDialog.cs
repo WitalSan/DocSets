@@ -28,10 +28,10 @@ namespace DocSets
         private readonly Button cancelButton = new Button();
 
         private readonly bool showDestination;
-        private readonly IList<DocumentSet> availableSets;
+        private readonly IList<DocumentItem> availableSets;
         private readonly DocumentItem excludedParentRoot;
         private readonly BookmarkType initialBookmarkType;
-        private DocumentSet initialSet;
+        private DocumentItem initialSet;
         private DocumentItem initialParent;
 
         public BookmarkPropertiesDialog(DocumentItem item)
@@ -41,8 +41,8 @@ namespace DocSets
 
         public BookmarkPropertiesDialog(
             DocumentItem item,
-            IEnumerable<DocumentSet> sets,
-            DocumentSet selectedSet,
+            IEnumerable<DocumentItem> sets,
+            DocumentItem selectedSet,
             DocumentItem selectedParent,
             DocumentItem excludedParentRoot = null)
         {
@@ -51,7 +51,7 @@ namespace DocSets
                 throw new ArgumentNullException(nameof(item));
             }
 
-            availableSets = (sets ?? Enumerable.Empty<DocumentSet>()).Where(x => x != null).ToList();
+            availableSets = (sets ?? Enumerable.Empty<DocumentItem>()).Where(x => x != null).ToList();
             showDestination = availableSets.Count > 0;
             initialSet = selectedSet ?? availableSets.FirstOrDefault();
             initialParent = selectedParent?.NodeType == NodeType.Folder ? selectedParent : null;
@@ -77,7 +77,7 @@ namespace DocSets
             }
         }
 
-        public DocumentSet SelectedSet => showDestination ? (setComboBox.SelectedItem as SetComboItem)?.Set : null;
+        public DocumentItem SelectedSet => showDestination ? (setComboBox.SelectedItem as SetComboItem)?.Set : null;
 
         public DocumentItem SelectedParent => showDestination ? (parentComboBox.SelectedItem as ParentComboItem)?.Parent : null;
 
@@ -308,7 +308,7 @@ namespace DocSets
 
             if (selectedSet != null)
             {
-                foreach (var folder in FlattenFolders(selectedSet.Files, 0, excludedParentRoot))
+                foreach (var folder in FlattenFolders(selectedSet.Children, 0, excludedParentRoot))
                 {
                     parentComboBox.Items.Add(folder);
                 }
@@ -513,12 +513,12 @@ namespace DocSets
 
         private sealed class SetComboItem
         {
-            public SetComboItem(DocumentSet set)
+            public SetComboItem(DocumentItem set)
             {
                 Set = set;
             }
 
-            public DocumentSet Set { get; }
+            public DocumentItem Set { get; }
 
             public override string ToString() => Set?.Name ?? string.Empty;
         }

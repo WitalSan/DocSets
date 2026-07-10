@@ -27,7 +27,7 @@ namespace DocSets
         private readonly FileBookmarkTrackingService fileTracking;
         private readonly Func<Window> ownerAccessor;
         private DocumentSetsState state = new DocumentSetsState();
-        private DocumentSet selectedSet;
+        private DocumentItem selectedSet;
         private DocumentItem selectedNode;
         private ObservableCollection<DocumentItem> selectedNodes = new ObservableCollection<DocumentItem>();
         private string storageText = "DocSets: загрузка...";
@@ -67,7 +67,7 @@ namespace DocSets
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
         }
 
-        public ObservableCollection<DocumentSet> Sets => state.Sets;
+        public ObservableCollection<DocumentItem> Sets => state.Sets;
 
         public DocumentSetsUiSettings Ui => state.Ui;
 
@@ -77,7 +77,7 @@ namespace DocSets
             private set => SetProperty(ref isLoaded, value);
         }
 
-        public DocumentSet SelectedSet
+        public DocumentItem SelectedSet
         {
             get => selectedSet;
             set
@@ -95,7 +95,7 @@ namespace DocSets
             }
         }
 
-        public ObservableCollection<DocumentItem> CurrentNodes => SelectedSet?.Files;
+        public ObservableCollection<DocumentItem> CurrentNodes => SelectedSet?.Children;
 
         public DocumentItem SelectedNode
         {
@@ -247,7 +247,7 @@ namespace DocSets
             try
             {
                 var preferredSetName = SelectedSet?.Name;
-                var selectedNodePath = BuildNodeIndexPath(SelectedSet?.Files, SelectedNode);
+                var selectedNodePath = BuildNodeIndexPath(SelectedSet?.Children, SelectedNode);
                 var loadedState = await store.LoadAsync();
                 ApplyLoadedState(loadedState, preferredSetName, selectedNodePath);
                 return loadedState != null;
@@ -282,11 +282,20 @@ namespace DocSets
 
             state = loadedState;
             if (state.Ui == null) state.Ui = new DocumentSetsUiSettings();
-            NormalizeNodes(state.Sets.SelectMany(x => x.Files));
+
+            // Set is now a regular root DocumentItem. Old files did not contain nodeType
+            // on set objects, so normalize every first-level item during loading.
+            foreach (var set in state.Sets.Where(x => x != null))
+            {
+                set.NodeType = NodeType.Set;
+                set.Type = BookmarkType.Empty;
+            }
+
+            NormalizeNodes(state.Sets.SelectMany(x => x.Children));
 
             if (state.Sets.Count == 0)
             {
-                state.Sets.Add(new DocumentSet { Name = "Default" });
+                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Set, Type = BookmarkType.Empty });
                 state.ActiveSet = "Default";
             }
 
@@ -306,7 +315,7 @@ namespace DocSets
                               ?? state.Sets.FirstOrDefault(x => x.Name == state.ActiveSet)
                               ?? state.Sets.FirstOrDefault();
 
-                var restoredNode = FindNodeByIndexPath(SelectedSet?.Files, selectedNodePath);
+                var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
                 SetSelectedNodes(restoredNode == null
                     ? Enumerable.Empty<DocumentItem>()
                     : new[] { restoredNode });
@@ -405,7 +414,7 @@ namespace DocSets
                 return;
             }
 
-            var set = new DocumentSet { Name = name };
+            var set = new DocumentItem { Name = name, NodeType = NodeType.Set, Type = BookmarkType.Empty };
             state.Sets.Add(set);
             SelectedSet = set;
             _ = SaveAsync();
@@ -425,7 +434,7 @@ namespace DocSets
             return TryRenameSet(SelectedSet, name, showErrors: true);
         }
 
-        public bool TryRenameSet(DocumentSet set, string name, bool showErrors)
+        public bool TryRenameSet(DocumentItem set, string name, bool showErrors)
         {
             if (set == null) return false;
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -464,7 +473,7 @@ namespace DocSets
             state.Sets.Remove(set);
             if (state.Sets.Count == 0)
             {
-                state.Sets.Add(new DocumentSet { Name = "Default" });
+                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Set, Type = BookmarkType.Empty });
             }
 
             SelectedSet = state.Sets.FirstOrDefault();
@@ -488,7 +497,7 @@ namespace DocSets
             }
             else
             {
-                set.Files.Add(folder);
+                set.Children.Add(folder);
             }
 
             SelectedNode = folder;
@@ -533,14 +542,14 @@ namespace DocSets
             return AddPreparedBookmarkAsync(bookmark, SelectedSet, target);
         }
 
-        public DocumentSet GetSetContainingNode(DocumentItem item)
+        public DocumentItem GetSetContainingNode(DocumentItem item)
         {
             if (item == null)
             {
                 return null;
             }
 
-            return state.Sets.FirstOrDefault(set => ContainsNode(set.Files, item));
+            return state.Sets.FirstOrDefault(set => ContainsNode(set.Children, item));
         }
 
         public DocumentItem GetParentFolder(DocumentItem item)
@@ -552,7 +561,7 @@ namespace DocSets
 
             foreach (var set in state.Sets)
             {
-                var parent = FindParentFolder(set.Files, item);
+                var parent = FindParentFolder(set.Children, item);
                 if (parent != null)
                 {
                     return parent;
@@ -562,7 +571,7 @@ namespace DocSets
             return null;
         }
 
-        public async Task MoveExistingNodeAsync(DocumentItem item, DocumentSet destinationSet, DocumentItem destinationParent)
+        public async Task MoveExistingNodeAsync(DocumentItem item, DocumentItem destinationSet, DocumentItem destinationParent)
         {
             if (item == null)
             {
@@ -578,7 +587,7 @@ namespace DocSets
 
             if (destinationParent != null)
             {
-                if (destinationParent.NodeType != NodeType.Folder || !ContainsNode(targetSet.Files, destinationParent))
+                if (destinationParent.NodeType != NodeType.Folder || !ContainsNode(targetSet.Children, destinationParent))
                 {
                     destinationParent = null;
                 }
@@ -591,12 +600,12 @@ namespace DocSets
 
             var targetCollection = destinationParent?.NodeType == NodeType.Folder
                 ? destinationParent.Children
-                : targetSet.Files;
+                : targetSet.Children;
 
             // При редактировании свойств тот же экземпляр item не должен быть добавлен
             // в дерево повторно. Если место назначения изменилось, удаляем все
             // вхождения этой ссылки из всех групп и добавляем ровно один раз.
-            var currentOwner = currentSet == null ? null : FindOwnerCollection(currentSet.Files, item);
+            var currentOwner = currentSet == null ? null : FindOwnerCollection(currentSet.Children, item);
             var destinationChanged = !ReferenceEquals(currentOwner, targetCollection);
             var alreadyInTarget = ContainsReference(targetCollection, item);
 
@@ -622,7 +631,7 @@ namespace DocSets
             InvalidateCommands();
         }
 
-        public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentSet destinationSet, DocumentItem target)
+        public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentItem destinationSet, DocumentItem target)
         {
             var set = destinationSet ?? SelectedSet;
             if (set == null || bookmark == null)
@@ -633,7 +642,7 @@ namespace DocSets
             bookmark.NodeType = NodeType.Item;
             bookmark.Children.Clear();
 
-            if (target != null && !ContainsNode(set.Files, target))
+            if (target != null && !ContainsNode(set.Children, target))
             {
                 target = null;
             }
@@ -722,7 +731,7 @@ namespace DocSets
                 };
             }
 
-            if (target != null && !ContainsNode(set.Files, target))
+            if (target != null && !ContainsNode(set.Children, target))
             {
                 target = null;
             }
@@ -922,7 +931,7 @@ namespace DocSets
             _ = SaveAsync();
         }
 
-        public void MoveSetRelative(DocumentSet source, DocumentSet target, bool after)
+        public void MoveSetRelative(DocumentItem source, DocumentItem target, bool after)
         {
             if (source == null || target == null || ReferenceEquals(source, target))
                 return;
@@ -1088,7 +1097,7 @@ namespace DocSets
 
             if (target == null)
             {
-                return new MovePlan(SelectedSet.Files, SelectedSet.Files.Count);
+                return new MovePlan(SelectedSet.Children, SelectedSet.Children.Count);
             }
 
             if (position == DropPosition.Inside && target.NodeType == NodeType.Folder)
@@ -1123,14 +1132,14 @@ namespace DocSets
             return GetInsertCollection(SelectedSet, target);
         }
 
-        private static ObservableCollection<DocumentItem> GetInsertCollection(DocumentSet set, DocumentItem target)
+        private static ObservableCollection<DocumentItem> GetInsertCollection(DocumentItem set, DocumentItem target)
         {
             if (target?.NodeType == NodeType.Folder)
             {
                 return target.Children;
             }
 
-            return set?.Files ?? new ObservableCollection<DocumentItem>();
+            return set?.Children ?? new ObservableCollection<DocumentItem>();
         }
 
         private void RemoveNodeReferenceFromAllSets(DocumentItem item)
@@ -1142,7 +1151,7 @@ namespace DocSets
 
             foreach (var set in state.Sets)
             {
-                RemoveNodeReference(set.Files, item);
+                RemoveNodeReference(set.Children, item);
             }
         }
 
@@ -1217,8 +1226,8 @@ namespace DocSets
         private ObservableCollection<DocumentItem> FindOwnerCollection(DocumentItem item)
         {
             if (SelectedSet == null || item == null) return null;
-            if (SelectedSet.Files.Contains(item)) return SelectedSet.Files;
-            return FindOwnerCollection(SelectedSet.Files, item);
+            if (SelectedSet.Children.Contains(item)) return SelectedSet.Children;
+            return FindOwnerCollection(SelectedSet.Children, item);
         }
 
         private static ObservableCollection<DocumentItem> FindOwnerCollection(IEnumerable<DocumentItem> nodes, DocumentItem item)
@@ -1241,12 +1250,12 @@ namespace DocSets
 
         private IEnumerable<DocumentItem> GetAllNodes()
         {
-            return SelectedSet?.Files == null ? Enumerable.Empty<DocumentItem>() : Flatten(SelectedSet.Files, includeCollapsed: true);
+            return SelectedSet?.Children == null ? Enumerable.Empty<DocumentItem>() : Flatten(SelectedSet.Children, includeCollapsed: true);
         }
 
         private IEnumerable<DocumentItem> GetVisibleNodes()
         {
-            return SelectedSet?.Files == null ? Enumerable.Empty<DocumentItem>() : Flatten(SelectedSet.Files, includeCollapsed: false);
+            return SelectedSet?.Children == null ? Enumerable.Empty<DocumentItem>() : Flatten(SelectedSet.Children, includeCollapsed: false);
         }
 
         private static IEnumerable<DocumentItem> Flatten(IEnumerable<DocumentItem> nodes, bool includeCollapsed)
@@ -1754,7 +1763,7 @@ namespace DocSets
         {
             return state?.Sets == null
                 ? Enumerable.Empty<DocumentItem>()
-                : state.Sets.SelectMany(set => EnumerateNodes(set.Files));
+                : state.Sets.SelectMany(set => EnumerateNodes(set.Children));
         }
 
         private static IEnumerable<DocumentItem> EnumerateNodes(IEnumerable<DocumentItem> nodes)
