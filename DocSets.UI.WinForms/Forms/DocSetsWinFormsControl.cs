@@ -24,7 +24,19 @@ namespace DocSets
         private readonly ToolStripButton _findNextButton = new ToolStripButton(">");
         private readonly TreeViewAdv _tree = new TreeViewAdv();
         private readonly TreeModel _treeModel = new TreeModel();
+        private readonly SplitContainer _contentSplit = new SplitContainer();
+        private readonly BookmarkPropertiesPanel _propertiesPanel = new BookmarkPropertiesPanel();
+        private readonly Timer _propertiesSaveTimer = new Timer();
+        private readonly ToolStripButton _togglePropertiesButton = new ToolStripButton("Свойства");
         private readonly Label _statusLabel = new Label();
+        private readonly TextBox _filterTextBox = new TextBox();
+        private readonly HashSet<BookmarkColor> _filterColors = new HashSet<BookmarkColor>();
+        private readonly Dictionary<BookmarkColor, ToolStripMenuItem> _filterColorMenuItems = new Dictionary<BookmarkColor, ToolStripMenuItem>();
+        private readonly FlowLayoutPanel _selectedFilterColorsPanel = new FlowLayoutPanel();
+        private readonly ToolStripDropDownButton _filterColorsButton = new ToolStripDropDownButton();
+        private ToolStripMenuItem _noColorFilterMenuItem;
+        private bool _updatingColorFilter;
+        private bool _restoringSplitter;
         private readonly ContextMenuStrip _nodeMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip _headerMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip _groupMenu = new ContextMenuStrip();
@@ -34,6 +46,7 @@ namespace DocSets
         private ToolStripMenuItem _addClassFolderMenuItem;
         private readonly Dictionary<string, TreeColumn> _columnsByKey = new Dictionary<string, TreeColumn>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<TreeColumn, string> _columnKeys = new Dictionary<TreeColumn, string>();
+        private readonly Dictionary<BookmarkColor, ToolStripMenuItem> _colorMenuItems = new Dictionary<BookmarkColor, ToolStripMenuItem>();
         private bool _refreshing;
         private bool _suppressColumnSave;
         private ToolStripControlHost _editingGroupHost;
@@ -43,6 +56,7 @@ namespace DocSets
         private readonly List<DocumentItem> _findResults = new List<DocumentItem>();
         private int _findIndex = -1;
         private bool _selectingFromFind;
+        private bool _propertiesVisible = true;
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -83,10 +97,20 @@ namespace DocSets
             RefreshAll();
         }
 
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            RestoreSplitterPosition();
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                _propertiesSaveTimer.Stop();
+                _propertiesSaveTimer.Dispose();
+                _consolasFont.Dispose();
+
                 foreach (var font in boldFonts.Values)
                 {
                     font.Dispose();
@@ -100,7 +124,8 @@ namespace DocSets
 
         private void BuildLayout()
         {
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1 };
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -127,6 +152,8 @@ namespace DocSets
             AddFindButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddTreeActivationModeButtons();
+            _toolStrip.Items.Add(new ToolStripSeparator());
+            AddPropertiesPanelButton();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip);
@@ -141,12 +168,277 @@ namespace DocSets
             _groupsStrip.MouseUp += GroupsStrip_MouseUp;
             _groupsStrip.KeyDown += GroupsStrip_KeyDown;
             root.Controls.Add(_groupsStrip, 0, 1);
+            root.Controls.Add(CreateFilterRow(), 0, 2);
+
+            _contentSplit.Dock = DockStyle.Fill;
+            _contentSplit.Orientation = Orientation.Horizontal;
+            _contentSplit.FixedPanel = FixedPanel.Panel2;
+            _contentSplit.Panel1MinSize = 120;
+            _contentSplit.Panel2MinSize = 70;
+            _contentSplit.SplitterWidth = 5;
+            _contentSplit.SplitterDistance = 100;
+            _contentSplit.Panel1.Controls.Add(_tree);
+
+            var propertiesHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(3) };
+            propertiesHost.Controls.Add(_propertiesPanel);
+            _contentSplit.Panel2.Controls.Add(propertiesHost);
 
             _statusLabel.Dock = DockStyle.Fill;
             _statusLabel.AutoEllipsis = true;
             _statusLabel.Padding = new Padding(4, 2, 4, 2);
-            root.Controls.Add(_tree, 0, 2);
-            root.Controls.Add(_statusLabel, 0, 3);
+            root.Controls.Add(_contentSplit, 0, 3);
+            root.Controls.Add(_statusLabel, 0, 4);
+        }
+
+        private Control CreateFilterRow()
+        {
+            var row = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                WrapContents = false,
+                Padding = new Padding(4, 2, 4, 2)
+            };
+
+            var resetButton = new Button
+            {
+                Text = "X",
+                AutoSize = false,
+                Width = 26,
+                Height = 24,
+                Margin = new Padding(0, 0, 5, 0),
+                FlatStyle = FlatStyle.System
+            };
+            resetButton.Click += (_, __) => ResetFilters();
+            new ToolTip().SetToolTip(resetButton, "Сбросить текстовый и цветовой фильтры");
+            row.Controls.Add(resetButton);
+
+            row.Controls.Add(new Label { Text = "Фильтр:", AutoSize = true, Padding = new Padding(0, 5, 4, 0) });
+            _filterTextBox.Width = 220;
+            _filterTextBox.TextChanged += (_, __) => RebuildTree();
+            row.Controls.Add(_filterTextBox);
+
+            var colorStrip = new ToolStrip
+            {
+                GripStyle = ToolStripGripStyle.Hidden,
+                AutoSize = true,
+                CanOverflow = false,
+                RenderMode = ToolStripRenderMode.System,
+                Padding = new Padding(0),
+                Margin = new Padding(5, 0, 0, 0)
+            };
+
+            _filterColorsButton.Text = "Цвета: без фильтра";
+            _filterColorsButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            colorStrip.Items.Add(_filterColorsButton);
+            BuildFilterColorMenu();
+            row.Controls.Add(colorStrip);
+
+            _selectedFilterColorsPanel.AutoSize = true;
+            _selectedFilterColorsPanel.WrapContents = false;
+            _selectedFilterColorsPanel.Margin = new Padding(5, 2, 0, 0);
+            _selectedFilterColorsPanel.Padding = new Padding(0);
+            row.Controls.Add(_selectedFilterColorsPanel);
+
+            UpdateFilterColorUi();
+            return row;
+        }
+
+        private void BuildFilterColorMenu()
+        {
+            _filterColorsButton.DropDownItems.Clear();
+            _filterColorMenuItems.Clear();
+
+            _noColorFilterMenuItem = new ToolStripMenuItem("Без фильтра");
+            _noColorFilterMenuItem.Click += (_, __) => ClearColorFilter();
+            _filterColorsButton.DropDownItems.Add(_noColorFilterMenuItem);
+            _filterColorsButton.DropDownItems.Add(new ToolStripSeparator());
+
+            AddFilterColorMenuItem("Без цветовой метки", BookmarkColor.None);
+            AddFilterColorMenuItem("Красный", BookmarkColor.Red);
+            AddFilterColorMenuItem("Оранжевый", BookmarkColor.Orange);
+            AddFilterColorMenuItem("Жёлтый", BookmarkColor.Yellow);
+            AddFilterColorMenuItem("Зелёный", BookmarkColor.Green);
+            AddFilterColorMenuItem("Бирюзовый", BookmarkColor.Cyan);
+            AddFilterColorMenuItem("Синий", BookmarkColor.Blue);
+            AddFilterColorMenuItem("Фиолетовый", BookmarkColor.Purple);
+            AddFilterColorMenuItem("Серый", BookmarkColor.Gray);
+        }
+
+        private void AddFilterColorMenuItem(string text, BookmarkColor color)
+        {
+            var item = new ToolStripMenuItem(text)
+            {
+                ImageScaling = ToolStripItemImageScaling.None,
+                Tag = color
+            };
+            item.Click += (_, __) => ToggleColorFilter(color);
+            _filterColorMenuItems[color] = item;
+            _filterColorsButton.DropDownItems.Add(item);
+        }
+
+        private void ToggleColorFilter(BookmarkColor color)
+        {
+            if (_filterColors.Contains(color))
+                _filterColors.Remove(color);
+            else
+                _filterColors.Add(color);
+
+            UpdateFilterColorUi();
+            RebuildTree();
+        }
+
+        private void ClearColorFilter()
+        {
+            _updatingColorFilter = true;
+            try
+            {
+                _filterColors.Clear();
+            }
+            finally
+            {
+                _updatingColorFilter = false;
+            }
+
+            UpdateFilterColorUi();
+            RebuildTree();
+        }
+
+        private void ResetFilters()
+        {
+            _updatingColorFilter = true;
+            try
+            {
+                _filterColors.Clear();
+                _filterTextBox.Text = string.Empty;
+            }
+            finally
+            {
+                _updatingColorFilter = false;
+            }
+
+            UpdateFilterColorUi();
+            RebuildTree();
+        }
+
+        private void UpdateFilterColorUi()
+        {
+            var hasFilter = _filterColors.Count > 0;
+            if (_noColorFilterMenuItem != null)
+            {
+                SetFilterMenuImage(_noColorFilterMenuItem, CreateFilterChoiceImage(null, !hasFilter));
+            }
+
+            foreach (var pair in _filterColorMenuItems)
+            {
+                SetFilterMenuImage(pair.Value, CreateFilterChoiceImage(pair.Key, _filterColors.Contains(pair.Key)));
+            }
+
+            _filterColorsButton.Text = hasFilter
+                ? "Цвета: " + _filterColors.Count
+                : "Цвета: без фильтра";
+
+            _selectedFilterColorsPanel.SuspendLayout();
+            try
+            {
+                _selectedFilterColorsPanel.Controls.Clear();
+                foreach (var color in _filterColors.OrderBy(x => (int)x))
+                {
+                    var marker = new Label
+                    {
+                        AutoSize = false,
+                        Width = 20,
+                        Height = 20,
+                        Margin = new Padding(2, 0, 0, 0),
+                        BackColor = color == BookmarkColor.None ? Color.White : GetBookmarkColor(color),
+                        BorderStyle = BorderStyle.FixedSingle,
+                        Text = color == BookmarkColor.None ? "×" : string.Empty,
+                        TextAlign = ContentAlignment.MiddleCenter
+                    };
+                    new ToolTip().SetToolTip(marker, GetBookmarkColorName(color));
+                    _selectedFilterColorsPanel.Controls.Add(marker);
+                }
+            }
+            finally
+            {
+                _selectedFilterColorsPanel.ResumeLayout();
+            }
+        }
+
+        private static Image CreateFilterChoiceImage(BookmarkColor? color, bool selected)
+        {
+            var bitmap = new Bitmap(36, 16);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                var checkBox = new Rectangle(0, 1, 13, 13);
+                graphics.FillRectangle(SystemBrushes.Window, checkBox);
+                graphics.DrawRectangle(SystemPens.ControlDarkDark, checkBox);
+                if (selected)
+                {
+                    using (var pen = new Pen(SystemColors.Highlight, 2))
+                    {
+                        graphics.DrawLines(pen, new[]
+                        {
+                            new Point(3, 7),
+                            new Point(6, 10),
+                            new Point(11, 3)
+                        });
+                    }
+                }
+
+                if (color.HasValue)
+                {
+                    var swatch = new Rectangle(20, 1, 13, 13);
+                    using (var brush = new SolidBrush(GetBookmarkColor(color.Value)))
+                    {
+                        graphics.FillRectangle(brush, swatch);
+                    }
+                    graphics.DrawRectangle(Pens.Black, swatch);
+                    if (color.Value == BookmarkColor.None)
+                    {
+                        graphics.DrawLine(Pens.Gray, swatch.Left, swatch.Bottom, swatch.Right, swatch.Top);
+                    }
+                }
+            }
+
+            return bitmap;
+        }
+
+        private static void SetFilterMenuImage(ToolStripMenuItem item, Image image)
+        {
+            var oldImage = item.Image;
+            item.Image = image;
+            item.ImageScaling = ToolStripItemImageScaling.None;
+            oldImage?.Dispose();
+        }
+
+        private static string GetBookmarkColorName(BookmarkColor color)
+        {
+            switch (color)
+            {
+                case BookmarkColor.Red: return "Красный";
+                case BookmarkColor.Orange: return "Оранжевый";
+                case BookmarkColor.Yellow: return "Жёлтый";
+                case BookmarkColor.Green: return "Зелёный";
+                case BookmarkColor.Cyan: return "Бирюзовый";
+                case BookmarkColor.Blue: return "Синий";
+                case BookmarkColor.Purple: return "Фиолетовый";
+                case BookmarkColor.Gray: return "Серый";
+                default: return "Без цветовой метки";
+            }
+        }
+
+        private bool MatchesFilter(DocumentItem item)
+        {
+            if (item == null)
+                return false;
+
+            var text = (_filterTextBox.Text ?? string.Empty).Trim();
+            if (text.Length > 0 && (item.Name ?? string.Empty).IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0)
+                return false;
+
+            return _filterColors.Count == 0 || _filterColors.Contains(item.Color);
         }
 
         private static IEnumerable<ColumnSpec> GetDefaultColumnSpecs()
@@ -230,6 +522,54 @@ namespace DocSets
 
             _viewModel.Ui.Columns = layouts;
             _ = _viewModel.SaveAsync();
+        }
+
+        private void RestoreSplitterPosition()
+        {
+            if (_viewModel.Ui == null || _contentSplit.ClientSize.Height <= 1)
+            {
+                return;
+            }
+
+            var panelHeight = Math.Max(_contentSplit.Panel2MinSize, _viewModel.Ui.PropertiesPanelHeight);
+            var maximumPanelHeight = _contentSplit.ClientSize.Height
+                - _contentSplit.Panel1MinSize
+                - _contentSplit.SplitterWidth;
+            panelHeight = Math.Min(panelHeight, Math.Max(_contentSplit.Panel2MinSize, maximumPanelHeight));
+
+            _restoringSplitter = true;
+            try
+            {
+                _contentSplit.SplitterDistance = Math.Max(_contentSplit.ClientSize.Height
+                    - panelHeight
+                    - _contentSplit.SplitterWidth, 1);
+            }
+            finally
+            {
+                _restoringSplitter = false;
+            }
+        }
+
+        private void SaveSplitterPosition()
+        {
+            if (_restoringSplitter || _viewModel.Ui == null || _contentSplit.Panel2Collapsed)
+            {
+                return;
+            }
+
+            var panelHeight = _contentSplit.ClientSize.Height
+                - _contentSplit.SplitterDistance
+                - _contentSplit.SplitterWidth;
+            if (panelHeight < _contentSplit.Panel2MinSize)
+            {
+                return;
+            }
+
+            if (_viewModel.Ui.PropertiesPanelHeight != panelHeight)
+            {
+                _viewModel.Ui.PropertiesPanelHeight = panelHeight;
+                _ = _viewModel.SaveAsync();
+            }
         }
 
         private void ShowHeaderMenu(Point location)
@@ -527,6 +867,16 @@ namespace DocSets
                 ParentColumn = _columnsByKey["name"],
                 LeftMargin = 2
             });
+
+            var colorNode = new NodeTextBox
+            {
+                DataPropertyName = nameof(BookmarkTreeNode.ColorMarker),
+                ParentColumn = _columnsByKey["name"],
+                LeftMargin = 3
+            };
+            colorNode.DrawText += ColorNode_DrawText;
+            _tree.NodeControls.Add(colorNode);
+
             var nameNode = new OverflowNodeTextBox
             {
                 DataPropertyName = nameof(BookmarkTreeNode.Name),
@@ -575,6 +925,7 @@ namespace DocSets
             AddMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
             AddMenu("Del", _viewModel.DeleteNodeCommand);
             _nodeMenu.Items.Add(new ToolStripSeparator());
+            AddColorMenu();
             AddPropertiesMenu();
 
             BuildGroupMenu();
@@ -656,6 +1007,93 @@ namespace DocSets
             };
 
             _nodeMenu.Items.Add(item);
+        }
+
+        private void AddColorMenu()
+        {
+            var colorMenu = new ToolStripMenuItem("Цвет");
+            AddColorMenuItem(colorMenu, "Без цвета", BookmarkColor.None);
+            AddColorMenuItem(colorMenu, "Красный", BookmarkColor.Red);
+            AddColorMenuItem(colorMenu, "Оранжевый", BookmarkColor.Orange);
+            AddColorMenuItem(colorMenu, "Жёлтый", BookmarkColor.Yellow);
+            AddColorMenuItem(colorMenu, "Зелёный", BookmarkColor.Green);
+            AddColorMenuItem(colorMenu, "Бирюзовый", BookmarkColor.Cyan);
+            AddColorMenuItem(colorMenu, "Синий", BookmarkColor.Blue);
+            AddColorMenuItem(colorMenu, "Фиолетовый", BookmarkColor.Purple);
+            AddColorMenuItem(colorMenu, "Серый", BookmarkColor.Gray);
+            _nodeMenu.Items.Add(colorMenu);
+        }
+
+        private void AddColorMenuItem(ToolStripMenuItem parent, string text, BookmarkColor color)
+        {
+            var item = new ToolStripMenuItem(text)
+            {
+                Tag = color,
+                Image = CreateColorSwatch(color, 16)
+            };
+
+            _colorMenuItems[color] = item;
+
+            item.Click += async (_, __) =>
+            {
+                var selected = _viewModel.SelectedNodes?.ToList() ?? new List<DocumentItem>();
+                if (selected.Count == 0)
+                {
+                    var current = GetCurrentItem();
+                    if (current != null)
+                    {
+                        selected.Add(current);
+                    }
+                }
+
+                foreach (var bookmark in selected)
+                {
+                    bookmark.Color = color;
+                }
+
+                await _viewModel.SaveAsync();
+                _tree.Invalidate();
+            };
+
+            parent.DropDownItems.Add(item);
+        }
+
+        private static Image CreateColorSwatch(BookmarkColor color, int size)
+        {
+            var bitmap = new Bitmap(size, size);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                var rectangle = new Rectangle(2, 2, size - 5, size - 5);
+                using (var brush = new SolidBrush(GetBookmarkColor(color)))
+                {
+                    graphics.FillRectangle(brush, rectangle);
+                }
+
+                graphics.DrawRectangle(Pens.Black, rectangle);
+                if (color == BookmarkColor.None)
+                {
+                    graphics.DrawLine(Pens.Gray, rectangle.Left, rectangle.Bottom, rectangle.Right, rectangle.Top);
+                }
+            }
+
+            return bitmap;
+        }
+
+        private static Color GetBookmarkColor(BookmarkColor color)
+        {
+            switch (color)
+            {
+                case BookmarkColor.Red: return Color.FromArgb(237, 28, 54);
+                case BookmarkColor.Orange: return Color.FromArgb(255, 140, 0);
+                case BookmarkColor.Yellow: return Color.FromArgb(255, 229, 0);
+                case BookmarkColor.Green: return Color.FromArgb(31, 201, 37);
+                case BookmarkColor.Cyan: return Color.FromArgb(0, 188, 212);
+                case BookmarkColor.Blue: return Color.FromArgb(22, 139, 205);
+                case BookmarkColor.Purple: return Color.FromArgb(156, 39, 176);
+                case BookmarkColor.Gray: return Color.FromArgb(128, 128, 128);
+                default: return Color.White;
+            }
         }
 
         private void AddPropertiesMenu()
@@ -779,6 +1217,7 @@ namespace DocSets
                 dialog.ApplyTo(item);
                 await _viewModel.MoveExistingNodeAsync(item, dialog.SelectedSet, dialog.SelectedParent);
                 RebuildTree();
+                LoadPropertiesPanel(item);
                 RefreshStatus();
             }
         }
@@ -909,13 +1348,51 @@ namespace DocSets
             _tree.MouseUp += Tree_MouseUp;
             _tree.ColumnWidthChanged += (_, __) => SaveColumnLayout();
             _tree.ColumnReordered += (_, __) => SaveColumnLayout();
+            _contentSplit.SplitterMoved += (_, __) => SaveSplitterPosition();
+
+            _propertiesSaveTimer.Interval = 500;
+            _propertiesSaveTimer.Tick += async (_, __) =>
+            {
+                _propertiesSaveTimer.Stop();
+                if (_propertiesPanel.ApplyToCurrentItem())
+                {
+                    await _viewModel.SaveAsync();
+                    RebuildTree();
+                    RefreshStatus();
+                }
+            };
+            _propertiesPanel.ItemChanged += (_, __) =>
+            {
+                _propertiesSaveTimer.Stop();
+                _propertiesSaveTimer.Start();
+            };
+            _propertiesPanel.Leave += async (_, __) =>
+            {
+                _propertiesSaveTimer.Stop();
+                if (_propertiesPanel.ApplyToCurrentItem())
+                {
+                    await _viewModel.SaveAsync();
+                    RebuildTree();
+                    RefreshStatus();
+                }
+            };
+
             _nodeMenu.Opening += (_, e) =>
             {
                 SyncSelectionFromTree();
                 RefreshContextFolderMenuTexts();
                 var current = GetCurrentItem();
+                UpdateColorMenuChecks(current);
                 UpdateNodeMenuEnabled(_nodeMenu.Items, current);
             };
+        }
+
+        private void UpdateColorMenuChecks(DocumentItem current)
+        {
+            foreach (var pair in _colorMenuItems)
+            {
+                pair.Value.Checked = current != null && current.Color == pair.Key;
+            }
         }
 
         private void UpdateNodeMenuEnabled(ToolStripItemCollection items, DocumentItem current)
@@ -971,6 +1448,7 @@ namespace DocSets
             finally { _refreshing = false; }
             RebuildTree();
             RefreshStatus();
+            RestoreSplitterPosition();
         }
 
 
@@ -1178,6 +1656,8 @@ namespace DocSets
 
         private void RebuildTree()
         {
+            var wasRefreshing = _refreshing;
+            _refreshing = true;
             _tree.BeginUpdate();
             try
             {
@@ -1185,12 +1665,21 @@ namespace DocSets
                 if (_viewModel.CurrentNodes != null)
                 {
                     foreach (var item in _viewModel.CurrentNodes)
-                        _treeModel.Nodes.Add(new BookmarkTreeNode(item));
+                    {
+                        var node = BookmarkTreeNode.CreateFiltered(item, MatchesFilter);
+                        if (node != null)
+                            _treeModel.Nodes.Add(node);
+                    }
                 }
                 _tree.ExpandAll();
             }
-            finally { _tree.EndUpdate(); }
+            finally
+            {
+                _tree.EndUpdate();
+                _refreshing = wasRefreshing;
+            }
             SyncSelectionFromViewModel();
+            LoadPropertiesPanel(_viewModel.SelectedNode);
         }
 
         private async System.Threading.Tasks.Task FindBookmarksInCurrentSetAsync()
@@ -1334,8 +1823,44 @@ namespace DocSets
         private void SyncSelectionFromTree()
         {
             if (_refreshing) return;
+
+            if (_propertiesPanel.ApplyToCurrentItem())
+            {
+                _ = _viewModel.SaveAsync();
+            }
+
             var items = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).Where(x => x != null).ToList();
             _viewModel.SetSelectedNodes(items);
+            LoadPropertiesPanel(items.FirstOrDefault());
+        }
+
+        private void LoadPropertiesPanel(DocumentItem item)
+        {
+            _propertiesSaveTimer.Stop();
+            _propertiesPanel.LoadItem(item);
+        }
+
+        private void AddPropertiesPanelButton()
+        {
+            _togglePropertiesButton.CheckOnClick = true;
+            _togglePropertiesButton.Checked = true;
+            _togglePropertiesButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
+            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, 20);
+            _togglePropertiesButton.ToolTipText = "Показать или скрыть панель свойств";
+            _togglePropertiesButton.Click += (_, __) => SetPropertiesPanelVisible(_togglePropertiesButton.Checked);
+            _toolStrip.Items.Add(_togglePropertiesButton);
+        }
+
+        private void SetPropertiesPanelVisible(bool visible)
+        {
+            _propertiesVisible = visible;
+            _contentSplit.Panel2Collapsed = !visible;
+            _togglePropertiesButton.Checked = visible;
+            if (visible)
+            {
+                RestoreSplitterPosition();
+                LoadPropertiesPanel(GetCurrentItem());
+            }
         }
 
         private void SyncSelectionFromViewModel()
@@ -1595,6 +2120,18 @@ namespace DocSets
         private readonly Dictionary<float, Font> boldFonts = new Dictionary<float, Font>();
 
         private readonly Font _consolasFont = new Font("Consolas", 10f, FontStyle.Regular);
+
+        private void ColorNode_DrawText(object sender, DrawTextEventArgs e)
+        {
+            var node = e.Node?.Tag as BookmarkTreeNode;
+            if (node == null || node.Item.Color == BookmarkColor.None)
+            {
+                e.Text = string.Empty;
+                return;
+            }
+
+            e.TextColor = GetBookmarkColor(node.Item.Color);
+        }
 
         private void NameTextBox_DrawText(object sender, DrawTextEventArgs e)
         {

@@ -21,6 +21,8 @@ namespace DocSets
         private readonly NumericUpDown lineBox = new NumericUpDown();
         private readonly NumericUpDown columnBox = new NumericUpDown();
         private readonly CheckBox folderCheckBox = new CheckBox();
+        private readonly Dictionary<BookmarkColor, Button> colorButtons = new Dictionary<BookmarkColor, Button>();
+        private BookmarkColor selectedColor;
         private readonly TextBox commentTextBox = new TextBox();
         private readonly Button okButton = new Button();
         private readonly Button cancelButton = new Button();
@@ -95,6 +97,7 @@ namespace DocSets
             item.Line = (int)lineBox.Value;
             item.Column = (int)columnBox.Value;
             item.Comment = commentTextBox.Text ?? string.Empty;
+            item.Color = selectedColor;
 
             if (item.Type == BookmarkType.File && string.IsNullOrWhiteSpace(item.Name))
             {
@@ -113,7 +116,7 @@ namespace DocSets
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = showDestination ? 12 : 10,
+                RowCount = showDestination ? 13 : 11,
                 Padding = new Padding(12)
             };
 
@@ -222,6 +225,10 @@ namespace DocSets
             positionPanel.Controls.Add(new Label { Text = "Колонка", AutoSize = true, Padding = new Padding(12, 4, 4, 0) });
             positionPanel.Controls.Add(columnBox);
             root.Controls.Add(positionPanel, 1, row++);
+
+            AddAutoRow(root);
+            AddLabel(root, row, "Цвет:");
+            root.Controls.Add(CreateColorPalette(), 1, row++);
 
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -401,6 +408,8 @@ namespace DocSets
             lineBox.Value = Math.Max(lineBox.Minimum, Math.Min(lineBox.Maximum, item.Line));
             columnBox.Value = Math.Max(columnBox.Minimum, Math.Min(columnBox.Maximum, item.Column));
             commentTextBox.Text = item.Comment ?? string.Empty;
+            selectedColor = item.Color;
+            UpdateColorButtons();
             UpdateEnabledState();
         }
 
@@ -446,6 +455,54 @@ namespace DocSets
             columnBox.Enabled = !isEmpty;
             symbolTextBox.Enabled = !isEmpty && !isFileBookmark;
             projectTextBox.Enabled = !isEmpty && !isFileBookmark;
+        }
+
+        private FlowLayoutPanel CreateColorPalette()
+        {
+            var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            AddColorButton(panel, BookmarkColor.None, Color.White, "Без цвета");
+            AddColorButton(panel, BookmarkColor.Red, Color.FromArgb(237, 28, 54), "Красный");
+            AddColorButton(panel, BookmarkColor.Orange, Color.FromArgb(255, 140, 0), "Оранжевый");
+            AddColorButton(panel, BookmarkColor.Yellow, Color.FromArgb(255, 229, 0), "Жёлтый");
+            AddColorButton(panel, BookmarkColor.Green, Color.FromArgb(31, 201, 37), "Зелёный");
+            AddColorButton(panel, BookmarkColor.Cyan, Color.FromArgb(0, 188, 212), "Бирюзовый");
+            AddColorButton(panel, BookmarkColor.Blue, Color.FromArgb(22, 139, 205), "Синий");
+            AddColorButton(panel, BookmarkColor.Purple, Color.FromArgb(156, 39, 176), "Фиолетовый");
+            AddColorButton(panel, BookmarkColor.Gray, Color.FromArgb(128, 128, 128), "Серый");
+            return panel;
+        }
+
+        private void AddColorButton(Control parent, BookmarkColor color, Color backColor, string tooltip)
+        {
+            var button = new Button
+            {
+                AutoSize = false,
+                Width = 34,
+                Height = 30,
+                Margin = new Padding(0, 0, 5, 0),
+                BackColor = backColor,
+                FlatStyle = FlatStyle.Flat,
+                Tag = color,
+                Text = color == BookmarkColor.None ? "×" : string.Empty,
+                UseVisualStyleBackColor = false
+            };
+            button.Click += (_, __) =>
+            {
+                selectedColor = color;
+                UpdateColorButtons();
+            };
+            new ToolTip().SetToolTip(button, tooltip);
+            colorButtons[color] = button;
+            parent.Controls.Add(button);
+        }
+
+        private void UpdateColorButtons()
+        {
+            foreach (var pair in colorButtons)
+            {
+                pair.Value.FlatAppearance.BorderSize = pair.Key == selectedColor ? 3 : 1;
+                pair.Value.FlatAppearance.BorderColor = pair.Key == selectedColor ? SystemColors.Highlight : SystemColors.ControlDark;
+            }
         }
 
         private static string CreateFileBookmarkName(string path, int line)

@@ -39,12 +39,20 @@ namespace DocSets
     public sealed class DocumentSetsUiSettings : NotifyObject
     {
         private List<ColumnLayout> columns = new List<ColumnLayout>();
+        private int propertiesPanelHeight = 150;
 
         [JsonProperty("columns")]
         public List<ColumnLayout> Columns
         {
             get => columns;
             set => SetProperty(ref columns, value ?? new List<ColumnLayout>());
+        }
+
+        [JsonProperty("propertiesPanelHeight")]
+        public int PropertiesPanelHeight
+        {
+            get => propertiesPanelHeight;
+            set => SetProperty(ref propertiesPanelHeight, value < 70 ? 70 : value);
         }
     }
 
@@ -155,7 +163,8 @@ namespace DocSets
                 Path = item.Path ?? "",
                 Line = item.Line,
                 Column = item.Column,
-                Comment = item.Comment ?? ""
+                Comment = item.Comment ?? "",
+                Color = item.Color
             });
 
             foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
@@ -230,6 +239,7 @@ namespace DocSets
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
                 Comment = source.Comment ?? "",
+                Color = source.Color,
                 Children = new ObservableCollection<DocumentItem>()
             };
         }
@@ -300,12 +310,29 @@ namespace DocSets
 
         [JsonProperty("comment", NullValueHandling = NullValueHandling.Ignore)]
         public string Comment { get; set; }
+
+        [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public BookmarkColor Color { get; set; }
     }
 
     public enum NodeType
     {
         Item = 0,
         Folder = 1
+    }
+
+    public enum BookmarkColor
+    {
+        None = 0,
+        Red = 1,
+        Green = 2,
+        Yellow = 3,
+        Blue = 4,
+        Orange = 5,
+        Cyan = 6,
+        Purple = 7,
+        Gray = 8
     }
 
     public enum BookmarkType
@@ -325,6 +352,7 @@ namespace DocSets
         private string project = "";
         private string path = "";
         private string comment = "";
+        private BookmarkColor color;
         private int line = 1;
         private int column = 1;
         private NodeType nodeType;
@@ -417,6 +445,14 @@ namespace DocSets
             }
         }
 
+        [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public BookmarkColor Color
+        {
+            get => color;
+            set => SetProperty(ref color, value);
+        }
+
         [JsonIgnore]
         public string CommentFirstLine
         {
@@ -505,6 +541,7 @@ namespace DocSets
                 Line = Line,
                 Column = Column,
                 Comment = Comment,
+                Color = Color,
                 IsExpanded = IsExpanded,
                 Children = new ObservableCollection<DocumentItem>()
             };

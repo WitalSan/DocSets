@@ -1362,7 +1362,8 @@ namespace DocSets
                 Path = item.Path ?? string.Empty,
                 Line = item.Line,
                 Column = item.Column,
-                Comment = item.Comment ?? string.Empty
+                Comment = item.Comment ?? string.Empty,
+                Color = item.Color
             });
 
             foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
@@ -1411,6 +1412,7 @@ namespace DocSets
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
                 Comment = source.Comment ?? string.Empty,
+                Color = source.Color,
                 Children = new ObservableCollection<DocumentItem>()
             };
         }
@@ -1646,6 +1648,10 @@ namespace DocSets
 
             [JsonProperty("comment")]
             public string Comment { get; set; }
+
+            [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+            public BookmarkColor Color { get; set; }
         }
 
         private static bool ClipboardContainsText()
