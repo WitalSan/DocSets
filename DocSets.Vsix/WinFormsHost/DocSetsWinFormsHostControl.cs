@@ -54,6 +54,12 @@ namespace DocSets
             await winFormsControl.AddBookmarkFromEditorAsync();
         }
 
+        internal async System.Threading.Tasks.Task FindBookmarksFromEditorAsync()
+        {
+            await EnsureLoadedAsync();
+            await winFormsControl.FindBookmarksFromEditorAsync();
+        }
+
         private async System.Threading.Tasks.Task EnsureLoadedAsync()
         {
             if (!viewModel.IsLoaded)

@@ -17,6 +17,7 @@ namespace DocSets
         /// </summary>
         public const int CommandId = 0x0100;
         public const int AddBookmarkFromEditorCommandId = 0x0101;
+        public const int FindBookmarkFromEditorCommandId = 0x0102;
 
         /// <summary>
         /// Command menu group (command set GUID).
@@ -46,6 +47,10 @@ namespace DocSets
             var addBookmarkCommandId = new CommandID(CommandSet, AddBookmarkFromEditorCommandId);
             var addBookmarkItem = new MenuCommand(this.ExecuteAddBookmarkFromEditor, addBookmarkCommandId);
             commandService.AddCommand(addBookmarkItem);
+
+            var findBookmarkCommandId = new CommandID(CommandSet, FindBookmarkFromEditorCommandId);
+            var findBookmarkItem = new MenuCommand(this.ExecuteFindBookmarkFromEditor, findBookmarkCommandId);
+            commandService.AddCommand(findBookmarkItem);
         }
 
         /// <summary>
@@ -94,6 +99,22 @@ namespace DocSets
                 if (window?.Content is DocSetsWinFormsHostControl host)
                 {
                     await host.AddBookmarkFromEditorAsync();
+                }
+            });
+        }
+
+        private void ExecuteFindBookmarkFromEditor(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+
+            package.JoinableTaskFactory.RunAsync(async delegate
+            {
+                await package.JoinableTaskFactory.SwitchToMainThreadAsync(package.DisposalToken);
+
+                var window = ShowToolWindow();
+                if (window?.Content is DocSetsWinFormsHostControl host)
+                {
+                    await host.FindBookmarksFromEditorAsync();
                 }
             });
         }

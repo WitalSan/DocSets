@@ -9,7 +9,7 @@ namespace DocSets
     {
         public DocSetsToolWindow() : base(null)
         {
-            Caption = "DocSets";
+            Caption = "Wital DockSet BookMarks";
             Content = new DocSetsWinFormsHostControl(DocSetsPackage.Instance);
         }
     }

@@ -167,8 +167,8 @@ namespace DocSets
             _groupsStrip.Padding = new Padding(2, 1, 2, 1);
             _groupsStrip.MouseUp += GroupsStrip_MouseUp;
             _groupsStrip.KeyDown += GroupsStrip_KeyDown;
-            root.Controls.Add(_groupsStrip, 0, 1);
-            root.Controls.Add(CreateFilterRow(), 0, 2);
+            root.Controls.Add(_groupsStrip, 0, 2);
+            root.Controls.Add(CreateFilterRow(), 0, 1);
 
             _contentSplit.Dock = DockStyle.Fill;
             _contentSplit.Orientation = Orientation.Horizontal;
@@ -1680,6 +1680,11 @@ namespace DocSets
             }
             SyncSelectionFromViewModel();
             LoadPropertiesPanel(_viewModel.SelectedNode);
+        }
+
+        internal System.Threading.Tasks.Task FindBookmarksFromEditorAsync()
+        {
+            return FindBookmarksInCurrentSetAsync();
         }
 
         private async System.Threading.Tasks.Task FindBookmarksInCurrentSetAsync()

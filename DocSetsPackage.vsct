@@ -48,19 +48,27 @@
               <CommandFlag>DefaultInvisible</CommandFlag>
               <CommandFlag>DynamicVisibility</CommandFlag>
           If you do not want an image next to your command, remove the Icon node /> -->
-      <Button guid="guidDocSetsPackageCmdSet" id="DocSetsToolWindowCommandId" priority="0x0100" type="Button">
+      <Button guid="guidDocSetsPackageCmdSet" id="DocSetsToolWindowCommandId" priority="0x0001" type="Button">
         <Parent guid="guidSHLMainMenu" id="IDG_VS_WNDO_OTRWNDWS1"/>
         <Icon guid="guidImages" id="bmpPic1" />
         <Strings>
-          <ButtonText>DocSetsToolWindow</ButtonText>
+          <ButtonText>Wital DockSet BookMarks</ButtonText>
         </Strings>
       </Button>
 
       <Button guid="guidDocSetsPackageCmdSet" id="AddBookmarkFromEditorCommandId" priority="0x0001" type="Button">
         <Parent guid="guidDocSetsPackageCmdSet" id="DocSetsEditorContextGroup"/>
-        <Icon guid="guidImages" id="bmpPic1" />
+        <Icon guid="guidImages" id="bmpPic2" />
         <Strings>
-          <ButtonText>DocSets: добавить закладку...</ButtonText>
+          <ButtonText>DocSets: Добавить закладку</ButtonText>
+        </Strings>
+      </Button>
+
+      <Button guid="guidDocSetsPackageCmdSet" id="FindBookmarkFromEditorCommandId" priority="0x0002" type="Button">
+        <Parent guid="guidDocSetsPackageCmdSet" id="DocSetsEditorContextGroup"/>
+        <Icon guid="guidImages" id="bmpPicSearch" />
+        <Strings>
+          <ButtonText>DocSets: Найти</ButtonText>
         </Strings>
       </Button>
     </Buttons>
@@ -84,6 +92,7 @@
     <GuidSymbol name="guidDocSetsPackageCmdSet" value="{b7b7b426-13b2-4c12-80a8-f369fa487757}">
       <IDSymbol name="DocSetsToolWindowCommandId" value="0x0100" />
       <IDSymbol name="AddBookmarkFromEditorCommandId" value="0x0101" />
+      <IDSymbol name="FindBookmarkFromEditorCommandId" value="0x0102" />
       <IDSymbol name="DocSetsEditorContextGroup" value="0x1020" />
     </GuidSymbol>
 
