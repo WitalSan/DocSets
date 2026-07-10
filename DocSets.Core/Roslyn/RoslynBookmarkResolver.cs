@@ -38,7 +38,20 @@ namespace DocSets
             this.package = package ?? throw new ArgumentNullException(nameof(package));
         }
 
-        public async Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync(string solutionDirectory, Func<string, string> toRelativePath)
+        public Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync(string solutionDirectory, Func<string, string> toRelativePath)
+        {
+            return CreateBookmarkFromActiveDocumentAsync(solutionDirectory, toRelativePath, containingTypeOnly: false);
+        }
+
+        public Task<DocumentItem> CreateClassBookmarkFromActiveDocumentAsync(string solutionDirectory, Func<string, string> toRelativePath)
+        {
+            return CreateBookmarkFromActiveDocumentAsync(solutionDirectory, toRelativePath, containingTypeOnly: true);
+        }
+
+        private async Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync(
+            string solutionDirectory,
+            Func<string, string> toRelativePath,
+            bool containingTypeOnly)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -68,7 +81,7 @@ namespace DocSets
                 var document = FindDocument(workspace, path);
                 if (document == null)
                 {
-                    return item;
+                    return containingTypeOnly ? null : item;
                 }
 
                 var text = await document.GetTextAsync();
@@ -77,13 +90,18 @@ namespace DocSets
                 var root = await document.GetSyntaxRootAsync();
                 if (semanticModel == null || root == null)
                 {
-                    return item;
+                    return containingTypeOnly ? null : item;
                 }
 
                 var symbol = GetNearestDeclaredSymbol(root, semanticModel, position);
+                if (containingTypeOnly)
+                {
+                    symbol = symbol as INamedTypeSymbol ?? symbol?.ContainingType;
+                }
+
                 if (symbol == null)
                 {
-                    return item;
+                    return containingTypeOnly ? null : item;
                 }
 
                 item.Name = CreateDisplayName(symbol);
@@ -92,7 +110,12 @@ namespace DocSets
             }
             catch
             {
-                // Roslyn is a best-effort enhancement. Keep the plain file/line bookmark if it is unavailable.
+                // Roslyn is a best-effort enhancement for ordinary bookmarks.
+                // A class folder requires a resolved containing type.
+                if (containingTypeOnly)
+                {
+                    return null;
+                }
             }
 
             return item;
@@ -137,6 +160,29 @@ namespace DocSets
                 catch
                 {
                 }
+            }
+
+            try
+            {
+                var workspace = await GetWorkspaceAsync();
+                var document = FindDocument(workspace, activeDocument.FullName);
+                var selection = activeDocument.Selection as TextSelection;
+                if (document != null && selection != null)
+                {
+                    var text = await document.GetTextAsync();
+                    var position = ToTextPosition(text, Math.Max(1, selection.ActivePoint.Line), Math.Max(1, selection.ActivePoint.LineCharOffset));
+                    var semanticModel = await document.GetSemanticModelAsync();
+                    var root = await document.GetSyntaxRootAsync();
+                    var symbol = root == null || semanticModel == null ? null : GetNearestDeclaredSymbol(root, semanticModel, position);
+                    var type = symbol as INamedTypeSymbol ?? symbol?.ContainingType;
+                    if (type != null)
+                    {
+                        context.ClassName = CreateDisplayName(type);
+                    }
+                }
+            }
+            catch
+            {
             }
 
             return context;

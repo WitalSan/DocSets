@@ -15,7 +15,8 @@ namespace DocSets
     {
         Solution,
         Project,
-        File
+        File,
+        Class
     }
 
     internal sealed class DocSetsViewModel : NotifyObject
@@ -558,13 +559,50 @@ namespace DocSets
             }
 
             var set = SelectedSet;
-            var folder = new DocumentItem
+            DocumentItem folder;
+
+            if (kind == ActiveDocumentFolderKind.File)
             {
-                Name = name.Trim(),
-                NodeType = NodeType.Folder,
-                Type = BookmarkType.Empty,
-                IsExpanded = true
-            };
+                folder = await store.CreateBookmarkFromActiveDocumentAsync();
+                if (folder == null)
+                {
+                    Show("Не удалось создать ссылку на текущий файл.");
+                    return null;
+                }
+
+                folder.Name = name.Trim();
+                folder.NodeType = NodeType.Folder;
+                folder.Type = BookmarkType.File;
+                folder.Symbol = string.Empty;
+                folder.Project = string.Empty;
+                folder.Children.Clear();
+                folder.IsExpanded = true;
+                await fileTracking.TrackFromActiveDocumentAsync(folder);
+            }
+            else if (kind == ActiveDocumentFolderKind.Class)
+            {
+                folder = await store.CreateClassBookmarkFromActiveDocumentAsync();
+                if (folder == null || string.IsNullOrWhiteSpace(folder.Symbol))
+                {
+                    Show("Не удалось определить класс в текущей позиции редактора.");
+                    return null;
+                }
+
+                folder.NodeType = NodeType.Folder;
+                folder.Type = BookmarkType.Symbol;
+                folder.Children.Clear();
+                folder.IsExpanded = true;
+            }
+            else
+            {
+                folder = new DocumentItem
+                {
+                    Name = name.Trim(),
+                    NodeType = NodeType.Folder,
+                    Type = BookmarkType.Empty,
+                    IsExpanded = true
+                };
+            }
 
             if (target != null && !ContainsNode(set.Files, target))
             {
@@ -605,6 +643,8 @@ namespace DocSets
                     return context.ProjectName;
                 case ActiveDocumentFolderKind.File:
                     return context.FileName;
+                case ActiveDocumentFolderKind.Class:
+                    return string.IsNullOrWhiteSpace(context.ClassName) ? "Class" : context.ClassName;
                 default:
                     return "";
             }

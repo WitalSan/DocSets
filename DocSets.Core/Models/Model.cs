@@ -552,6 +552,8 @@ namespace DocSets
         public string ProjectName { get; set; } = "";
 
         public string FileName { get; set; } = "";
+
+        public string ClassName { get; set; } = "";
     }
 
 }

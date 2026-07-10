@@ -62,9 +62,10 @@ namespace DocSets
             MaximizeBox = false;
             ShowInTaskbar = false;
             FormBorderStyle = FormBorderStyle.Sizable;
+            AutoScaleMode = AutoScaleMode.Dpi;
             Font = new Font("Segoe UI", 10f);
-            MinimumSize = new Size(560, showDestination ? 570 : 500);
-            Size = new Size(720, showDestination ? 650 : 590);
+            MinimumSize = new Size(700, showDestination ? 680 : 610);
+            Size = new Size(780, showDestination ? 740 : 670);
 
             BuildLayout();
             LoadFrom(item);
@@ -113,7 +114,7 @@ namespace DocSets
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
                 RowCount = showDestination ? 12 : 10,
-                Padding = new Padding(10)
+                Padding = new Padding(12)
             };
 
             root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -164,8 +165,8 @@ namespace DocSets
             emptyBookmarkTypeButton.Appearance = Appearance.Button;
             emptyBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
             emptyBookmarkTypeButton.AutoSize = false;
-            emptyBookmarkTypeButton.Width = 90;
-            emptyBookmarkTypeButton.Height = 28;
+            emptyBookmarkTypeButton.Width = 100;
+            emptyBookmarkTypeButton.Height = 34;
             emptyBookmarkTypeButton.Margin = new Padding(0, 0, 4, 0);
             emptyBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
 
@@ -173,8 +174,8 @@ namespace DocSets
             symbolBookmarkTypeButton.Appearance = Appearance.Button;
             symbolBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
             symbolBookmarkTypeButton.AutoSize = false;
-            symbolBookmarkTypeButton.Width = 90;
-            symbolBookmarkTypeButton.Height = 28;
+            symbolBookmarkTypeButton.Width = 100;
+            symbolBookmarkTypeButton.Height = 34;
             symbolBookmarkTypeButton.Margin = new Padding(0, 0, 4, 0);
             symbolBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
 
@@ -182,8 +183,8 @@ namespace DocSets
             fileBookmarkTypeButton.Appearance = Appearance.Button;
             fileBookmarkTypeButton.TextAlign = ContentAlignment.MiddleCenter;
             fileBookmarkTypeButton.AutoSize = false;
-            fileBookmarkTypeButton.Width = 90;
-            fileBookmarkTypeButton.Height = 28;
+            fileBookmarkTypeButton.Width = 100;
+            fileBookmarkTypeButton.Height = 34;
             fileBookmarkTypeButton.Margin = new Padding(0);
             fileBookmarkTypeButton.CheckedChanged += (_, __) => BookmarkTypeChanged();
 
@@ -240,15 +241,20 @@ namespace DocSets
                 Dock = DockStyle.Fill,
                 AutoSize = true,
                 FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false
+                WrapContents = false,
+                Padding = new Padding(0, 6, 0, 2)
             };
 
             okButton.Text = "OK";
             okButton.DialogResult = DialogResult.OK;
-            okButton.Width = 90;
+            okButton.AutoSize = false;
+            okButton.Width = 100;
+            okButton.Height = 34;
             cancelButton.Text = "Отмена";
             cancelButton.DialogResult = DialogResult.Cancel;
-            cancelButton.Width = 90;
+            cancelButton.AutoSize = false;
+            cancelButton.Width = 100;
+            cancelButton.Height = 34;
             buttons.Controls.Add(cancelButton);
             buttons.Controls.Add(okButton);
             root.Controls.Add(buttons, 0, row);

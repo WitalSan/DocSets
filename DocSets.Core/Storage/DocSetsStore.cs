@@ -99,6 +99,19 @@ namespace DocSets
         }
 
 
+        public async Task<DocumentItem> CreateClassBookmarkFromActiveDocumentAsync()
+        {
+            if (!await EnsureInitializedAsync())
+            {
+                return null;
+            }
+
+            return await roslyn.CreateClassBookmarkFromActiveDocumentAsync(
+                StorageDirectory,
+                ToRelativePath);
+        }
+
+
         public async Task<ActiveDocumentContext> GetActiveDocumentContextAsync()
         {
             if (!await EnsureInitializedAsync())

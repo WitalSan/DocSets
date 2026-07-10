@@ -31,6 +31,7 @@ namespace DocSets
         private ToolStripMenuItem _addSolutionFolderMenuItem;
         private ToolStripMenuItem _addProjectFolderMenuItem;
         private ToolStripMenuItem _addFileFolderMenuItem;
+        private ToolStripMenuItem _addClassFolderMenuItem;
         private readonly Dictionary<string, TreeColumn> _columnsByKey = new Dictionary<string, TreeColumn>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<TreeColumn, string> _columnKeys = new Dictionary<TreeColumn, string>();
         private bool _refreshing;
@@ -637,6 +638,7 @@ namespace DocSets
             _addSolutionFolderMenuItem = AddContextFolderMenu("Add Folder <Solution>", ActiveDocumentFolderKind.Solution);
             _addProjectFolderMenuItem = AddContextFolderMenu("Add Folder <Project>", ActiveDocumentFolderKind.Project);
             _addFileFolderMenuItem = AddContextFolderMenu("Add Folder <File>", ActiveDocumentFolderKind.File);
+            _addClassFolderMenuItem = AddContextFolderMenu("Add Folder <Class>", ActiveDocumentFolderKind.Class);
         }
 
         private ToolStripMenuItem AddContextFolderMenu(string text, ActiveDocumentFolderKind kind)
@@ -659,7 +661,7 @@ namespace DocSets
 
         private async void RefreshContextFolderMenuTexts()
         {
-            if (_addSolutionFolderMenuItem == null || _addProjectFolderMenuItem == null || _addFileFolderMenuItem == null)
+            if (_addSolutionFolderMenuItem == null || _addProjectFolderMenuItem == null || _addFileFolderMenuItem == null || _addClassFolderMenuItem == null)
             {
                 return;
             }
@@ -667,6 +669,7 @@ namespace DocSets
             _addSolutionFolderMenuItem.Text = "Add Folder <Solution>";
             _addProjectFolderMenuItem.Text = "Add Folder <Project>";
             _addFileFolderMenuItem.Text = "Add Folder <File>";
+            _addClassFolderMenuItem.Text = "Add Folder <Class>";
 
             var context = await _viewModel.GetActiveDocumentContextAsync();
             if (context == null)
@@ -674,12 +677,14 @@ namespace DocSets
                 _addSolutionFolderMenuItem.Enabled = false;
                 _addProjectFolderMenuItem.Enabled = false;
                 _addFileFolderMenuItem.Enabled = false;
+                _addClassFolderMenuItem.Enabled = false;
                 return;
             }
 
             ApplyContextFolderMenuText(_addSolutionFolderMenuItem, context.SolutionName, "Solution");
             ApplyContextFolderMenuText(_addProjectFolderMenuItem, context.ProjectName, "Project");
             ApplyContextFolderMenuText(_addFileFolderMenuItem, context.FileName, "File");
+            ApplyContextFolderMenuText(_addClassFolderMenuItem, context.ClassName, "Class");
         }
 
         private static void ApplyContextFolderMenuText(ToolStripMenuItem item, string name, string fallback)
