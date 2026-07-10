@@ -115,13 +115,14 @@ namespace DocSets
             root.Controls.Add(top, 0, 0);
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
+            _toolStrip.ImageScalingSize = new Size(20, 20);
             //AddButton("+Группа", _viewModel.AddSetCommand);
             //AddButton("Переим.", _viewModel.RenameSetCommand);
             //AddButton("-Группа", _viewModel.DeleteSetCommand);
             //_toolStrip.Items.Add(new ToolStripSeparator());
             //AddButton("+Папка", _viewModel.AddRootFolderCommand);
             //AddButton("+Вложенная", _viewModel.AddChildFolderCommand);
-            AddButton("+Закладка", _viewModel.AddBookmarkCommand);
+            AddButton("+Закладка", _viewModel.AddBookmarkCommand, AppIcon.LinkSymbol);
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddFindButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
@@ -415,9 +416,13 @@ namespace DocSets
             }
         }
 
-        private void AddButton(string text, WpfCommand command)
+        private void AddButton(string text, WpfCommand command, AppIcon? icon = null)
         {
-            var button = new ToolStripButton(text) { DisplayStyle = ToolStripItemDisplayStyle.Text };
+            var button = new ToolStripButton(text)
+            {
+                DisplayStyle = icon.HasValue ? ToolStripItemDisplayStyle.ImageAndText : ToolStripItemDisplayStyle.Text,
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, 20) : null
+            };
             button.Click += (_, __) => Execute(command, null);
             _toolStrip.Items.Add(button);
         }
@@ -466,7 +471,8 @@ namespace DocSets
             _findPreviousButton.ToolTipText = "Предыдущая найденная закладка";
             _findPreviousButton.Click += (_, __) => MoveFindSelection(-1);
 
-            _findButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _findButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
+            _findButton.Image = IconProvider.Get(AppIcon.Find, 20);
             _findButton.ToolTipText = "Найти закладку в текущем Set по активному документу";
             _findButton.Click += async (_, __) => await FindBookmarksInCurrentSetAsync();
 
@@ -552,18 +558,20 @@ namespace DocSets
 
         private void BuildMenus()
         {
-            AddMenu("Open", _viewModel.OpenBookmarkCommand);
+            _nodeMenu.ImageScalingSize = new Size(16, 16);
+            _groupMenu.ImageScalingSize = new Size(16, 16);
+            AddMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
             //AddMenu("Обновить", _viewModel.UpdateBookmarkCommand);
             //AddMenu("Переименовать", _viewModel.RenameNodeCommand);
             //AddMenu("Удалить", _viewModel.DeleteNodeCommand);
             //_nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Add BookMark", _viewModel.AddBookmarkCommand);
+            AddMenu("Add BookMark", _viewModel.AddBookmarkCommand, null, AppIcon.LinkSymbol);
             AddContextFolderMenus();
             _nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Copy", _viewModel.CopySelectedNodesCommand, "Ctrl+C");
-            AddMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V");
+            AddMenu("Copy", _viewModel.CopySelectedNodesCommand, "Ctrl+C", AppIcon.Copy);
+            AddMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V", AppIcon.Paste);
             //AddJsonMenu();
-            AddMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand);
+            AddMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
             AddMenu("Del", _viewModel.DeleteNodeCommand);
             _nodeMenu.Items.Add(new ToolStripSeparator());
             AddPropertiesMenu();
@@ -627,14 +635,17 @@ namespace DocSets
 
         private void AddPropertiesMenu()
         {
-            var item = new ToolStripMenuItem("Properties...");
+            var item = new ToolStripMenuItem("Properties...")
+            {
+                Image = IconProvider.Get(AppIcon.Properties, 16)
+            };
             item.Click += delegate { ShowBookmarkProperties(GetCurrentItem()); };
             _nodeMenu.Items.Add(item);
         }
 
         private void AddContextFolderMenus()
         {
-            AddMenu("Add Folder", _viewModel.AddFolderCommand);
+            AddMenu("Add Folder", _viewModel.AddFolderCommand, null, AppIcon.Folder);
             _addSolutionFolderMenuItem = AddContextFolderMenu("Add Folder <Solution>", ActiveDocumentFolderKind.Solution);
             _addProjectFolderMenuItem = AddContextFolderMenu("Add Folder <Project>", ActiveDocumentFolderKind.Project);
             _addFileFolderMenuItem = AddContextFolderMenu("Add Folder <File>", ActiveDocumentFolderKind.File);
@@ -645,7 +656,11 @@ namespace DocSets
         {
             var item = new ToolStripMenuItem(text)
             {
-                Tag = kind
+                Tag = kind,
+                Image = IconProvider.Get(
+                    kind == ActiveDocumentFolderKind.File ? AppIcon.FolderLinkFile :
+                    kind == ActiveDocumentFolderKind.Class ? AppIcon.FolderLinkSymbol : AppIcon.Folder,
+                    16)
             };
 
             item.Click += async (_, __) =>
@@ -831,9 +846,12 @@ namespace DocSets
             }
         }
 
-        private void AddMenu(string text, WpfCommand command, string shortcut = null)
+        private void AddMenu(string text, WpfCommand command, string shortcut = null, AppIcon? icon = null)
         {
-            var item = new ToolStripMenuItem(text);
+            var item = new ToolStripMenuItem(text)
+            {
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, 16) : null
+            };
             if (!string.IsNullOrEmpty(shortcut)) item.ShortcutKeyDisplayString = shortcut;
             item.Click += (_, __) => Execute(command, GetCurrentItem());
             _nodeMenu.Items.Add(item);

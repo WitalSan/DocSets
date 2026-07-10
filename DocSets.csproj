@@ -59,6 +59,7 @@
     <LangVersion>9</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="DocSets.UI.WinForms\Icons\IconProvider.cs" />
     <Compile Include="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -123,6 +124,16 @@
       <ResourceName>Menus.ctmenu</ResourceName>
     </VSCTCompile>
     <Content Include="Resources\DocSetsToolWindowCommand.png" />
+    <EmbeddedResource Include="-Icons-\Item.png"><LogicalName>DocSets.Icons.Item.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Folder.png"><LogicalName>DocSets.Icons.Folder.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\LinkSymbol.png"><LogicalName>DocSets.Icons.LinkSymbol.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\LinkFile.png"><LogicalName>DocSets.Icons.LinkFile.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\FolderLinkSymbol.png"><LogicalName>DocSets.Icons.FolderLinkSymbol.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\FolderLinkFile.png"><LogicalName>DocSets.Icons.FolderLinkFile.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Copy.png"><LogicalName>DocSets.Icons.Copy.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Paste.png"><LogicalName>DocSets.Icons.Paste.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Find.png"><LogicalName>DocSets.Icons.Find.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Properties.png"><LogicalName>DocSets.Icons.Properties.png</LogicalName></EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VSToolsPath)' != ''" />
