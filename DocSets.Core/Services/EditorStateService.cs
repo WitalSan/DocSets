@@ -46,6 +46,7 @@ namespace DocSets
                 state.SelectionStartColumn = span.Start.Position - startLine.Start.Position + 1;
                 state.SelectionEndLineOffset = endLine.LineNumber + 1 - Math.Max(1, anchorLine);
                 state.SelectionEndColumn = span.End.Position - endLine.Start.Position + 1;
+                state.SelectedText = span.GetText();
             }
 
             var firstVisible = view.TextViewLines?.FirstVisibleLine;
@@ -77,8 +78,14 @@ namespace DocSets
 
             if (state.HasSelection)
             {
-                var start = GetPoint(snapshot, anchorLine + state.SelectionStartLineOffset, state.SelectionStartColumn);
-                var end = GetPoint(snapshot, anchorLine + state.SelectionEndLineOffset, state.SelectionEndColumn);
+                SnapshotPoint start;
+                SnapshotPoint end;
+                if (!TryFindSelectedText(snapshot, state.SelectedText, anchorLine, state.SelectionStartLineOffset, out start, out end))
+                {
+                    start = GetPoint(snapshot, anchorLine + state.SelectionStartLineOffset, state.SelectionStartColumn);
+                    end = GetPoint(snapshot, anchorLine + state.SelectionEndLineOffset, state.SelectionEndColumn);
+                }
+
                 if (end.Position < start.Position)
                 {
                     var temp = start;
@@ -87,6 +94,7 @@ namespace DocSets
                 }
 
                 view.Selection.Select(new SnapshotSpan(start, end), false);
+                view.Caret.MoveTo(end);
             }
             else
             {
@@ -95,6 +103,86 @@ namespace DocSets
 
             var visiblePoint = GetPoint(snapshot, anchorLine + state.FirstVisibleLineOffset, 1);
             view.DisplayTextLineContainingBufferPosition(visiblePoint, 0.0, ViewRelativePosition.Top);
+        }
+
+
+        private static bool TryFindSelectedText(ITextSnapshot snapshot, string selectedText, int anchorLine, int expectedOffset, out SnapshotPoint start, out SnapshotPoint end)
+        {
+            start = default(SnapshotPoint);
+            end = default(SnapshotPoint);
+            if (snapshot == null || string.IsNullOrWhiteSpace(selectedText) || selectedText.Length < 3)
+            {
+                return false;
+            }
+
+            var expectedLine = Math.Max(1, anchorLine + expectedOffset);
+            var firstLine = Math.Max(0, expectedLine - 1 - 300);
+            var lastLine = Math.Min(snapshot.LineCount - 1, expectedLine - 1 + 300);
+            var rangeStart = snapshot.GetLineFromLineNumber(firstLine).Start.Position;
+            var rangeEnd = snapshot.GetLineFromLineNumber(lastLine).EndIncludingLineBreak.Position;
+            var source = snapshot.GetText(rangeStart, rangeEnd - rangeStart);
+
+            int normalizedStart;
+            int normalizedLength;
+            if (!TryFindIgnoringWhitespace(source, selectedText, out normalizedStart, out normalizedLength))
+            {
+                return false;
+            }
+
+            start = new SnapshotPoint(snapshot, rangeStart + normalizedStart);
+            end = new SnapshotPoint(snapshot, Math.Min(snapshot.Length, rangeStart + normalizedStart + normalizedLength));
+            return true;
+        }
+
+        private static bool TryFindIgnoringWhitespace(string source, string target, out int sourceStart, out int sourceLength)
+        {
+            sourceStart = 0;
+            sourceLength = 0;
+            var normalizedTarget = NormalizeWhitespace(target, null);
+            if (normalizedTarget.Length == 0)
+            {
+                return false;
+            }
+
+            var map = new System.Collections.Generic.List<int>();
+            var normalizedSource = NormalizeWhitespace(source, map);
+            var index = normalizedSource.IndexOf(normalizedTarget, StringComparison.Ordinal);
+            if (index < 0 || index >= map.Count)
+            {
+                return false;
+            }
+
+            var lastNormalizedIndex = Math.Min(map.Count - 1, index + normalizedTarget.Length - 1);
+            sourceStart = map[index];
+            sourceLength = Math.Max(1, map[lastNormalizedIndex] - sourceStart + 1);
+            return true;
+        }
+
+        private static string NormalizeWhitespace(string text, System.Collections.Generic.List<int> map)
+        {
+            var builder = new System.Text.StringBuilder(text?.Length ?? 0);
+            var inWhitespace = false;
+            for (var i = 0; i < (text?.Length ?? 0); i++)
+            {
+                var ch = text[i];
+                if (char.IsWhiteSpace(ch))
+                {
+                    if (!inWhitespace && builder.Length > 0)
+                    {
+                        builder.Append(' ');
+                        map?.Add(i);
+                    }
+                    inWhitespace = true;
+                }
+                else
+                {
+                    builder.Append(ch);
+                    map?.Add(i);
+                    inWhitespace = false;
+                }
+            }
+
+            return builder.ToString().Trim();
         }
 
         private static SnapshotPoint GetPoint(ITextSnapshot snapshot, int oneBasedLine, int oneBasedColumn)

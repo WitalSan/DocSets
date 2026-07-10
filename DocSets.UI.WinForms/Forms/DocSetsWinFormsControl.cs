@@ -1366,6 +1366,19 @@ namespace DocSets
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Start();
             };
+            _propertiesPanel.RefreshCodeRequested += async (_, __) =>
+            {
+                var current = _propertiesPanel.CurrentItem ?? GetCurrentItem();
+                if (current == null)
+                {
+                    return;
+                }
+
+                await _viewModel.SyncWithCurrentPositionAsync(current);
+                _propertiesPanel.LoadItem(current);
+                RebuildTree();
+                RefreshStatus();
+            };
             _propertiesPanel.Leave += async (_, __) =>
             {
                 _propertiesSaveTimer.Stop();

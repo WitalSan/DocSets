@@ -347,6 +347,9 @@ namespace DocSets
         [JsonProperty("firstVisibleLineOffset")]
         public int FirstVisibleLineOffset { get; set; }
 
+        [JsonProperty("selectedText", NullValueHandling = NullValueHandling.Ignore)]
+        public string SelectedText { get; set; }
+
         public EditorState Clone()
         {
             return (EditorState)MemberwiseClone();

@@ -18,15 +18,18 @@ namespace DocSets
         private readonly NumericUpDown lineBox = new NumericUpDown();
         private readonly NumericUpDown columnBox = new NumericUpDown();
         private readonly TextBox commentTextBox = new TextBox();
-        private readonly Button detailsButton = new Button();
+        private readonly TextBox codeTextBox = new TextBox();
+        private readonly Button copyCodeButton = new Button();
+        private readonly Button refreshCodeButton = new Button();
+        private readonly TabControl tabs = new TabControl();
         private readonly Panel detailsHost = new Panel();
         private readonly Dictionary<BookmarkColor, Button> colorButtons = new Dictionary<BookmarkColor, Button>();
         private bool loading;
-        private bool detailsExpanded = true;
         private DocumentItem item;
         private BookmarkColor selectedColor;
 
         public event EventHandler ItemChanged;
+        public event EventHandler RefreshCodeRequested;
 
         public BookmarkPropertiesPanel()
         {
@@ -58,6 +61,7 @@ namespace DocSets
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
                 commentTextBox.Text = value?.Comment ?? string.Empty;
+                codeTextBox.Text = value?.EditorState?.SelectedText ?? string.Empty;
                 selectedColor = value?.Color ?? BookmarkColor.None;
                 UpdateColorButtons();
                 UpdateEnabledState();
@@ -100,42 +104,72 @@ namespace DocSets
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 4,
+                RowCount = 2,
                 Padding = new Padding(3)
             };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Controls.Add(root);
 
-            detailsButton.Dock = DockStyle.Top;
-            detailsButton.Height = 25;
-            detailsButton.FlatStyle = FlatStyle.System;
-            detailsButton.TextAlign = ContentAlignment.MiddleLeft;
-            detailsButton.Click += (_, __) => SetDetailsExpanded(!detailsExpanded);
-            root.Controls.Add(detailsButton, 0, 0);
-
-            detailsHost.Dock = DockStyle.Top;
-            detailsHost.AutoSize = true;
-            detailsHost.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            detailsHost.Controls.Add(CreateDetailsLayout());
-            root.Controls.Add(detailsHost, 0, 1);
-
-            var colorRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = new Padding(0, 2, 0, 2) };
+            var colorRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 3) };
             colorRow.Controls.Add(CreatePalette());
-            root.Controls.Add(colorRow, 0, 2);
+            root.Controls.Add(colorRow, 0, 0);
+
+            tabs.Dock = DockStyle.Fill;
+            var commentTab = new TabPage("Комментарий");
+            var codeTab = new TabPage("Код");
+            var propertiesTab = new TabPage("Свойства");
+            tabs.TabPages.Add(commentTab);
+            tabs.TabPages.Add(codeTab);
+            tabs.TabPages.Add(propertiesTab);
+            root.Controls.Add(tabs, 0, 1);
 
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Multiline = true;
             commentTextBox.AcceptsReturn = true;
             commentTextBox.AcceptsTab = true;
             commentTextBox.ScrollBars = ScrollBars.Vertical;
-            commentTextBox.Margin = new Padding(0, 3, 0, 0);
-            root.Controls.Add(commentTextBox, 0, 3);
+            commentTab.Controls.Add(commentTextBox);
 
-            SetDetailsExpanded(false);
+            var codeRoot = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
+            codeRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            codeRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            codeTab.Controls.Add(codeRoot);
+            var codeButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 2, 0, 2) };
+            copyCodeButton.Text = "Копировать";
+            copyCodeButton.AutoSize = true;
+            copyCodeButton.Click += (_, __) =>
+            {
+                if (!string.IsNullOrEmpty(codeTextBox.Text))
+                {
+                    Clipboard.SetText(codeTextBox.Text);
+                }
+            };
+            refreshCodeButton.Text = "Обновить";
+            refreshCodeButton.AutoSize = true;
+            refreshCodeButton.Click += (_, __) => RefreshCodeRequested?.Invoke(this, EventArgs.Empty);
+            codeButtons.Controls.Add(copyCodeButton);
+            codeButtons.Controls.Add(refreshCodeButton);
+            codeRoot.Controls.Add(codeButtons, 0, 0);
+
+            codeTextBox.Dock = DockStyle.Fill;
+            codeTextBox.Multiline = true;
+            codeTextBox.ReadOnly = true;
+            codeTextBox.WordWrap = false;
+            codeTextBox.ScrollBars = ScrollBars.Both;
+            codeTextBox.Font = new Font("Consolas", 9F);
+            codeRoot.Controls.Add(codeTextBox, 0, 1);
+
+            detailsHost.Dock = DockStyle.Fill;
+            detailsHost.AutoScroll = true;
+            detailsHost.Controls.Add(CreateDetailsLayout());
+            propertiesTab.Controls.Add(detailsHost);
+        }
+
+        public void RefreshCodePreview()
+        {
+            codeTextBox.Text = item?.EditorState?.SelectedText ?? string.Empty;
         }
 
         private Control CreateDetailsLayout()
@@ -209,12 +243,6 @@ namespace DocSets
             }
         }
 
-        private void SetDetailsExpanded(bool expanded)
-        {
-            detailsExpanded = expanded;
-            detailsHost.Visible = expanded;
-            detailsButton.Text = expanded ? "▼ Свойства" : "▶ Свойства";
-        }
 
         private void UpdateEnabledState()
         {
