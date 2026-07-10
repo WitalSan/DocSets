@@ -988,9 +988,14 @@ namespace DocSets
 
         private static ObservableCollection<DocumentItem> FindOwnerCollection(IEnumerable<DocumentItem> nodes, DocumentItem item)
         {
+            var collection = nodes as ObservableCollection<DocumentItem>;
+            if (collection != null && collection.Contains(item))
+            {
+                return collection;
+            }
+
             foreach (var node in nodes)
             {
-                if (node.Children.Contains(item)) return node.Children;
                 var nested = FindOwnerCollection(node.Children, item);
                 if (nested != null) return nested;
             }
