@@ -75,6 +75,7 @@
     <Compile Include="DocSets.Core\Models\Model.cs" />
     <Compile Include="DocSets.Core\Roslyn\RoslynBookmarkResolver.cs" />
     <Compile Include="DocSets.UI.WinForms\TreeViewAdv\BookmarkTreeNode.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>

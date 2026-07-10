@@ -18,7 +18,7 @@ namespace DocSets
         private readonly NumericUpDown lineBox = new NumericUpDown();
         private readonly NumericUpDown columnBox = new NumericUpDown();
         private readonly TextBox commentTextBox = new TextBox();
-        private readonly TextBox codeTextBox = new TextBox();
+        private readonly RichTextBox codeTextBox = new RichTextBox();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly TabControl tabs = new TabControl();
@@ -61,7 +61,7 @@ namespace DocSets
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
                 commentTextBox.Text = value?.Comment ?? string.Empty;
-                codeTextBox.Text = value?.EditorState?.SelectedText ?? string.Empty;
+                UpdateCodePreview(value);
                 selectedColor = value?.Color ?? BookmarkColor.None;
                 UpdateColorButtons();
                 UpdateEnabledState();
@@ -117,6 +117,9 @@ namespace DocSets
             root.Controls.Add(colorRow, 0, 0);
 
             tabs.Dock = DockStyle.Fill;
+            tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+            tabs.DrawItem += DrawTab;
+            tabs.Padding = new Point(12, 4);
             var commentTab = new TabPage("Комментарий");
             var codeTab = new TabPage("Код");
             var propertiesTab = new TabPage("Свойства");
@@ -154,10 +157,11 @@ namespace DocSets
             codeRoot.Controls.Add(codeButtons, 0, 0);
 
             codeTextBox.Dock = DockStyle.Fill;
-            codeTextBox.Multiline = true;
             codeTextBox.ReadOnly = true;
             codeTextBox.WordWrap = false;
-            codeTextBox.ScrollBars = ScrollBars.Both;
+            codeTextBox.DetectUrls = false;
+            codeTextBox.HideSelection = false;
+            codeTextBox.ScrollBars = RichTextBoxScrollBars.Both;
             codeTextBox.Font = new Font("Consolas", 9F);
             codeRoot.Controls.Add(codeTextBox, 0, 1);
 
@@ -167,9 +171,58 @@ namespace DocSets
             propertiesTab.Controls.Add(detailsHost);
         }
 
+
+        private void DrawTab(object sender, DrawItemEventArgs e)
+        {
+            var page = tabs.TabPages[e.Index];
+            var selected = e.Index == tabs.SelectedIndex;
+            var bounds = e.Bounds;
+
+            var backColor = selected ? SystemColors.Highlight : SystemColors.Control;
+            var foreColor = selected ? SystemColors.HighlightText : SystemColors.ControlText;
+
+            using (var background = new SolidBrush(backColor))
+            {
+                e.Graphics.FillRectangle(background, bounds);
+            }
+
+            if (selected)
+            {
+                using (var border = new Pen(SystemColors.Highlight, 2))
+                {
+                    e.Graphics.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
+                }
+            }
+            else
+            {
+                using (var border = new Pen(SystemColors.ControlDark))
+                {
+                    e.Graphics.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
+                }
+            }
+
+            TextRenderer.DrawText(
+                e.Graphics,
+                page.Text,
+                tabs.Font,
+                bounds,
+                foreColor,
+                TextFormatFlags.HorizontalCenter |
+                TextFormatFlags.VerticalCenter |
+                TextFormatFlags.EndEllipsis);
+        }
+
         public void RefreshCodePreview()
         {
-            codeTextBox.Text = item?.EditorState?.SelectedText ?? string.Empty;
+            UpdateCodePreview(item);
+        }
+
+        private void UpdateCodePreview(DocumentItem value)
+        {
+            var code = value?.EditorState?.SelectedText ?? string.Empty;
+            var path = value?.Path ?? string.Empty;
+            CodePreviewHighlighter.Apply(codeTextBox, code, path);
+            copyCodeButton.Enabled = !string.IsNullOrEmpty(code);
         }
 
         private Control CreateDetailsLayout()
