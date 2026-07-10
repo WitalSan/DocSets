@@ -1,4 +1,4 @@
-using Microsoft.VisualStudio.Shell;
+﻿using Microsoft.VisualStudio.Shell;
 using System;
 using System.Windows;
 using System.Windows.Forms.Integration;
@@ -11,6 +11,8 @@ namespace DocSets
         private readonly DocSetsViewModel viewModel;
         private readonly DocSetsWinFormsControl winFormsControl;
         private readonly DispatcherTimer solutionLoadRetryTimer;
+        private readonly DispatcherTimer workspaceSyncTimer;
+        private bool workspaceSyncInProgress;
         private int solutionLoadRetryCount;
 
         public DocSetsWinFormsHostControl(AsyncPackage package)
@@ -22,6 +24,9 @@ namespace DocSets
             solutionLoadRetryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             solutionLoadRetryTimer.Tick += (_, __) => RetryLoadAfterSolutionOpened();
 
+            workspaceSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+            workspaceSyncTimer.Tick += async (_, __) => await CheckWorkspaceChangesAsync();
+
             Loaded += (_, __) =>
             {
                 ThreadHelper.JoinableTaskFactory.Run(viewModel.LoadAsync);
@@ -32,6 +37,14 @@ namespace DocSets
                     solutionLoadRetryCount = 0;
                     solutionLoadRetryTimer.Start();
                 }
+
+                workspaceSyncTimer.Start();
+            };
+
+            Unloaded += (_, __) =>
+            {
+                solutionLoadRetryTimer.Stop();
+                workspaceSyncTimer.Stop();
             };
         }
 
@@ -47,6 +60,27 @@ namespace DocSets
             {
                 await viewModel.LoadAsync();
                 winFormsControl.RefreshAll();
+            }
+        }
+
+        private async System.Threading.Tasks.Task CheckWorkspaceChangesAsync()
+        {
+            if (workspaceSyncInProgress || !viewModel.IsLoaded)
+            {
+                return;
+            }
+
+            workspaceSyncInProgress = true;
+            try
+            {
+                if (await viewModel.ReloadIfWorkspaceChangedAsync())
+                {
+                    winFormsControl.RefreshAll();
+                }
+            }
+            finally
+            {
+                workspaceSyncInProgress = false;
             }
         }
 

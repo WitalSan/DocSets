@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -32,6 +33,8 @@ namespace DocSets
         private string storageText = "DocSets: загрузка...";
         private bool isLoaded;
         private bool isApplyingState;
+        private bool isReloadingExternalChanges;
+        private int activeSaveCount;
 
         public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
         {
@@ -227,7 +230,37 @@ namespace DocSets
         public async Task LoadAsync()
         {
             var loadedState = await store.LoadAsync();
+            ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
+        }
 
+        public async Task<bool> ReloadIfWorkspaceChangedAsync()
+        {
+            if (!IsLoaded || isReloadingExternalChanges || Volatile.Read(ref activeSaveCount) > 0 ||
+                !await store.HasExternalChangesAsync())
+            {
+                return false;
+            }
+
+            isReloadingExternalChanges = true;
+            try
+            {
+                var preferredSetName = SelectedSet?.Name;
+                var selectedNodePath = BuildNodeIndexPath(SelectedSet?.Files, SelectedNode);
+                var loadedState = await store.LoadAsync();
+                ApplyLoadedState(loadedState, preferredSetName, selectedNodePath);
+                return loadedState != null;
+            }
+            finally
+            {
+                isReloadingExternalChanges = false;
+            }
+        }
+
+        private void ApplyLoadedState(
+            DocumentSetsState loadedState,
+            string preferredSetName,
+            IReadOnlyList<int> selectedNodePath)
+        {
             if (loadedState == null)
             {
                 IsLoaded = false;
@@ -261,7 +294,21 @@ namespace DocSets
                 IsLoaded = true;
                 OnPropertyChanged(nameof(Sets));
                 OnPropertyChanged(nameof(Ui));
-                SelectedSet = state.Sets.FirstOrDefault(x => x.Name == state.ActiveSet) ?? state.Sets.FirstOrDefault();
+
+                var setName = string.IsNullOrWhiteSpace(preferredSetName)
+                    ? state.ActiveSet
+                    : preferredSetName;
+
+                SelectedSet = state.Sets.FirstOrDefault(x =>
+                                  string.Equals(x.Name, setName, StringComparison.OrdinalIgnoreCase))
+                              ?? state.Sets.FirstOrDefault(x => x.Name == state.ActiveSet)
+                              ?? state.Sets.FirstOrDefault();
+
+                var restoredNode = FindNodeByIndexPath(SelectedSet?.Files, selectedNodePath);
+                SetSelectedNodes(restoredNode == null
+                    ? Enumerable.Empty<DocumentItem>()
+                    : new[] { restoredNode });
+
                 StorageText = string.IsNullOrWhiteSpace(store.StateFilePath)
                     ? "DocSets: откройте solution (.sln)"
                     : store.IsSharedWorkspace
@@ -274,6 +321,75 @@ namespace DocSets
             }
 
             InvalidateCommands();
+        }
+
+        private static IReadOnlyList<int> BuildNodeIndexPath(
+            ObservableCollection<DocumentItem> roots,
+            DocumentItem target)
+        {
+            if (roots == null || target == null)
+            {
+                return null;
+            }
+
+            var path = new List<int>();
+            return TryBuildNodeIndexPath(roots, target, path) ? path : null;
+        }
+
+        private static bool TryBuildNodeIndexPath(
+            ObservableCollection<DocumentItem> nodes,
+            DocumentItem target,
+            IList<int> path)
+        {
+            for (var index = 0; index < nodes.Count; index++)
+            {
+                var node = nodes[index];
+                path.Add(index);
+
+                if (ReferenceEquals(node, target))
+                {
+                    return true;
+                }
+
+                if (node?.Children != null && TryBuildNodeIndexPath(node.Children, target, path))
+                {
+                    return true;
+                }
+
+                path.RemoveAt(path.Count - 1);
+            }
+
+            return false;
+        }
+
+        private static DocumentItem FindNodeByIndexPath(
+            ObservableCollection<DocumentItem> roots,
+            IReadOnlyList<int> path)
+        {
+            if (roots == null || path == null || path.Count == 0)
+            {
+                return null;
+            }
+
+            ObservableCollection<DocumentItem> current = roots;
+            DocumentItem node = null;
+
+            for (var depth = 0; depth < path.Count; depth++)
+            {
+                var index = path[depth];
+                if (current == null || index < 0 || index >= current.Count)
+                {
+                    return null;
+                }
+
+                node = current[index];
+                if (depth < path.Count - 1)
+                {
+                    current = node?.Children;
+                }
+            }
+
+            return node;
         }
 
         private void AddSet()
@@ -1532,8 +1648,16 @@ namespace DocSets
                 return;
             }
 
-            await fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
-            await store.SaveAsync(state);
+            Interlocked.Increment(ref activeSaveCount);
+            try
+            {
+                await fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
+                await store.SaveAsync(state);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeSaveCount);
+            }
         }
 
         private IEnumerable<DocumentItem> EnumerateAllNodes()

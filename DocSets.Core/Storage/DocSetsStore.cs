@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -19,6 +20,9 @@ namespace DocSets
         private string storageDirectory = "";
         private string stateFilePath = "";
         private bool isSharedWorkspace;
+        private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
+        private DateTime lastKnownWriteTimeUtc = DateTime.MinValue;
+        private long lastKnownLength = -1;
 
         public DocSetsStore(AsyncPackage package)
         {
@@ -51,12 +55,16 @@ namespace DocSets
             try
             {
                 var json = File.ReadAllText(StateFilePath);
-                return JsonConvert.DeserializeObject<DocumentSetsState>(json)
-                       ?? new DocumentSetsState();
+                var loaded = JsonConvert.DeserializeObject<DocumentSetsState>(json)
+                             ?? new DocumentSetsState();
+                RememberCurrentFileStamp();
+                return loaded;
             }
             catch
             {
-                return new DocumentSetsState();
+                // Не запоминаем метку повреждённого/недописанного файла:
+                // следующая проверка таймера попробует прочитать его ещё раз.
+                return null;
             }
         }
 
@@ -80,10 +88,99 @@ namespace DocSets
                 return;
             }
 
-            Directory.CreateDirectory(storageDirectory);
+            await saveGate.WaitAsync();
+            try
+            {
+                Directory.CreateDirectory(storageDirectory);
 
-            var json = JsonConvert.SerializeObject(state, Formatting.Indented);
-            File.WriteAllText(StateFilePath, json);
+                var json = JsonConvert.SerializeObject(state, Formatting.Indented);
+                var tempFilePath = StateFilePath + ".tmp." + Guid.NewGuid().ToString("N");
+
+                try
+                {
+                    File.WriteAllText(tempFilePath, json);
+
+                    if (File.Exists(StateFilePath))
+                    {
+                        try
+                        {
+                            File.Replace(tempFilePath, StateFilePath, null);
+                        }
+                        catch (PlatformNotSupportedException)
+                        {
+                            File.Copy(tempFilePath, StateFilePath, true);
+                            File.Delete(tempFilePath);
+                        }
+                        catch (IOException)
+                        {
+                            File.Copy(tempFilePath, StateFilePath, true);
+                            File.Delete(tempFilePath);
+                        }
+                    }
+                    else
+                    {
+                        File.Move(tempFilePath, StateFilePath);
+                    }
+
+                    RememberCurrentFileStamp();
+                }
+                finally
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        try { File.Delete(tempFilePath); } catch { }
+                    }
+                }
+            }
+            finally
+            {
+                saveGate.Release();
+            }
+        }
+
+        public async Task<bool> HasExternalChangesAsync()
+        {
+            if (!await EnsureInitializedAsync() || string.IsNullOrWhiteSpace(StateFilePath))
+            {
+                return false;
+            }
+
+            if (!File.Exists(StateFilePath))
+            {
+                return lastKnownWriteTimeUtc != DateTime.MinValue || lastKnownLength >= 0;
+            }
+
+            try
+            {
+                var info = new FileInfo(StateFilePath);
+                return info.LastWriteTimeUtc != lastKnownWriteTimeUtc ||
+                       info.Length != lastKnownLength;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void RememberCurrentFileStamp()
+        {
+            if (string.IsNullOrWhiteSpace(StateFilePath) || !File.Exists(StateFilePath))
+            {
+                lastKnownWriteTimeUtc = DateTime.MinValue;
+                lastKnownLength = -1;
+                return;
+            }
+
+            try
+            {
+                var info = new FileInfo(StateFilePath);
+                lastKnownWriteTimeUtc = info.LastWriteTimeUtc;
+                lastKnownLength = info.Length;
+            }
+            catch
+            {
+                // Оставляем предыдущую метку и повторяем проверку на следующем тике.
+            }
         }
 
         public async Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync()
@@ -197,6 +294,8 @@ namespace DocSets
             }
 
             solutionFilePath = normalizedSolutionFile;
+            lastKnownWriteTimeUtc = DateTime.MinValue;
+            lastKnownLength = -1;
 
             solutionDirectory = !string.IsNullOrWhiteSpace(directory)
                 ? directory
@@ -226,6 +325,8 @@ namespace DocSets
             storageDirectory = "";
             stateFilePath = "";
             isSharedWorkspace = false;
+            lastKnownWriteTimeUtc = DateTime.MinValue;
+            lastKnownLength = -1;
         }
 
         private string ToRelativePath(string fullPath)
