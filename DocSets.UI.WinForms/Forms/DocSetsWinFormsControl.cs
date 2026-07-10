@@ -18,6 +18,9 @@ namespace DocSets
         private readonly ToolStrip _toolStrip = new ToolStrip();
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
         private readonly ToolStripButton _clickOpenActivationButton = new ToolStripButton("Click→Open");
+        private readonly ToolStripButton _collapseAllButton = new ToolStripButton("[-]");
+        private readonly ToolStripButton _previousTreeNodeButton = new ToolStripButton("^");
+        private readonly ToolStripButton _nextTreeNodeButton = new ToolStripButton("v");
         private readonly ToolStripButton _findPreviousButton = new ToolStripButton("<");
         private readonly ToolStripButton _findButton = new ToolStripButton("Найти");
         private readonly ToolStripLabel _findCounterLabel = new ToolStripLabel("0:0");
@@ -69,32 +72,17 @@ namespace DocSets
             RefreshAll();
         }
 
-        public async System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
+        public System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
         {
-            var bookmark = await _viewModel.CreateBookmarkFromActiveDocumentAsync(showErrors: true);
-            if (bookmark == null)
+            var target = _viewModel.SelectedNode;
+            if (!_viewModel.AddBookmarkCommand.CanExecute(target))
             {
-                return;
+                return System.Threading.Tasks.Task.CompletedTask;
             }
 
-            var initialParent = _viewModel.SelectedNode?.NodeType == NodeType.Folder ? _viewModel.SelectedNode : null;
-
-            using (var dialog = new BookmarkPropertiesDialog(
-                bookmark,
-                _viewModel.Sets,
-                _viewModel.SelectedSet,
-                initialParent))
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK)
-                {
-                    return;
-                }
-
-                dialog.ApplyTo(bookmark);
-                await _viewModel.AddPreparedBookmarkAsync(bookmark, dialog.SelectedSet, dialog.SelectedParent);
-            }
-
+            _viewModel.AddBookmarkCommand.Execute(target);
             RefreshAll();
+            return System.Threading.Tasks.Task.CompletedTask;
         }
 
         protected override void OnLoad(EventArgs e)
@@ -147,7 +135,9 @@ namespace DocSets
             //_toolStrip.Items.Add(new ToolStripSeparator());
             //AddButton("+Папка", _viewModel.AddRootFolderCommand);
             //AddButton("+Вложенная", _viewModel.AddChildFolderCommand);
-            AddButton("+Закладка", _viewModel.AddBookmarkCommand, AppIcon.LinkSymbol);
+            AddButton("+Закладка", _viewModel.AddBookmarkCommand, AppIcon.LinkSymbol, "Добавить закладку (Ctrl+Num+)");
+            _toolStrip.Items.Add(new ToolStripSeparator());
+            AddTreeNavigationButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddFindButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
@@ -756,15 +746,92 @@ namespace DocSets
             }
         }
 
-        private void AddButton(string text, WpfCommand command, AppIcon? icon = null)
+        private void AddButton(string text, WpfCommand command, AppIcon? icon = null, string toolTipText = null)
         {
             var button = new ToolStripButton(text)
             {
                 DisplayStyle = icon.HasValue ? ToolStripItemDisplayStyle.ImageAndText : ToolStripItemDisplayStyle.Text,
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, 20) : null
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, 20) : null,
+                ToolTipText = toolTipText ?? text
             };
             button.Click += (_, __) => Execute(command, null);
             _toolStrip.Items.Add(button);
+        }
+
+        private void AddTreeNavigationButtons()
+        {
+            _collapseAllButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _collapseAllButton.ToolTipText = "Свернуть все узлы дерева";
+            _collapseAllButton.Click += (_, __) => _tree.CollapseAll();
+
+            _previousTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _previousTreeNodeButton.ToolTipText = "Перейти к предыдущей видимой закладке";
+            _previousTreeNodeButton.Click += (_, __) => MoveTreeBookmark(-1);
+
+            _nextTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _nextTreeNodeButton.ToolTipText = "Перейти к следующей видимой закладке";
+            _nextTreeNodeButton.Click += (_, __) => MoveTreeBookmark(1);
+
+            _toolStrip.Items.Add(_collapseAllButton);
+            _toolStrip.Items.Add(_previousTreeNodeButton);
+            _toolStrip.Items.Add(_nextTreeNodeButton);
+        }
+
+        private void MoveTreeBookmark(int delta)
+        {
+            var nodes = EnumerateVisibleTreeNodes(_tree.Root)
+                .Where(node => (node.Tag as BookmarkTreeNode)?.Item?.Type != BookmarkType.Empty)
+                .ToList();
+
+            if (nodes.Count == 0)
+            {
+                return;
+            }
+
+            var current = _tree.CurrentNode ?? _tree.SelectedNode;
+            var index = nodes.IndexOf(current);
+            if (index < 0)
+            {
+                index = delta > 0 ? -1 : 0;
+            }
+
+            index = (index + delta) % nodes.Count;
+            if (index < 0)
+            {
+                index += nodes.Count;
+            }
+
+            var targetNode = nodes[index];
+            var item = (targetNode.Tag as BookmarkTreeNode)?.Item;
+            if (item == null)
+            {
+                return;
+            }
+
+            _tree.ClearSelection();
+            targetNode.IsSelected = true;
+            _tree.SelectedNode = targetNode;
+            _tree.EnsureVisible(targetNode);
+            _viewModel.SetSelectedNodes(new[] { item });
+            LoadPropertiesPanel(item);
+            Execute(_viewModel.OpenBookmarkCommand, item);
+        }
+
+        private IEnumerable<TreeNodeAdv> EnumerateVisibleTreeNodes(TreeNodeAdv root)
+        {
+            foreach (TreeNodeAdv child in root.Children)
+            {
+                yield return child;
+                if (!child.IsExpanded)
+                {
+                    continue;
+                }
+
+                foreach (var nested in EnumerateVisibleTreeNodes(child))
+                {
+                    yield return nested;
+                }
+            }
         }
 
         private void AddTreeActivationModeButtons()

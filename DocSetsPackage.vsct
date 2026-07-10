@@ -84,6 +84,10 @@
     </Bitmaps>
   </Commands>
 
+  <KeyBindings>
+    <KeyBinding guid="guidDocSetsPackageCmdSet" id="AddBookmarkFromEditorCommandId" editor="guidVSStd97" key1="VK_ADD" mod1="CONTROL" />
+  </KeyBindings>
+
   <Symbols>
     <!-- This is the package guid. -->
     <GuidSymbol name="guidDocSetsPackage" value="{e15c5bd0-af0f-402f-8ad8-628126477955}" />
