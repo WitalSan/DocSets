@@ -162,6 +162,9 @@
     <EmbeddedResource Include="-Icons-\CollapseAll.png">
       <LogicalName>DocSets.Icons.CollapseAll.png</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\ExpandAll.png">
+      <LogicalName>DocSets.Icons.ExpandAll.png</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\NavigatePrevious.png">
       <LogicalName>DocSets.Icons.NavigatePrevious.png</LogicalName>
     </EmbeddedResource>

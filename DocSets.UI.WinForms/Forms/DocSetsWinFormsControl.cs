@@ -19,6 +19,7 @@ namespace DocSets
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
         private readonly ToolStripButton _clickOpenActivationButton = new ToolStripButton("Click→Open");
         private readonly ToolStripButton _collapseAllButton = new ToolStripButton();
+        private readonly ToolStripButton _expandAllButton = new ToolStripButton();
         private readonly ToolStripButton _previousTreeNodeButton = new ToolStripButton();
         private readonly ToolStripButton _nextTreeNodeButton = new ToolStripButton();
         private readonly ToolStripButton _findPreviousButton = new ToolStripButton("<");
@@ -68,6 +69,7 @@ namespace DocSets
         private readonly Dictionary<object, HashSet<DocumentItem>> _selectedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
         private object _renderedExpansionOwner;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
+        int _iconSize => ToPhysicalIconSize(16);
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -136,7 +138,7 @@ namespace DocSets
             root.Controls.Add(top, 0, 0);
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
-            _toolStrip.ImageScalingSize = new Size(20, 20);
+            _toolStrip.ImageScalingSize = new Size(_iconSize, _iconSize);
             //AddButton("+Группа", _viewModel.AddSetCommand);
             //AddButton("Переим.", _viewModel.RenameSetCommand);
             //AddButton("-Группа", _viewModel.DeleteSetCommand);
@@ -345,8 +347,8 @@ namespace DocSets
                     var marker = new Label
                     {
                         AutoSize = false,
-                        Width = 20,
-                        Height = 20,
+                        Width = _iconSize,
+                        Height = _iconSize,
                         Margin = new Padding(2, 0, 0, 0),
                         BackColor = color == BookmarkColor.None ? Color.White : GetBookmarkColor(color),
                         BorderStyle = BorderStyle.FixedSingle,
@@ -759,7 +761,7 @@ namespace DocSets
             var button = new ToolStripButton(text)
             {
                 DisplayStyle = icon.HasValue ? ToolStripItemDisplayStyle.ImageAndText : ToolStripItemDisplayStyle.Text,
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, 20) : null,
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, _iconSize) : null,
                 ToolTipText = toolTipText ?? text
             };
             button.Click += (_, __) => Execute(command, null);
@@ -768,29 +770,42 @@ namespace DocSets
 
         private void AddTreeNavigationButtons()
         {
+            _expandAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _expandAllButton.Image = IconProvider.Get(AppIcon.ExpandAll, _iconSize);
+            _expandAllButton.ToolTipText = "Развернуть все узлы дерева";
+            _expandAllButton.Click += (_, __) => _tree.ExpandAll();
+
             _collapseAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, 20);
+            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, _iconSize);
             _collapseAllButton.ToolTipText = "Свернуть все узлы дерева";
             _collapseAllButton.Click += (_, __) => _tree.CollapseAll();
 
             _previousTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, 20);
+            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, _iconSize);
             _previousTreeNodeButton.ToolTipText = "Перейти к предыдущей видимой закладке";
             _previousTreeNodeButton.Click += (_, __) => MoveTreeBookmark(-1);
 
             _nextTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, 20);
+            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, _iconSize);
             _nextTreeNodeButton.ToolTipText = "Перейти к следующей видимой закладке";
             _nextTreeNodeButton.Click += (_, __) => MoveTreeBookmark(1);
 
+            _toolStrip.Items.Add(_expandAllButton);
             _toolStrip.Items.Add(_collapseAllButton);
             _toolStrip.Items.Add(_previousTreeNodeButton);
             _toolStrip.Items.Add(_nextTreeNodeButton);
         }
 
+        private int ToPhysicalIconSize(int desiredSize)
+        {
+            return Math.Max(
+                1,
+                (int)Math.Round(desiredSize / 96f * _toolStrip.DeviceDpi));
+        }
+
         private void MoveTreeBookmark(int delta)
         {
-            var nodes = EnumerateVisibleTreeNodes(_tree.Root)
+            var nodes = EnumerateTreeNodes(_tree.Root)
                 .Where(node => (node.Tag as BookmarkTreeNode)?.Item?.Type != BookmarkType.Empty)
                 .ToList();
 
@@ -827,7 +842,7 @@ namespace DocSets
             LoadPropertiesPanel(item);
             Execute(_viewModel.OpenBookmarkCommand, item);
         }
-
+        
         private IEnumerable<TreeNodeAdv> EnumerateVisibleTreeNodes(TreeNodeAdv root)
         {
             foreach (TreeNodeAdv child in root.Children)
@@ -890,7 +905,7 @@ namespace DocSets
             _findPreviousButton.Click += (_, __) => MoveFindSelection(-1);
 
             _findButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _findButton.Image = IconProvider.Get(AppIcon.Find, 20);
+            _findButton.Image = IconProvider.Get(AppIcon.Find, _iconSize);
             _findButton.ToolTipText = "Найти закладку в текущем Set по активному документу";
             _findButton.Click += async (_, __) => await FindBookmarksInCurrentSetAsync();
 
@@ -1744,7 +1759,7 @@ namespace DocSets
             var host = new ToolStripControlHost(editor)
             {
                 AutoSize = false,
-                Width = Math.Max(button.Width + 20, Math.Max(90, textWidth)),
+                Width = Math.Max(button.Width + _iconSize, Math.Max(90, textWidth)),
                 Height = Math.Max(_groupsStrip.Height - 4, editor.PreferredHeight + 2),
                 Margin = button.Margin,
                 Padding = Padding.Empty,
@@ -2135,7 +2150,7 @@ namespace DocSets
             _togglePropertiesButton.CheckOnClick = true;
             _togglePropertiesButton.Checked = true;
             _togglePropertiesButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, 20);
+            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, _iconSize);
             _togglePropertiesButton.ToolTipText = "Показать или скрыть панель свойств";
             _togglePropertiesButton.Click += (_, __) => SetPropertiesPanelVisible(_togglePropertiesButton.Checked);
             _toolStrip.Items.Add(_togglePropertiesButton);

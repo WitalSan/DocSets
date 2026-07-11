@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Reflection;
 
@@ -20,6 +22,7 @@ namespace DocSets
         Find,
         Properties,
         CollapseAll,
+        ExpandAll,
         NavigatePrevious,
         NavigateNext
     }
@@ -43,8 +46,41 @@ namespace DocSets
                 return result;
             }
         }
-
         private static Image GetSource(AppIcon icon)
+        {
+            if (Sources.TryGetValue(icon, out var cached))
+                return cached;
+
+            var resourceName = $"DocSets.Icons.{icon}.png";
+
+            using (var stream = Assembly
+                       .GetExecutingAssembly()
+                       .GetManifestResourceStream(resourceName))
+            {
+                if (stream == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Icon resource was not found: {resourceName}");
+                }
+
+                using (var loaded = new Bitmap(stream))
+                {
+                    var copy = loaded.Clone(
+                        new Rectangle(0, 0, loaded.Width, loaded.Height),
+                        PixelFormat.Format32bppArgb);
+
+                    Sources.Add(icon, copy);
+                    return copy;
+                }
+            }
+        }
+        /// <summary>
+        /// Этот вариант глючит подгоняет под dpi и картинка получается образанной справа и снизу
+        /// </summary>
+        /// <param name="icon"></param>
+        /// <returns></returns>
+        /// <exception cref="InvalidOperationException"></exception>
+        private static Image GetSource1(AppIcon icon)
         {
             if (Sources.TryGetValue(icon, out var cached)) return cached;
             var resourceName = "DocSets.Icons." + icon + ".png";
@@ -60,7 +96,7 @@ namespace DocSets
                 }
             }
         }
-
+        
         private static Image Scale(Image source, int size)
         {
             var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -75,7 +111,30 @@ namespace DocSets
                 graphics.SmoothingMode = SmoothingMode.HighQuality;
                 graphics.DrawImage(source, new Rectangle(0, 0, size, size), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel);
             }
+
+            if (Debugger.IsAttached)
+            {
+                var str1 = ImageToBase64(source);
+                var str2 = BitmapToBase64(bitmap);
+            }
+
             return bitmap;
+        }
+        static string BitmapToBase64(Bitmap bitmap)
+        {
+            using (var ms = new MemoryStream())
+            {
+                bitmap.Save(ms, ImageFormat.Png);
+                return Convert.ToBase64String(ms.ToArray());
+            }
+        }
+        static string ImageToBase64(Image image)
+        {
+            using (var ms = new MemoryStream())
+            {
+                image.Save(ms, ImageFormat.Png);
+                return Convert.ToBase64String(ms.ToArray());
+            }
         }
     }
 }
