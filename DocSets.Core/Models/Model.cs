@@ -8,6 +8,16 @@ using Newtonsoft.Json;
 
 namespace DocSets
 {
+
+    public sealed class WorkspaceInfo
+    {
+        public string Name { get; set; } = "";
+        public string RelativePath { get; set; } = "";
+        public string FullPath { get; set; } = "";
+
+        public override string ToString() => Name;
+    }
+
     public sealed class DocumentSetsState : NotifyObject
     {
         private string activeSet = "";

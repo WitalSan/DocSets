@@ -1,5 +1,7 @@
 ﻿using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
@@ -13,7 +15,8 @@ namespace DocSets
         private readonly AsyncPackage package;
         private readonly RoslynBookmarkResolver roslyn;
 
-        private const string WorkspaceFileName = "DocSets.workspace.json";
+        private const string LegacyWorkspaceFileName = "DocSets.workspace.json";
+        private const string WorkspaceSearchPattern = "*.docsets.json";
 
         private string solutionDirectory = "";
         private string solutionFilePath = "";
@@ -39,6 +42,28 @@ namespace DocSets
         public bool IsSharedWorkspace => isSharedWorkspace;
 
         public string StateFilePath => stateFilePath;
+
+        public string CurrentWorkspaceRelativePath => ToSolutionRelativePath(stateFilePath);
+
+        public async Task<IReadOnlyList<WorkspaceInfo>> GetWorkspacesAsync()
+        {
+            if (!await EnsureInitializedAsync()) return Array.Empty<WorkspaceInfo>();
+            return DiscoverWorkspaces();
+        }
+
+        public async Task<bool> SelectWorkspaceAsync(string relativePath)
+        {
+            if (!await EnsureInitializedAsync() || string.IsNullOrWhiteSpace(relativePath)) return false;
+            var fullPath = Path.GetFullPath(Path.Combine(solutionDirectory, relativePath));
+            if (!IsAllowedWorkspacePath(fullPath)) return false;
+            stateFilePath = fullPath;
+            storageDirectory = Path.GetDirectoryName(fullPath);
+            isSharedWorkspace = !string.Equals(storageDirectory, solutionDirectory, StringComparison.OrdinalIgnoreCase);
+            lastKnownWriteTimeUtc = DateTime.MinValue;
+            lastKnownLength = -1;
+            SaveActiveWorkspaceName(relativePath);
+            return true;
+        }
 
         public async Task<DocumentSetsState> LoadAsync()
         {
@@ -267,56 +292,121 @@ namespace DocSets
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
             var solution = await package.GetServiceAsync(typeof(SVsSolution)) as IVsSolution;
-            if (solution == null)
-            {
-                ClearSolutionState();
-                return false;
-            }
+            if (solution == null) { ClearSolutionState(); return false; }
 
-            solution.GetSolutionInfo(
-                out var directory,
-                out var solutionFile,
-                out _);
-
-            if (string.IsNullOrWhiteSpace(solutionFile))
-            {
-                ClearSolutionState();
-                return false;
-            }
+            solution.GetSolutionInfo(out var directory, out var solutionFile, out _);
+            if (string.IsNullOrWhiteSpace(solutionFile)) { ClearSolutionState(); return false; }
 
             var normalizedSolutionFile = Path.GetFullPath(solutionFile);
-
-            if (string.Equals(
-                    normalizedSolutionFile,
-                    solutionFilePath,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
+            if (string.Equals(normalizedSolutionFile, solutionFilePath, StringComparison.OrdinalIgnoreCase)) return true;
 
             solutionFilePath = normalizedSolutionFile;
+            solutionDirectory = !string.IsNullOrWhiteSpace(directory) ? directory : Path.GetDirectoryName(normalizedSolutionFile);
             lastKnownWriteTimeUtc = DateTime.MinValue;
             lastKnownLength = -1;
 
-            solutionDirectory = !string.IsNullOrWhiteSpace(directory)
-                ? directory
-                : Path.GetDirectoryName(normalizedSolutionFile);
-
-            var workspaceFile = FindWorkspaceFile(solutionDirectory);
-            if (!string.IsNullOrWhiteSpace(workspaceFile))
+            var savedRelativePath = LoadActiveWorkspaceName();
+            if (!string.IsNullOrWhiteSpace(savedRelativePath))
             {
-                stateFilePath = workspaceFile;
-                storageDirectory = Path.GetDirectoryName(workspaceFile);
-                isSharedWorkspace = true;
-                return true;
+                var savedFullPath = Path.GetFullPath(Path.Combine(solutionDirectory, savedRelativePath));
+                if (IsAllowedWorkspacePath(savedFullPath) && File.Exists(savedFullPath))
+                {
+                    SetWorkspacePath(savedFullPath);
+                    return true;
+                }
             }
 
+            var workspaces = DiscoverWorkspaces();
             var solutionName = Path.GetFileNameWithoutExtension(normalizedSolutionFile);
-            storageDirectory = solutionDirectory;
-            stateFilePath = Path.Combine(solutionDirectory, $"{solutionName}.docsets.json");
-            isSharedWorkspace = false;
-
+            var preferred = workspaces.FirstOrDefault(x => string.Equals(x.Name, solutionName, StringComparison.OrdinalIgnoreCase))
+                            ?? workspaces.FirstOrDefault();
+            var fullPath = preferred?.FullPath ?? Path.Combine(solutionDirectory, solutionName + ".docsets.json");
+            SetWorkspacePath(fullPath);
+            SaveActiveWorkspaceName(ToSolutionRelativePath(fullPath));
             return true;
+        }
+
+        private void SetWorkspacePath(string fullPath)
+        {
+            stateFilePath = Path.GetFullPath(fullPath);
+            storageDirectory = Path.GetDirectoryName(stateFilePath);
+            isSharedWorkspace = !string.Equals(storageDirectory, solutionDirectory, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private IReadOnlyList<WorkspaceInfo> DiscoverWorkspaces()
+        {
+            var result = new List<WorkspaceInfo>();
+            for (var __dir = solutionDirectory; !string.IsNullOrEmpty(__dir); __dir = Directory.GetParent(__dir)?.FullName)
+            {
+                AddWorkspacesFromDirectory(result, __dir);
+            }
+            //AddWorkspacesFromDirectory(result, solutionDirectory);
+            //AddWorkspacesFromDirectory(result, Directory.GetParent(solutionDirectory)?.FullName);
+            return result
+                .GroupBy(x => x.FullPath, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.First())
+                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void AddWorkspacesFromDirectory(ICollection<WorkspaceInfo> result, string directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return;
+            IEnumerable<string> files = Directory.EnumerateFiles(directory, WorkspaceSearchPattern, SearchOption.TopDirectoryOnly);
+            var legacy = Path.Combine(directory, LegacyWorkspaceFileName);
+            if (File.Exists(legacy)) files = files.Concat(new[] { legacy });
+            foreach (var file in files)
+            {
+                var fileName = Path.GetFileName(file);
+                var name = fileName.EndsWith(".docsets.json", StringComparison.OrdinalIgnoreCase)
+                    ? fileName.Substring(0, fileName.Length - ".docsets.json".Length)
+                    : Path.GetFileNameWithoutExtension(fileName);
+                result.Add(new WorkspaceInfo { Name = name, FullPath = Path.GetFullPath(file), RelativePath = ToSolutionRelativePath(file) });
+            }
+        }
+
+        private bool IsAllowedWorkspacePath(string fullPath)
+        {
+            var directory = Path.GetDirectoryName(Path.GetFullPath(fullPath));
+            var parent = Directory.GetParent(solutionDirectory)?.FullName;
+            return solutionDirectory.StartsWith(directory);
+        }
+
+        private string WorkspaceSelectionFilePath
+        {
+            get
+            {
+                var solutionName = Path.GetFileNameWithoutExtension(solutionFilePath) ?? "solution";
+                return Path.Combine(solutionDirectory, ".vs", "DockSets", solutionName + ".workspace");
+            }
+        }
+
+        private string LoadActiveWorkspaceName()
+        {
+            try { return File.Exists(WorkspaceSelectionFilePath) ? File.ReadAllText(WorkspaceSelectionFilePath).Trim() : ""; }
+            catch { return ""; }
+        }
+
+        private void SaveActiveWorkspaceName(string relativePath)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceSelectionFilePath));
+                File.WriteAllText(WorkspaceSelectionFilePath, relativePath ?? "");
+            }
+            catch { }
+        }
+
+        private string ToSolutionRelativePath(string fullPath)
+        {
+            if (string.IsNullOrWhiteSpace(fullPath) || string.IsNullOrWhiteSpace(solutionDirectory)) return "";
+            try
+            {
+                var baseUri = new Uri(AppendDirectorySeparator(solutionDirectory));
+                return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(Path.GetFullPath(fullPath))).ToString())
+                    .Replace('/', Path.DirectorySeparatorChar);
+            }
+            catch { return fullPath; }
         }
 
         private void ClearSolutionState()
@@ -365,35 +455,6 @@ namespace DocSets
             }
 
             return Path.GetFullPath(Path.Combine(storageDirectory, path));
-        }
-
-        private static string FindWorkspaceFile(string directory)
-        {
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                return "";
-            }
-
-            try
-            {
-                var current = new DirectoryInfo(directory);
-                while (current != null)
-                {
-                    var candidate = Path.Combine(current.FullName, WorkspaceFileName);
-                    if (File.Exists(candidate))
-                    {
-                        return candidate;
-                    }
-
-                    current = current.Parent;
-                }
-            }
-            catch
-            {
-                // Keep the old per-solution behavior when the workspace search fails.
-            }
-
-            return "";
         }
 
         private static string AppendDirectorySeparator(string path)

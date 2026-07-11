@@ -35,6 +35,8 @@ namespace DocSets
         private bool isApplyingState;
         private bool isReloadingExternalChanges;
         private int activeSaveCount;
+        private IReadOnlyList<WorkspaceInfo> workspaces = Array.Empty<WorkspaceInfo>();
+        private WorkspaceInfo selectedWorkspace;
 
         public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
         {
@@ -68,6 +70,14 @@ namespace DocSets
         }
 
         public ObservableCollection<DocumentItem> Sets => state.Sets;
+
+        public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
+
+        public WorkspaceInfo SelectedWorkspace
+        {
+            get => selectedWorkspace;
+            private set => SetProperty(ref selectedWorkspace, value);
+        }
 
         public DocumentSetsUiSettings Ui => state.Ui;
 
@@ -231,8 +241,37 @@ namespace DocSets
 
         public async Task LoadAsync()
         {
+            await RefreshWorkspacesAsync();
             var loadedState = await store.LoadAsync();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
+            await RefreshWorkspacesAsync();
+        }
+
+        public async Task SelectWorkspaceAsync(WorkspaceInfo workspace)
+        {
+            if (workspace == null || string.Equals(workspace.RelativePath, store.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase)) return;
+            await SaveAsync();
+            if (!await store.SelectWorkspaceAsync(workspace.RelativePath)) return;
+            var loadedState = await store.LoadAsync() ?? new DocumentSetsState();
+            ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
+            await RefreshWorkspacesAsync();
+        }
+
+        private async Task RefreshWorkspacesAsync()
+        {
+            workspaces = await store.GetWorkspacesAsync();
+            SelectedWorkspace = workspaces.FirstOrDefault(x => string.Equals(x.RelativePath, store.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase));
+            if (SelectedWorkspace == null && !string.IsNullOrWhiteSpace(store.CurrentWorkspaceRelativePath))
+            {
+                var path = store.CurrentWorkspaceRelativePath;
+                var fileName = System.IO.Path.GetFileName(path);
+                var name = fileName.EndsWith(".docsets.json", StringComparison.OrdinalIgnoreCase)
+                    ? fileName.Substring(0, fileName.Length - ".docsets.json".Length)
+                    : System.IO.Path.GetFileNameWithoutExtension(fileName);
+                SelectedWorkspace = new WorkspaceInfo { Name = name, RelativePath = path, FullPath = store.StateFilePath };
+                workspaces = workspaces.Concat(new[] { SelectedWorkspace }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            }
+            OnPropertyChanged(nameof(Workspaces));
         }
 
         public async Task<bool> ReloadIfWorkspaceChangedAsync()

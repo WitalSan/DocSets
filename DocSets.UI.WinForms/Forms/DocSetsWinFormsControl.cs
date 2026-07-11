@@ -13,7 +13,7 @@ namespace DocSets
     internal sealed class DocSetsWinFormsControl : UserControl
     {
         private readonly DocSetsViewModel _viewModel;
-        private readonly ComboBox _setsCombo = new ComboBox();
+        private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
@@ -125,10 +125,10 @@ namespace DocSets
             Controls.Add(root);
 
             var top = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(3) };
-            top.Controls.Add(new Label { Text = "Группа:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
-            _setsCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-            _setsCombo.Width = 220;
-            top.Controls.Add(_setsCombo);
+            top.Controls.Add(new Label { Text = "Workspace:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+            _workspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+            _workspaceCombo.Width = 220;
+            top.Controls.Add(_workspaceCombo);
             root.Controls.Add(top, 0, 0);
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
@@ -1367,7 +1367,6 @@ namespace DocSets
             if (_groupMenu.Tag is DocumentItem set && !ReferenceEquals(_viewModel.SelectedSet, set))
             {
                 _viewModel.SelectedSet = set;
-                _setsCombo.SelectedItem = set;
                 UpdateGroupButtonsChecked();
                 RebuildTree();
                 RefreshStatus();
@@ -1401,15 +1400,15 @@ namespace DocSets
 
         private void WireEvents()
         {
-            _setsCombo.SelectedIndexChanged += (_, __) =>
+            _workspaceCombo.SelectedIndexChanged += async (_, __) =>
             {
                 if (_refreshing) return;
+                var workspace = _workspaceCombo.SelectedItem as WorkspaceInfo;
+                if (workspace == null) return;
                 _showSetsOverview = false;
-                _viewModel.SelectedSet = _setsCombo.SelectedItem as DocumentItem;
                 ClearFindResults();
-                RefreshGroupsStrip();
-                RebuildTree();
-                RefreshStatus();
+                await _viewModel.SelectWorkspaceAsync(workspace);
+                RefreshAll();
             };
 
             _tree.SelectionChanged += (_, __) =>
@@ -1528,13 +1527,13 @@ namespace DocSets
             _refreshing = true;
             try
             {
-                _setsCombo.Items.Clear();
-                foreach (var set in _viewModel.Sets)
+                _workspaceCombo.Items.Clear();
+                foreach (var workspace in _viewModel.Workspaces)
                 {
-                    _setsCombo.Items.Add(set);
+                    _workspaceCombo.Items.Add(workspace);
                 }
+                _workspaceCombo.SelectedItem = _viewModel.SelectedWorkspace;
 
-                _setsCombo.SelectedItem = _viewModel.SelectedSet;
                 RefreshGroupsStrip();
             }
             finally { _refreshing = false; }
@@ -1630,7 +1629,6 @@ namespace DocSets
             {
                 _showSetsOverview = false;
                 _viewModel.SelectedSet = set;
-                _setsCombo.SelectedItem = set;
                 ClearFindResults();
 
                 UpdateGroupButtonsChecked();
