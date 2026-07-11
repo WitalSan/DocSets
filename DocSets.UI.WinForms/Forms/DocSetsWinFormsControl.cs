@@ -63,7 +63,6 @@ namespace DocSets
         private bool _selectingFromFind;
         private bool _propertiesVisible = true;
         private bool _showSetsOverview;
-        private readonly Dictionary<DocumentItem, DocumentItem> _setOverviewMap = new Dictionary<DocumentItem, DocumentItem>();
         private readonly object _setsOverviewExpansionOwner = new object();
         private readonly Dictionary<object, HashSet<DocumentItem>> _expandedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
         private readonly Dictionary<object, HashSet<DocumentItem>> _selectedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
@@ -78,6 +77,7 @@ namespace DocSets
             BuildLayout();
             BuildTree();
             BuildMenus();
+            _viewModel.TreeChanged += ViewModel_TreeChanged;
             WireEvents();
             RefreshAll();
         }
@@ -105,6 +105,7 @@ namespace DocSets
         {
             if (disposing)
             {
+                _viewModel.TreeChanged -= ViewModel_TreeChanged;
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Dispose();
                 _consolasFont.Dispose();
@@ -1004,20 +1005,20 @@ namespace DocSets
         {
             _nodeMenu.ImageScalingSize = new Size(16, 16);
             _groupMenu.ImageScalingSize = new Size(16, 16);
-            AddMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
+            AddNodeMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
             AddSyncWithCurrentPositionMenu();
             //AddMenu("Обновить", _viewModel.UpdateBookmarkCommand);
             //AddMenu("Переименовать", _viewModel.RenameNodeCommand);
             //AddMenu("Удалить", _viewModel.DeleteNodeCommand);
             //_nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Add BookMark", _viewModel.AddBookmarkCommand, null, AppIcon.LinkSymbol);
+            AddNodeMenu("Add BookMark", _viewModel.AddBookmarkCommand, null, AppIcon.LinkSymbol);
             AddContextFolderMenus();
             _nodeMenu.Items.Add(new ToolStripSeparator());
-            AddMenu("Copy", _viewModel.CopySelectedNodesCommand, "Ctrl+C", AppIcon.Copy);
-            AddMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V", AppIcon.Paste);
+            AddNodeMenu("Copy", _viewModel.CopySelectedNodesCommand, "Ctrl+C", AppIcon.Copy);
+            AddNodeMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V", AppIcon.Paste);
             //AddJsonMenu();
-            AddMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
-            AddMenu("Del", _viewModel.DeleteNodeCommand);
+            AddNodeMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
+            AddNodeMenu("Del", _viewModel.DeleteNodeCommand);
             _nodeMenu.Items.Add(new ToolStripSeparator());
             AddColorMenu();
             AddPropertiesMenu();
@@ -1034,6 +1035,11 @@ namespace DocSets
             _groupMenu.Items.Add(new ToolStripSeparator());
             AddGroupMenu("Move Left", _viewModel.MoveSetUpCommand);
             AddGroupMenu("Move Right", _viewModel.MoveSetDownCommand);
+
+            _groupMenu.Items.Add(new ToolStripSeparator());
+            AddGroupMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
+            AddGroupMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V", AppIcon.Paste);
+
 
             _groupMenu.Opening += (_, e) =>
             {
@@ -1202,7 +1208,7 @@ namespace DocSets
 
         private void AddContextFolderMenus()
         {
-            AddMenu("Add Folder", _viewModel.AddFolderCommand, null, AppIcon.Folder);
+            AddNodeMenu("Add Folder", _viewModel.AddFolderCommand, null, AppIcon.Folder);
             _addSolutionFolderMenuItem = AddContextFolderMenu("Add Folder <Solution>", ActiveDocumentFolderKind.Solution);
             _addProjectFolderMenuItem = AddContextFolderMenu("Add Folder <Project>", ActiveDocumentFolderKind.Project);
             _addFileFolderMenuItem = AddContextFolderMenu("Add Folder <File>", ActiveDocumentFolderKind.File);
@@ -1316,12 +1322,15 @@ namespace DocSets
             }
         }
 
-        private void AddGroupMenu(string text, WpfCommand command)
+        private void AddGroupMenu(string text, WpfCommand command, string shortcut = null, AppIcon? icon = null)
         {
             var item = new ToolStripMenuItem(text)
             {
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, _iconSize) : null,
                 Tag = command
             };
+            
+            if (!string.IsNullOrEmpty(shortcut)) item.ShortcutKeyDisplayString = shortcut;
 
             item.Click += (_, __) =>
             {
@@ -1406,11 +1415,11 @@ namespace DocSets
             }
         }
 
-        private void AddMenu(string text, WpfCommand command, string shortcut = null, AppIcon? icon = null)
+        private void AddNodeMenu(string text, WpfCommand command, string shortcut = null, AppIcon? icon = null)
         {
             var item = new ToolStripMenuItem(text)
             {
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, 16) : null
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, _iconSize) : null
             };
             if (!string.IsNullOrEmpty(shortcut)) item.ShortcutKeyDisplayString = shortcut;
             item.Click += (_, __) => Execute(command, GetCurrentItem());
@@ -1613,7 +1622,7 @@ namespace DocSets
             {
                 _groupsStrip.Items.Clear();
 
-                var setsButton = new ToolStripButton("Sets")
+                var setsButton = new ToolStripButton("Full-Tree")
                 {
                     Tag = SetsOverviewTag,
                     CheckOnClick = false,
@@ -1626,7 +1635,7 @@ namespace DocSets
                 _groupsStrip.Items.Add(setsButton);
                 _groupsStrip.Items.Add(new ToolStripSeparator());
 
-                foreach (var set in _viewModel.Sets)
+                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder))
                 {
                     var button = new ToolStripButton(set.Name)
                     {
@@ -1833,6 +1842,31 @@ namespace DocSets
             _cancelGroupRename = false;
         }
 
+        private void ViewModel_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
+        {
+            if (IsDisposed || e == null) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => ViewModel_TreeChanged(sender, e)));
+                return;
+            }
+
+            var rootStructureChanged = ReferenceEquals(e.OldParent, _viewModel.Root)
+                || ReferenceEquals(e.NewParent, _viewModel.Root);
+            var rootNameChanged = e.Kind == DocumentTreeChangeKind.PropertyChanged
+                && e.PropertyName == nameof(DocumentItem.Name)
+                && e.Item != null && e.Item.IsRootChild;
+
+            if (rootNameChanged)
+                BeginInvoke(new Action(RefreshGroupsStrip));
+
+            if (e.Kind != DocumentTreeChangeKind.PropertyChanged)
+            {
+                if (rootStructureChanged) RefreshGroupsStrip();
+                RebuildTree();
+            }
+        }
+
         private void RebuildTree()
         {
             // Expansion and selection state belong to the displayed tab, not to the TreeView as a whole.
@@ -1849,15 +1883,7 @@ namespace DocSets
                     if (item == null)
                         continue;
 
-                    if (ReferenceEquals(_renderedExpansionOwner, _setsOverviewExpansionOwner) &&
-                        _setOverviewMap.TryGetValue(item, out var set))
-                    {
-                        expandedItems.Add(set);
-                    }
-                    else
-                    {
-                        expandedItems.Add(item);
-                    }
+                    expandedItems.Add(item);
                 }
 
                 _expandedItemsByView[_renderedExpansionOwner] = expandedItems;
@@ -1869,15 +1895,7 @@ namespace DocSets
                     if (item == null)
                         continue;
 
-                    if (ReferenceEquals(_renderedExpansionOwner, _setsOverviewExpansionOwner) &&
-                        _setOverviewMap.TryGetValue(item, out var set))
-                    {
-                        selectedItems.Add(set);
-                    }
-                    else
-                    {
-                        selectedItems.Add(item);
-                    }
+                    selectedItems.Add(item);
                 }
 
                 _selectedItemsByView[_renderedExpansionOwner] = selectedItems;
@@ -1893,19 +1911,13 @@ namespace DocSets
             try
             {
                 _treeModel.Nodes.Clear();
-                _setOverviewMap.Clear();
                 if (_showSetsOverview)
                 {
-                    foreach (var set in _viewModel.Sets)
+                    foreach (var item in _viewModel.Root.Children)
                     {
-                        var item = new DocumentItem
-                        {
-                            Name = set.Name,
-                            NodeType = NodeType.Folder,
-                            Type = BookmarkType.Empty
-                        };
-                        _setOverviewMap[item] = set;
-                        _treeModel.Nodes.Add(new BookmarkTreeNode(item));
+                        var node = BookmarkTreeNode.CreateFiltered(item, MatchesFilter);
+                        if (node != null)
+                            _treeModel.Nodes.Add(node);
                     }
                 }
                 else if (_viewModel.CurrentNodes != null)
@@ -1931,15 +1943,8 @@ namespace DocSets
                         if (item == null)
                             continue;
 
-                        if (_showSetsOverview && _setOverviewMap.TryGetValue(item, out var set))
-                        {
-                            if (expandedForView.Contains(set))
-                                treeNode.IsExpanded = true;
-                        }
-                        else if (expandedForView.Contains(item))
-                        {
+                        if (expandedForView.Contains(item))
                             treeNode.IsExpanded = true;
-                        }
                     }
                 }
 
@@ -2110,29 +2115,18 @@ namespace DocSets
             var selectionOwner = _showSetsOverview ? _setsOverviewExpansionOwner : (object)_viewModel.SelectedSet;
             if (selectionOwner != null)
             {
-                if (_showSetsOverview)
-                {
-                    _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(
-                        items.Select(item => _setOverviewMap.TryGetValue(item, out var set) ? set : null)
-                             .Where(item => item != null));
-                }
-                else
-                {
-                    _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(items);
-                }
+                _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(items);
             }
 
             if (_showSetsOverview)
             {
                 var selected = items.FirstOrDefault();
-                if (selected != null && _setOverviewMap.TryGetValue(selected, out var set))
+                var rootFolder = selected == null ? null : _viewModel.GetSetContainingNode(selected);
+                if (rootFolder != null && !ReferenceEquals(_viewModel.SelectedSet, rootFolder))
                 {
-                    _viewModel.SelectedSet = set;
+                    _viewModel.SelectedSet = rootFolder;
                     UpdateGroupButtonsChecked();
                 }
-                _viewModel.SetSelectedNodes(Enumerable.Empty<DocumentItem>());
-                LoadPropertiesPanel(null);
-                return;
             }
 
             _viewModel.SetSelectedNodes(items);
@@ -2188,14 +2182,7 @@ namespace DocSets
                     if (item == null)
                         continue;
 
-                    var selectionItem = item;
-                    if (ReferenceEquals(selectionOwner, _setsOverviewExpansionOwner) &&
-                        _setOverviewMap.TryGetValue(item, out var set))
-                    {
-                        selectionItem = set;
-                    }
-
-                    if (!selectedItems.Contains(selectionItem))
+                    if (!selectedItems.Contains(item))
                         continue;
 
                     node.IsSelected = true;
@@ -2338,9 +2325,6 @@ namespace DocSets
 
         private void Tree_NodeMouseClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
-            if (_showSetsOverview)
-                return;
-
             var item = GetBookmarkFromMouseEvent(e);
             if (item == null || item.Type == BookmarkType.Empty)
             {
@@ -2353,9 +2337,9 @@ namespace DocSets
         private void Tree_NodeMouseDoubleClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
             var item = GetBookmarkFromMouseEvent(e);
-            if (_showSetsOverview && item != null && _setOverviewMap.TryGetValue(item, out var overviewSet))
+            if (_showSetsOverview && item != null && item.NodeType == NodeType.Folder && item.IsRootChild)
             {
-                SelectSet(overviewSet);
+                SelectSet(item);
                 return;
             }
             if (item == null || item.Type == BookmarkType.Empty)
@@ -2368,9 +2352,6 @@ namespace DocSets
 
         private void Tree_NodeMouseDoubleClick_ShowProperties(object sender, TreeNodeAdvMouseEventArgs e)
         {
-            if (_showSetsOverview)
-                return;
-
             var item = GetBookmarkFromMouseEvent(e);
             if (item == null)
             {
@@ -2413,10 +2394,10 @@ namespace DocSets
                 SyncSelectionFromTree();
             }
 
-            if (_showSetsOverview)
+            var contextItem = (node?.Tag as BookmarkTreeNode)?.Item;
+            if (_showSetsOverview && (contextItem == null || (contextItem.NodeType == NodeType.Folder && contextItem.IsRootChild)))
             {
-                var item = (node?.Tag as BookmarkTreeNode)?.Item;
-                _groupMenu.Tag = item != null && _setOverviewMap.TryGetValue(item, out var set) ? set : null;
+                _groupMenu.Tag = contextItem;
                 _groupMenu.Show(_tree, e.Location);
             }
             else
@@ -2431,12 +2412,9 @@ namespace DocSets
             var position = ConvertDropPosition(_tree.DropPosition.Position);
             if (_showSetsOverview)
             {
-                var sourceItem = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).FirstOrDefault(x => x != null);
-                if (sourceItem != null && target != null
-                    && _setOverviewMap.TryGetValue(sourceItem, out var sourceSet)
-                    && _setOverviewMap.TryGetValue(target, out var targetSet))
+                if (_viewModel.CanMoveSelectedNodesTo(target, position, fullTree: true))
                 {
-                    _viewModel.MoveSetRelative(sourceSet, targetSet, position == DocSets.DropPosition.After);
+                    await _viewModel.MoveSelectedNodesToAsync(target, position, fullTree: true);
                 }
             }
             else if (_viewModel.CanMoveSelectedNodesTo(target, position))
@@ -2454,10 +2432,7 @@ namespace DocSets
             var position = ConvertDropPosition(_tree.DropPosition.Position);
             if (_showSetsOverview)
             {
-                var sourceItem = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).FirstOrDefault(x => x != null);
-                e.Effect = sourceItem != null && target != null && !ReferenceEquals(sourceItem, target)
-                    && _setOverviewMap.ContainsKey(sourceItem) && _setOverviewMap.ContainsKey(target)
-                    && position != DocSets.DropPosition.Inside
+                e.Effect = _viewModel.CanMoveSelectedNodesTo(target, position, fullTree: true)
                     ? DragDropEffects.Move : DragDropEffects.None;
             }
             else
@@ -2480,22 +2455,35 @@ namespace DocSets
         {
             if (_showSetsOverview)
             {
+                var item = GetCurrentItem();
                 if (e.KeyCode == Keys.Enter)
                 {
-                    var item = GetCurrentItem();
-                    if (item != null && _setOverviewMap.TryGetValue(item, out var set)) SelectSet(set);
+                    if (item != null && item.NodeType == NodeType.Folder && item.IsRootChild) SelectSet(item);
+                    else if (item != null && item.Type != BookmarkType.Empty) Execute(_viewModel.OpenBookmarkCommand, item);
                     e.Handled = true;
                 }
                 else if (e.KeyCode == Keys.F2)
                 {
-                    _nameNode?.BeginEdit();
+                    if (item != null && item.IsRootChild) _nameNode?.BeginEdit();
+                    else Execute(_viewModel.RenameNodeCommand, item);
                     e.Handled = true;
                 }
                 else if (e.KeyCode == Keys.Delete)
                 {
-                    _viewModel.DeleteSetCommand.Execute(null);
+                    if (item != null && item.IsRootChild) _viewModel.DeleteSetCommand.Execute(null);
+                    else Execute(_viewModel.DeleteNodeCommand, item);
                     _showSetsOverview = true;
                     RefreshAll();
+                    e.Handled = true;
+                }
+                else if (e.Control && (e.KeyCode == Keys.C || e.KeyCode == Keys.Insert))
+                {
+                    Execute(_viewModel.CopySelectedNodesCommand, item);
+                    e.Handled = true;
+                }
+                else if ((e.Control && e.KeyCode == Keys.V) || (e.Shift && e.KeyCode == Keys.Insert))
+                {
+                    Execute(_viewModel.PasteNodesCommand, item);
                     e.Handled = true;
                 }
                 return;
@@ -2572,7 +2560,8 @@ namespace DocSets
                 return;
             }
 
-            if (!_setOverviewMap.TryGetValue(treeNode.Item, out var set))
+            var set = treeNode.Item;
+            if (!set.IsRootChild || set.NodeType != NodeType.Folder)
             {
                 return;
             }

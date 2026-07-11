@@ -67,9 +67,13 @@ namespace DocSets
             PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
+            state.Root.TreeChanged += Root_TreeChanged;
         }
 
-        public ObservableCollection<DocumentItem> Sets => state.Sets;
+        public event EventHandler<DocumentTreeChangedEventArgs> TreeChanged;
+
+        public DocumentItem Root => state.Root;
+        public ObservableCollection<DocumentItem> Sets => state.Root.Children;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
 
@@ -297,6 +301,17 @@ namespace DocSets
             }
         }
 
+        private void Root_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
+        {
+            TreeChanged?.Invoke(this, e);
+            if (IsLoaded && !isApplyingState && e != null
+                && e.PropertyName != nameof(DocumentItem.IsExpanded)
+                && e.PropertyName != nameof(DocumentItem.IsMultiSelected))
+            {
+                _ = SaveAsync();
+            }
+        }
+
         private void ApplyLoadedState(
             DocumentSetsState loadedState,
             string preferredSetName,
@@ -305,7 +320,9 @@ namespace DocSets
             if (loadedState == null)
             {
                 IsLoaded = false;
+                state.Root.TreeChanged -= Root_TreeChanged;
                 state = new DocumentSetsState();
+                state.Root.TreeChanged += Root_TreeChanged;
                 selectedSet = null;
                 selectedNode = null;
                 SetSelectedNodes(Enumerable.Empty<DocumentItem>());
@@ -319,22 +336,18 @@ namespace DocSets
                 return;
             }
 
+            state.Root.TreeChanged -= Root_TreeChanged;
             state = loadedState;
+            state.Root.TreeChanged += Root_TreeChanged;
             if (state.Ui == null) state.Ui = new DocumentSetsUiSettings();
 
-            // Set is now a regular root DocumentItem. Old files did not contain nodeType
-            // on set objects, so normalize every first-level item during loading.
-            foreach (var set in state.Sets.Where(x => x != null))
-            {
-                set.NodeType = NodeType.Set;
-                set.Type = BookmarkType.Empty;
-            }
-
-            NormalizeNodes(state.Sets.SelectMany(x => x.Children));
+            // Legacy NodeType.Set is normalized while DTO objects are created.
+            // Root may contain both folders and leaf items; only folders are represented as tabs.
+            NormalizeNodes(state.Sets);
 
             if (state.Sets.Count == 0)
             {
-                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Set, Type = BookmarkType.Empty });
+                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
                 state.ActiveSet = "Default";
             }
 
@@ -349,10 +362,10 @@ namespace DocSets
                     ? state.ActiveSet
                     : preferredSetName;
 
-                SelectedSet = state.Sets.FirstOrDefault(x =>
+                SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
                                   string.Equals(x.Name, setName, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.Name == state.ActiveSet)
-                              ?? state.Sets.FirstOrDefault();
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && x.Name == state.ActiveSet)
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder);
 
                 var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
                 SetSelectedNodes(restoredNode == null
@@ -453,7 +466,7 @@ namespace DocSets
                 return;
             }
 
-            var set = new DocumentItem { Name = name, NodeType = NodeType.Set, Type = BookmarkType.Empty };
+            var set = new DocumentItem { Name = name, NodeType = NodeType.Folder, Type = BookmarkType.Empty };
             state.Sets.Add(set);
             SelectedSet = set;
             _ = SaveAsync();
@@ -510,12 +523,12 @@ namespace DocSets
             if (MessageBox.Show(ownerAccessor(), $"Удалить группу '{set.Name}'?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
             state.Sets.Remove(set);
-            if (state.Sets.Count == 0)
+            if (!state.Sets.Any(x => x != null && x.NodeType == NodeType.Folder))
             {
-                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Set, Type = BookmarkType.Empty });
+                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
             }
 
-            SelectedSet = state.Sets.FirstOrDefault();
+            SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder);
             state.ActiveSet = SelectedSet?.Name ?? "";
             _ = SaveAsync();
             InvalidateCommands();
@@ -588,6 +601,7 @@ namespace DocSets
                 return null;
             }
 
+            if (item.IsRootChild && item.NodeType == NodeType.Folder) return item;
             return state.Sets.FirstOrDefault(set => ContainsNode(set.Children, item));
         }
 
@@ -597,6 +611,8 @@ namespace DocSets
             {
                 return null;
             }
+
+            if (item.Parent != null && !ReferenceEquals(item.Parent, state.Root)) return item.Parent;
 
             foreach (var set in state.Sets)
             {
@@ -1085,14 +1101,14 @@ namespace DocSets
         }
 
 
-        public bool CanMoveSelectedNodesTo(DocumentItem target, DropPosition position)
+        public bool CanMoveSelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            return GetMovePlan(target, position) != null;
+            return GetMovePlan(target, position, fullTree) != null;
         }
 
-        public async Task MoveSelectedNodesToAsync(DocumentItem target, DropPosition position)
+        public async Task MoveSelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            var plan = GetMovePlan(target, position);
+            var plan = GetMovePlan(target, position, fullTree);
             if (plan == null) return;
 
             var nodes = FilterOutDescendants(SelectedNodes).ToList();
@@ -1119,9 +1135,9 @@ namespace DocSets
             InvalidateCommands();
         }
 
-        private MovePlan GetMovePlan(DocumentItem target, DropPosition position)
+        private MovePlan GetMovePlan(DocumentItem target, DropPosition position, bool fullTree)
         {
-            if (SelectedSet == null || SelectedNodes.Count == 0) return null;
+            if ((!fullTree && SelectedSet == null) || SelectedNodes.Count == 0) return null;
 
             var nodes = FilterOutDescendants(SelectedNodes).ToList();
             if (nodes.Count == 0) return null;
@@ -1136,7 +1152,8 @@ namespace DocSets
 
             if (target == null)
             {
-                return new MovePlan(SelectedSet.Children, SelectedSet.Children.Count);
+                var rootCollection = fullTree ? state.Root.Children : SelectedSet.Children;
+                return new MovePlan(rootCollection, rootCollection.Count);
             }
 
             if (position == DropPosition.Inside && target.NodeType == NodeType.Folder)
@@ -1264,9 +1281,7 @@ namespace DocSets
 
         private ObservableCollection<DocumentItem> FindOwnerCollection(DocumentItem item)
         {
-            if (SelectedSet == null || item == null) return null;
-            if (SelectedSet.Children.Contains(item)) return SelectedSet.Children;
-            return FindOwnerCollection(SelectedSet.Children, item);
+            return item?.Parent?.Children;
         }
 
         private static ObservableCollection<DocumentItem> FindOwnerCollection(IEnumerable<DocumentItem> nodes, DocumentItem item)

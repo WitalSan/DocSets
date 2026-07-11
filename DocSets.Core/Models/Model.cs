@@ -21,7 +21,13 @@ namespace DocSets
     public sealed class DocumentSetsState : NotifyObject
     {
         private string activeSet = "";
-        private ObservableCollection<DocumentItem> sets = new ObservableCollection<DocumentItem>();
+        private readonly DocumentItem root = new DocumentItem
+        {
+            Id = "root",
+            Name = "Full-Tree",
+            NodeType = NodeType.Folder,
+            Type = BookmarkType.Empty
+        };
         private DocumentSetsUiSettings ui = new DocumentSetsUiSettings();
 
         [JsonProperty("activeSet")]
@@ -33,10 +39,13 @@ namespace DocSets
 
         // Runtime representation. The persisted representation is one flat items list.
         [JsonIgnore]
+        public DocumentItem Root => root;
+
+        [JsonIgnore]
         public ObservableCollection<DocumentItem> Sets
         {
-            get => sets;
-            set => SetProperty(ref sets, value ?? new ObservableCollection<DocumentItem>());
+            get => root.Children;
+            set => root.Children = value ?? new ObservableCollection<DocumentItem>();
         }
 
         [JsonProperty("items", ObjectCreationHandling = ObjectCreationHandling.Replace)]
@@ -62,7 +71,7 @@ namespace DocSets
                     var set = new DocumentItem
                     {
                         Name = legacySet.Name ?? "",
-                        NodeType = NodeType.Set,
+                        NodeType = NodeType.Folder,
                         Type = BookmarkType.Empty,
                         Children = BuildTreeFromFlatItems(legacySet.Items)
                     };
@@ -84,11 +93,10 @@ namespace DocSets
             var result = new List<DocumentItemStorageDto>();
             var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var set in Sets ?? new ObservableCollection<DocumentItem>())
+            foreach (var item in Sets ?? new ObservableCollection<DocumentItem>())
             {
-                if (set == null) continue;
-                set.NodeType = NodeType.Set;
-                AppendFlatItem(set, "", result, usedIds);
+                if (item == null) continue;
+                AppendFlatItem(item, "", result, usedIds);
             }
 
             return result;
@@ -97,7 +105,13 @@ namespace DocSets
         private static void AppendFlatItem(DocumentItem item, string parentId,
             ICollection<DocumentItemStorageDto> result, ISet<string> usedIds)
         {
-            var id = CreateUniqueStorageId(item.Name, usedIds);
+            var id = string.IsNullOrWhiteSpace(item.Id) ? Guid.NewGuid().ToString("N") : item.Id;
+            if (!usedIds.Add(id))
+            {
+                id = Guid.NewGuid().ToString("N");
+                usedIds.Add(id);
+            }
+            item.Id = id;
             result.Add(new DocumentItemStorageDto
             {
                 Id = id,
@@ -140,7 +154,6 @@ namespace DocSets
                     parent.Children.Add(item);
                 else
                 {
-                    item.NodeType = NodeType.Set;
                     roots.Add(item);
                 }
             }
@@ -159,8 +172,9 @@ namespace DocSets
 
             return new DocumentItem
             {
+                Id = string.IsNullOrWhiteSpace(source.Id) ? Guid.NewGuid().ToString("N") : source.Id,
                 Name = source.Name ?? "",
-                NodeType = source.NodeType,
+                NodeType = source.NodeType == NodeType.Set ? NodeType.Folder : source.NodeType,
                 Type = type,
                 Symbol = type == BookmarkType.Symbol ? source.Symbol ?? "" : "",
                 Project = type == BookmarkType.Symbol ? source.Project ?? "" : "",
@@ -174,15 +188,6 @@ namespace DocSets
             };
         }
 
-        private static string CreateUniqueStorageId(string name, ISet<string> usedIds)
-        {
-            var baseId = string.IsNullOrWhiteSpace(name) ? "node" : name.Trim();
-            var id = baseId;
-            var index = 1;
-            while (usedIds.Contains(id)) id = baseId + "-" + index++;
-            usedIds.Add(id);
-            return id;
-        }
     }
 
     internal sealed class LegacyDocumentSetDto
@@ -350,6 +355,7 @@ namespace DocSets
     {
         Item = 0,
         Folder = 1,
+        // Compatibility value for loading old files. New model uses Folder at root level.
         Set = 2
     }
 
@@ -375,8 +381,30 @@ namespace DocSets
         Empty = 2
     }
 
+    public enum DocumentTreeChangeKind
+    {
+        PropertyChanged,
+        Added,
+        Removed,
+        Moved,
+        Reset
+    }
+
+    public sealed class DocumentTreeChangedEventArgs : EventArgs
+    {
+        public DocumentTreeChangeKind Kind { get; internal set; }
+        public DocumentItem Item { get; internal set; }
+        public string PropertyName { get; internal set; }
+        public DocumentItem OldParent { get; internal set; }
+        public DocumentItem NewParent { get; internal set; }
+        public int OldIndex { get; internal set; } = -1;
+        public int NewIndex { get; internal set; } = -1;
+    }
+
     public sealed class DocumentItem : NotifyObject
     {
+        private string id = Guid.NewGuid().ToString("N");
+        private DocumentItem parent;
         private string name = "";
         private BookmarkType type;
         private string symbol = "";
@@ -391,6 +419,32 @@ namespace DocSets
         private bool isExpanded;
         private bool isMultiSelected;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
+
+        [JsonIgnore]
+        public string Id
+        {
+            get => id;
+            set => id = string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString("N") : value;
+        }
+
+        [JsonIgnore]
+        public DocumentItem Parent => parent;
+
+        [JsonIgnore]
+        public DocumentItem Root
+        {
+            get
+            {
+                var node = this;
+                while (node.parent != null) node = node.parent;
+                return node;
+            }
+        }
+
+        [JsonIgnore]
+        public bool IsRootChild => parent != null && parent.parent == null;
+
+        public event EventHandler<DocumentTreeChangedEventArgs> TreeChanged;
 
         [JsonProperty("name")]
         public string Name
@@ -533,7 +587,21 @@ namespace DocSets
         public ObservableCollection<DocumentItem> Children
         {
             get => children;
-            set => SetProperty(ref children, value ?? new ObservableCollection<DocumentItem>());
+            set
+            {
+                if (ReferenceEquals(children, value)) return;
+                if (children != null) children.CollectionChanged -= ChildrenCollectionChanged;
+                children = value ?? new ObservableCollection<DocumentItem>();
+                children.CollectionChanged += ChildrenCollectionChanged;
+                foreach (var child in children.Where(x => x != null)) child.parent = this;
+                RaiseTreeChanged(new DocumentTreeChangedEventArgs
+                {
+                    Kind = DocumentTreeChangeKind.Reset,
+                    Item = this,
+                    NewParent = this
+                });
+                OnPropertyChanged();
+            }
         }
 
         [JsonIgnore]
@@ -555,11 +623,6 @@ namespace DocSets
         {
             get
             {
-                if (NodeType == NodeType.Set)
-                {
-                    return string.IsNullOrWhiteSpace(Name) ? "Новый Set" : Name;
-                }
-
                 if (NodeType == NodeType.Folder)
                 {
                     return string.IsNullOrWhiteSpace(Name) ? "Новая папка" : Name;
@@ -571,6 +634,70 @@ namespace DocSets
 
         [JsonIgnore]
         public string Header => NodeType == NodeType.Folder ? $"📁 {Display}" : Display;
+
+        public DocumentItem()
+        {
+            children.CollectionChanged += ChildrenCollectionChanged;
+        }
+
+        private void ChildrenCollectionChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
+            {
+                var moved = e.NewItems != null && e.NewItems.Count > 0 ? e.NewItems[0] as DocumentItem : null;
+                RaiseTreeChanged(new DocumentTreeChangedEventArgs
+                {
+                    Kind = DocumentTreeChangeKind.Moved, Item = moved, OldParent = this, NewParent = this,
+                    OldIndex = e.OldStartingIndex, NewIndex = e.NewStartingIndex
+                });
+                return;
+            }
+
+            if (e.OldItems != null)
+            {
+                foreach (DocumentItem child in e.OldItems)
+                {
+                    RaiseTreeChanged(new DocumentTreeChangedEventArgs
+                    {
+                        Kind = DocumentTreeChangeKind.Removed, Item = child, OldParent = this, OldIndex = e.OldStartingIndex
+                    });
+                    if (ReferenceEquals(child.parent, this)) child.parent = null;
+                }
+            }
+            if (e.NewItems != null)
+            {
+                var index = e.NewStartingIndex;
+                foreach (DocumentItem child in e.NewItems)
+                {
+                    child.parent = this;
+                    RaiseTreeChanged(new DocumentTreeChangedEventArgs
+                    {
+                        Kind = DocumentTreeChangeKind.Added, Item = child, NewParent = this, NewIndex = index++
+                    });
+                }
+            }
+            if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset)
+            {
+                RaiseTreeChanged(new DocumentTreeChangedEventArgs { Kind = DocumentTreeChangeKind.Reset, Item = this });
+            }
+        }
+
+        private void RaiseTreeChanged(DocumentTreeChangedEventArgs args)
+        {
+            Root.TreeChanged?.Invoke(Root, args);
+        }
+
+        protected override void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            base.OnPropertyChanged(propertyName);
+            if (propertyName == nameof(Parent) || propertyName == nameof(Root)) return;
+            RaiseTreeChanged(new DocumentTreeChangedEventArgs
+            {
+                Kind = DocumentTreeChangeKind.PropertyChanged,
+                Item = this,
+                PropertyName = propertyName
+            });
+        }
 
         public DocumentItem Clone()
         {
@@ -621,7 +748,7 @@ namespace DocSets
             return true;
         }
 
-        protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
