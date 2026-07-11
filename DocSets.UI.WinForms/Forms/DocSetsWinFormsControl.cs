@@ -63,6 +63,10 @@ namespace DocSets
         private bool _propertiesVisible = true;
         private bool _showSetsOverview;
         private readonly Dictionary<DocumentItem, DocumentItem> _setOverviewMap = new Dictionary<DocumentItem, DocumentItem>();
+        private readonly object _setsOverviewExpansionOwner = new object();
+        private readonly Dictionary<object, HashSet<DocumentItem>> _expandedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
+        private readonly Dictionary<object, HashSet<DocumentItem>> _selectedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
+        private object _renderedExpansionOwner;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
@@ -1418,6 +1422,7 @@ namespace DocSets
                     SyncSelectionFromTree();
                 }
             };
+            _tree.Collapsing += Tree_Collapsing;
             WireTreeActivationBehavior();
             _tree.ItemDrag += (_, __) => _tree.DoDragDropSelectedNodes(DragDropEffects.Move);
             _tree.DragOver += Tree_DragOver;
@@ -1476,6 +1481,49 @@ namespace DocSets
                 UpdateColorMenuChecks(current);
                 UpdateNodeMenuEnabled(_nodeMenu.Items, current);
             };
+        }
+
+
+        private void Tree_Collapsing(object sender, TreeViewAdvEventArgs e)
+        {
+            if (_refreshing || e?.Node == null)
+                return;
+
+            // A selected descendant would become invisible after this node is collapsed.
+            // Move the selection to the collapsing node itself without rebuilding the tree.
+            var containsSelectedDescendant = _tree.SelectedNodes.Any(selected =>
+                selected != null && !ReferenceEquals(selected, e.Node) && IsDescendantOf(selected, e.Node));
+
+            if (!containsSelectedDescendant)
+                return;
+
+            _selectingFromFind = true;
+            try
+            {
+                _tree.ClearSelection();
+                e.Node.IsSelected = true;
+                _tree.SelectedNode = e.Node;
+                _tree.EnsureVisible(e.Node);
+            }
+            finally
+            {
+                _selectingFromFind = false;
+            }
+
+            // SelectionChanged was intentionally suppressed above. Synchronize the model and
+            // the per-tab selection cache directly; this operation must not rebuild the tree.
+            SyncSelectionFromTree();
+        }
+
+        private static bool IsDescendantOf(TreeNodeAdv node, TreeNodeAdv ancestor)
+        {
+            for (var current = node.Parent; current != null; current = current.Parent)
+            {
+                if (ReferenceEquals(current, ancestor))
+                    return true;
+            }
+
+            return false;
         }
 
         private void UpdateColorMenuChecks(DocumentItem current)
@@ -1772,6 +1820,58 @@ namespace DocSets
 
         private void RebuildTree()
         {
+            // Expansion and selection state belong to the displayed tab, not to the TreeView as a whole.
+            // Save both states of the view that is currently rendered before rebuilding it.
+            if (_renderedExpansionOwner != null)
+            {
+                var expandedItems = new HashSet<DocumentItem>();
+                foreach (var treeNode in EnumerateTreeNodes(_tree.Root))
+                {
+                    if (!treeNode.IsExpanded)
+                        continue;
+
+                    var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
+                    if (item == null)
+                        continue;
+
+                    if (ReferenceEquals(_renderedExpansionOwner, _setsOverviewExpansionOwner) &&
+                        _setOverviewMap.TryGetValue(item, out var set))
+                    {
+                        expandedItems.Add(set);
+                    }
+                    else
+                    {
+                        expandedItems.Add(item);
+                    }
+                }
+
+                _expandedItemsByView[_renderedExpansionOwner] = expandedItems;
+
+                var selectedItems = new HashSet<DocumentItem>();
+                foreach (var treeNode in _tree.SelectedNodes)
+                {
+                    var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
+                    if (item == null)
+                        continue;
+
+                    if (ReferenceEquals(_renderedExpansionOwner, _setsOverviewExpansionOwner) &&
+                        _setOverviewMap.TryGetValue(item, out var set))
+                    {
+                        selectedItems.Add(set);
+                    }
+                    else
+                    {
+                        selectedItems.Add(item);
+                    }
+                }
+
+                _selectedItemsByView[_renderedExpansionOwner] = selectedItems;
+            }
+
+            var expansionOwner = _showSetsOverview
+                ? _setsOverviewExpansionOwner
+                : (object)_viewModel.SelectedSet;
+
             var wasRefreshing = _refreshing;
             _refreshing = true;
             _tree.BeginUpdate();
@@ -1802,15 +1902,41 @@ namespace DocSets
                             _treeModel.Nodes.Add(node);
                     }
                 }
-                _tree.ExpandAll();
+
+                if (expansionOwner == null || !_expandedItemsByView.TryGetValue(expansionOwner, out var expandedForView))
+                {
+                    // Preserve the original first-display behavior independently for every tab.
+                    _tree.ExpandAll();
+                }
+                else
+                {
+                    foreach (var treeNode in EnumerateTreeNodes(_tree.Root))
+                    {
+                        var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
+                        if (item == null)
+                            continue;
+
+                        if (_showSetsOverview && _setOverviewMap.TryGetValue(item, out var set))
+                        {
+                            if (expandedForView.Contains(set))
+                                treeNode.IsExpanded = true;
+                        }
+                        else if (expandedForView.Contains(item))
+                        {
+                            treeNode.IsExpanded = true;
+                        }
+                    }
+                }
+
+                _renderedExpansionOwner = expansionOwner;
             }
             finally
             {
                 _tree.EndUpdate();
                 _refreshing = wasRefreshing;
             }
-            SyncSelectionFromViewModel();
-            LoadPropertiesPanel(_viewModel.SelectedNode);
+            RestoreSelectionForView(expansionOwner);
+            LoadPropertiesPanel(_showSetsOverview ? null : _viewModel.SelectedNode);
         }
 
         internal System.Threading.Tasks.Task FindBookmarksFromEditorAsync()
@@ -1966,6 +2092,21 @@ namespace DocSets
             }
 
             var items = _tree.SelectedNodes.Select(n => (n.Tag as BookmarkTreeNode)?.Item).Where(x => x != null).ToList();
+            var selectionOwner = _showSetsOverview ? _setsOverviewExpansionOwner : (object)_viewModel.SelectedSet;
+            if (selectionOwner != null)
+            {
+                if (_showSetsOverview)
+                {
+                    _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(
+                        items.Select(item => _setOverviewMap.TryGetValue(item, out var set) ? set : null)
+                             .Where(item => item != null));
+                }
+                else
+                {
+                    _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(items);
+                }
+            }
+
             if (_showSetsOverview)
             {
                 var selected = items.FirstOrDefault();
@@ -2009,6 +2150,58 @@ namespace DocSets
             {
                 RestoreSplitterPosition();
                 LoadPropertiesPanel(GetCurrentItem());
+            }
+        }
+
+        private void RestoreSelectionForView(object selectionOwner)
+        {
+            if (selectionOwner == null || !_selectedItemsByView.TryGetValue(selectionOwner, out var selectedItems))
+            {
+                SyncSelectionFromViewModel();
+                return;
+            }
+
+            _selectingFromFind = true;
+            try
+            {
+                _tree.ClearSelection();
+                TreeNodeAdv firstSelected = null;
+
+                foreach (var node in EnumerateTreeNodes(_tree.Root))
+                {
+                    var item = (node.Tag as BookmarkTreeNode)?.Item;
+                    if (item == null)
+                        continue;
+
+                    var selectionItem = item;
+                    if (ReferenceEquals(selectionOwner, _setsOverviewExpansionOwner) &&
+                        _setOverviewMap.TryGetValue(item, out var set))
+                    {
+                        selectionItem = set;
+                    }
+
+                    if (!selectedItems.Contains(selectionItem))
+                        continue;
+
+                    node.IsSelected = true;
+                    if (firstSelected == null)
+                        firstSelected = node;
+                }
+
+                if (firstSelected != null)
+                {
+                    _tree.SelectedNode = firstSelected;
+                    _tree.EnsureVisible(firstSelected);
+                }
+
+                if (!ReferenceEquals(selectionOwner, _setsOverviewExpansionOwner))
+                    _viewModel.SetSelectedNodes(selectedItems);
+
+                _tree.Invalidate();
+            }
+            finally
+            {
+                _selectingFromFind = false;
             }
         }
 
