@@ -102,7 +102,10 @@ namespace DocSets
             {
                 if (!SetProperty(ref selectedSet, value)) return;
 
-                solutionState.ActiveViewId = selectedSet?.Id ?? "full-tree";
+                // SelectedSet is the working root for commands and selection context.
+                // It is not necessarily the active UI view: Full-Tree may remain active while
+                // SelectedSet follows the folder containing the selected node. ActiveViewId is
+                // therefore owned and persisted by the tabs UI.
                 SetSelectedNodes(Enumerable.Empty<DocumentItem>());
                 OnPropertyChanged(nameof(CurrentNodes));
                 InvalidateCommands();
