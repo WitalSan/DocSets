@@ -132,6 +132,8 @@ namespace DocSets
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             Controls.Add(root);
 
             var top = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(3) };
@@ -168,7 +170,7 @@ namespace DocSets
             _groupsStrip.CanOverflow = true;
             _groupsStrip.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
             _groupsStrip.Stretch = true;
-            _groupsStrip.AutoSize = true;
+            _groupsStrip.AutoSize = false;
             _groupsStrip.ShowItemToolTips = true;
             _groupsStrip.Padding = new Padding(2, 1, 2, 1);
             _groupsStrip.MouseUp += GroupsStrip_MouseUp;
