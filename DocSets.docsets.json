@@ -15,6 +15,46 @@
       "comment": ""
     },
     {
+      "id": "docsetswinformscontrol-beginrenamegroup",
+      "parent": "default",
+      "name": "DocSetsWinFormsControl.cs:2049",
+      "nodeType": "Folder",
+      "type": "File",
+      "symbol": "",
+      "project": "",
+      "path": "DocSets.UI.WinForms\\Forms\\DocSetsWinFormsControl.cs",
+      "line": 173,
+      "column": 17,
+      "comment": "",
+      "editorState": {
+        "caretLineOffset": 9,
+        "caretColumn": 1,
+        "selectionStartColumn": 1,
+        "selectionEndColumn": 1,
+        "firstVisibleLineOffset": -14,
+        "codePreview": "        private void BeginRenameGroup(ToolStripButton button)\n        {\n            if (!(button.Tag is DocumentItem set))\n            {\n                return;\n            }"
+      }
+    },
+    {
+      "id": "docsetswinformscontrol-buildlayout",
+      "parent": "docsetswinformscontrol-beginrenamegroup",
+      "name": "DocSetsWinFormsControl.BuildLayout",
+      "symbol": "DocSets.DocSetsWinFormsControl.BuildLayout",
+      "project": "DocSets",
+      "path": "DocSets.UI.WinForms\\Forms\\DocSetsWinFormsControl.cs",
+      "line": 130,
+      "column": 28,
+      "comment": "",
+      "editorState": {
+        "caretLineOffset": 0,
+        "caretColumn": 28,
+        "selectionStartColumn": 1,
+        "selectionEndColumn": 1,
+        "firstVisibleLineOffset": -29,
+        "codePreview": "        private void BuildLayout()\n        {\n            var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1 };\n            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));\n            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));\n            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));"
+      }
+    },
+    {
       "id": "bookmarktreenode-getimage",
       "parent": "default",
       "name": "BookmarkTreeNode.GetImage",

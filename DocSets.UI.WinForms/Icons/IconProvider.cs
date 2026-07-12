@@ -55,8 +55,13 @@ namespace DocSets
             return 24;
         }
 
-        public static Image Get(AppIcon icon, int size)
+        public static Image Get(AppIcon icon, int size = -1)
         {
+            if (size == -1)
+            {
+                size = IconSize;
+            }
+
             if (size <= 0) throw new ArgumentOutOfRangeException(nameof(size));
             var key = Tuple.Create(icon, size);
             lock (SyncRoot)

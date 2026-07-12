@@ -170,6 +170,7 @@ namespace DocSets
             var groupsPanel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
             groupsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             groupsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            groupsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             ConfigureGroupsStrip(_standardGroupsStrip, canOverflow: false);
             ConfigureGroupsStrip(_groupsStrip, canOverflow: true);
@@ -1897,16 +1898,18 @@ namespace DocSets
                     Tag = SetsOverviewTag,
                     CheckOnClick = false,
                     Checked = _showSetsOverview,
-                    DisplayStyle = ToolStripItemDisplayStyle.Text,
+                    DisplayStyle = ToolStripItemDisplayStyle.ImageAndText,
                     AutoSize = true,
                     ToolTipText = "Управление наборами и их порядком",
-                    Overflow = ToolStripItemOverflow.Never
+                    Overflow = ToolStripItemOverflow.Never,
+                    Image = IconProvider.Get(AppIcon.Folder),
                 };
                 setsButton.Click += (_, __) => SelectSetsOverview();
                 _standardGroupsStrip.Items.Add(setsButton);
 
-                AddStandardGroupButton(_viewModel.HistoryRoot);
-                AddStandardGroupButton(_viewModel.PinRoot);
+
+                AddStandardGroupButton(_viewModel.HistoryRoot, IconProvider.Get(AppIcon.Item));
+                AddStandardGroupButton(_viewModel.PinRoot, IconProvider.Get(AppIcon.PinOverlay));
 
                 foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsPinRoot))
                 {
@@ -1950,21 +1953,23 @@ namespace DocSets
             ApplyGroupsOverflowPolicy();
         }
 
-        private void AddStandardGroupButton(DocumentItem set)
+        private ToolStripItem AddStandardGroupButton(DocumentItem set, Image icon=null, string toolTip = null)
         {
-            if (set == null) return;
+            if (set == null) return null;
             var button = new ToolStripButton(set.Name)
             {
                 Tag = set,
                 CheckOnClick = false,
                 Checked = !_showSetsOverview && ReferenceEquals(set, _viewModel.SelectedSet),
-                DisplayStyle = ToolStripItemDisplayStyle.Text,
+                DisplayStyle = ToolStripItemDisplayStyle.ImageAndText,
+                Image = icon != null ? icon: null,
                 AutoSize = true,
-                ToolTipText = set.Name,
+                ToolTipText = toolTip ?? set.Name,
                 Overflow = ToolStripItemOverflow.Never
             };
             button.Click += (_, __) => SelectSetFromButton(button);
             _standardGroupsStrip.Items.Add(button);
+            return button;
         }
 
         private void SelectSetsOverview()
