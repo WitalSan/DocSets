@@ -1114,6 +1114,38 @@ namespace DocSets
         }
 
 
+        public bool CanCopySelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
+        {
+            return GetCopyPlan(target, position, fullTree) != null;
+        }
+
+        public async Task CopySelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
+        {
+            var plan = GetCopyPlan(target, position, fullTree);
+            if (plan == null) return;
+
+            var sourceNodes = FilterOutDescendants(SelectedNodes).ToList();
+            if (sourceNodes.Count == 0) return;
+
+            var copies = sourceNodes.Select(x => x.Clone()).ToList();
+            var insertIndex = Math.Max(0, Math.Min(plan.Index, plan.Collection.Count));
+            foreach (var copy in copies)
+            {
+                plan.Collection.Insert(insertIndex++, copy);
+            }
+
+            state.EnsureReadableIds();
+
+            if (target?.NodeType == NodeType.Folder && position == DropPosition.Inside)
+            {
+                target.IsExpanded = true;
+            }
+
+            SetSelectedNodes(copies);
+            await SaveAsync();
+            InvalidateCommands();
+        }
+
         public bool CanMoveSelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
         {
             return GetMovePlan(target, position, fullTree) != null;
@@ -1146,6 +1178,34 @@ namespace DocSets
             SetSelectedNodes(nodes);
             await SaveAsync();
             InvalidateCommands();
+        }
+
+        private MovePlan GetCopyPlan(DocumentItem target, DropPosition position, bool fullTree)
+        {
+            if ((!fullTree && SelectedSet == null) || SelectedNodes.Count == 0) return null;
+
+            var nodes = FilterOutDescendants(SelectedNodes).ToList();
+            if (nodes.Count == 0) return null;
+
+            if (target == null)
+            {
+                var rootCollection = fullTree ? state.Root.Children : SelectedSet.Children;
+                return new MovePlan(rootCollection, rootCollection.Count);
+            }
+
+            if (position == DropPosition.Inside && target.NodeType == NodeType.Folder)
+            {
+                return new MovePlan(target.Children, target.Children.Count);
+            }
+
+            var owner = FindOwnerCollection(target);
+            if (owner == null) return null;
+
+            var targetIndex = owner.IndexOf(target);
+            if (targetIndex < 0) return null;
+
+            var index = position == DropPosition.After ? targetIndex + 1 : targetIndex;
+            return new MovePlan(owner, index);
         }
 
         private MovePlan GetMovePlan(DocumentItem target, DropPosition position, bool fullTree)

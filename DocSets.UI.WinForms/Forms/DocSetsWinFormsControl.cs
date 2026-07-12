@@ -69,6 +69,7 @@ namespace DocSets
         private object _renderedExpansionOwner;
         private bool _localStateRestored;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
+        private const string AddGroupTag = "__ADD_GROUP__";
         int _iconSize => ToPhysicalIconSize(16);
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
@@ -165,8 +166,10 @@ namespace DocSets
             _groupsStrip.GripStyle = ToolStripGripStyle.Hidden;
             _groupsStrip.RenderMode = ToolStripRenderMode.System;
             _groupsStrip.CanOverflow = true;
+            _groupsStrip.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
             _groupsStrip.Stretch = true;
             _groupsStrip.AutoSize = true;
+            _groupsStrip.ShowItemToolTips = true;
             _groupsStrip.Padding = new Padding(2, 1, 2, 1);
             _groupsStrip.MouseUp += GroupsStrip_MouseUp;
             _groupsStrip.KeyDown += GroupsStrip_KeyDown;
@@ -1447,6 +1450,51 @@ namespace DocSets
                         groupButton.Checked = !_showSetsOverview && ReferenceEquals(group, _viewModel.SelectedSet);
                 }
             }
+
+            ApplyGroupsOverflowPolicy();
+        }
+
+        private void ApplyGroupsOverflowPolicy()
+        {
+            ToolStripItem activeItem = null;
+
+            foreach (ToolStripItem item in _groupsStrip.Items)
+            {
+                if (item is ToolStripSeparator)
+                {
+                    item.Overflow = ToolStripItemOverflow.Never;
+                    continue;
+                }
+
+                if (!(item is ToolStripButton button))
+                {
+                    continue;
+                }
+
+                var isFullTree = Equals(button.Tag, SetsOverviewTag);
+                var isAddButton = Equals(button.Tag, AddGroupTag);
+                var isActive = button.Checked;
+
+                button.Overflow = isFullTree || isAddButton || isActive
+                    ? ToolStripItemOverflow.Never
+                    : ToolStripItemOverflow.AsNeeded;
+
+                if (isActive)
+                {
+                    activeItem = button;
+                }
+            }
+
+            _groupsStrip.PerformLayout();
+
+            // Повторная разметка после смены Overflow гарантирует, что активная вкладка
+            // будет возвращена из overflow-меню в основную полосу.
+            if (activeItem != null)
+            {
+                activeItem.Invalidate();
+            }
+
+            _groupsStrip.Invalidate();
         }
 
         private void AddNodeMenu(string text, WpfCommand command, string shortcut = null, AppIcon? icon = null)
@@ -1482,7 +1530,7 @@ namespace DocSets
             };
             _tree.Collapsing += Tree_Collapsing;
             WireTreeActivationBehavior();
-            _tree.ItemDrag += (_, __) => _tree.DoDragDropSelectedNodes(DragDropEffects.Move);
+            _tree.ItemDrag += (_, __) => _tree.DoDragDropSelectedNodes(DragDropEffects.Move | DragDropEffects.Copy);
             _tree.DragOver += Tree_DragOver;
             _tree.DragDrop += Tree_DragDrop;
             _tree.KeyDown += Tree_KeyDown;
@@ -1781,7 +1829,8 @@ namespace DocSets
                     Checked = _showSetsOverview,
                     DisplayStyle = ToolStripItemDisplayStyle.Text,
                     AutoSize = true,
-                    ToolTipText = "Управление наборами и их порядком"
+                    ToolTipText = "Управление наборами и их порядком",
+                    Overflow = ToolStripItemOverflow.Never
                 };
                 setsButton.Click += (_, __) => SelectSetsOverview();
                 _groupsStrip.Items.Add(setsButton);
@@ -1796,7 +1845,8 @@ namespace DocSets
                         Checked = !_showSetsOverview && ReferenceEquals(set, _viewModel.SelectedSet),
                         DisplayStyle = ToolStripItemDisplayStyle.Text,
                         AutoSize = true,
-                        ToolTipText = set.Name
+                        ToolTipText = set.Name,
+                        Overflow = ToolStripItemOverflow.AsNeeded
                     };
 
                     button.Click += (_, __) => SelectSetFromButton(button);
@@ -1812,8 +1862,10 @@ namespace DocSets
 
                 var addButton = new ToolStripButton("+")
                 {
+                    Tag = AddGroupTag,
                     DisplayStyle = ToolStripItemDisplayStyle.Text,
-                    ToolTipText = "Создать группу"
+                    ToolTipText = "Создать группу",
+                    Overflow = ToolStripItemOverflow.Never
                 };
                 addButton.Click += (_, __) => Execute(_viewModel.AddSetCommand, null);
                 _groupsStrip.Items.Add(addButton);
@@ -1822,6 +1874,8 @@ namespace DocSets
             {
                 _groupsStrip.ResumeLayout();
             }
+
+            ApplyGroupsOverflowPolicy();
         }
 
         private void SelectSetsOverview()
@@ -2538,17 +2592,21 @@ namespace DocSets
         {
             var target = (_tree.DropPosition.Node?.Tag as BookmarkTreeNode)?.Item;
             var position = ConvertDropPosition(_tree.DropPosition.Position);
-            if (_showSetsOverview)
+            var copy = IsCopyDrag(e);
+            var fullTree = _showSetsOverview;
+
+            if (copy)
             {
-                if (_viewModel.CanMoveSelectedNodesTo(target, position, fullTree: true))
+                if (_viewModel.CanCopySelectedNodesTo(target, position, fullTree))
                 {
-                    await _viewModel.MoveSelectedNodesToAsync(target, position, fullTree: true);
+                    await _viewModel.CopySelectedNodesToAsync(target, position, fullTree);
                 }
             }
-            else if (_viewModel.CanMoveSelectedNodesTo(target, position))
+            else if (_viewModel.CanMoveSelectedNodesTo(target, position, fullTree))
             {
-                await _viewModel.MoveSelectedNodesToAsync(target, position);
+                await _viewModel.MoveSelectedNodesToAsync(target, position, fullTree);
             }
+
             RebuildTree();
             RefreshGroupsStrip();
             RefreshStatus();
@@ -2558,15 +2616,21 @@ namespace DocSets
         {
             var target = (_tree.DropPosition.Node?.Tag as BookmarkTreeNode)?.Item;
             var position = ConvertDropPosition(_tree.DropPosition.Position);
-            if (_showSetsOverview)
-            {
-                e.Effect = _viewModel.CanMoveSelectedNodesTo(target, position, fullTree: true)
-                    ? DragDropEffects.Move : DragDropEffects.None;
-            }
-            else
-            {
-                e.Effect = _viewModel.CanMoveSelectedNodesTo(target, position) ? DragDropEffects.Move : DragDropEffects.None;
-            }
+            var copy = IsCopyDrag(e);
+            var fullTree = _showSetsOverview;
+            var valid = copy
+                ? _viewModel.CanCopySelectedNodesTo(target, position, fullTree)
+                : _viewModel.CanMoveSelectedNodesTo(target, position, fullTree);
+
+            e.Effect = valid
+                ? (copy ? DragDropEffects.Copy : DragDropEffects.Move)
+                : DragDropEffects.None;
+        }
+
+        private static bool IsCopyDrag(DragEventArgs e)
+        {
+            const int controlKeyState = 8;
+            return (e.KeyState & controlKeyState) != 0;
         }
 
         private static DocSets.DropPosition ConvertDropPosition(NodePosition position)
