@@ -21,7 +21,8 @@ namespace DocSets
         {
             Item = item;
             Tag = item;
-            Image = GetImage(item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item);
+            Image = GetImage(item);
+            PinnedImage = GetPinnedImage(item);
             if (rebuildChildren)
                 RebuildChildren();
         }
@@ -43,6 +44,7 @@ namespace DocSets
         }
 
         public DocumentItem Item { get; }
+        public Image PinnedImage { get; }
 
         public override bool IsLeaf => Item.NodeType != NodeType.Folder || Item.Children.Count == 0;
 
@@ -52,15 +54,12 @@ namespace DocSets
             {
                 var resolved = ResolvedItem;
                 var name = resolved?.NodeType == NodeType.Folder ? (string.IsNullOrWhiteSpace(resolved.Name) ? "Новая папка" : resolved.Name) : resolved?.Name;
-                var isPinned = Item.IsPinItem || (resolved != null && PinChecker?.Invoke(resolved) == true);
-                return isPinned ? "* " + (name ?? "<missing>") : name;
+                return name ?? "<missing>";
             }
             set
             {
                 var target = ResolvedItem ?? Item;
                 var newValue = value ?? string.Empty;
-                if ((Item.IsPinItem || (target != null && PinChecker?.Invoke(target) == true)) && newValue.StartsWith("* "))
-                    newValue = newValue.Substring(2);
                 target.Name = newValue;
                 NotifyModel();
             }
@@ -88,25 +87,39 @@ namespace DocSets
 
         private static Image GetImage(DocumentItem item)
         {
+            var resolved = item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item;
+            return IconProvider.Get(GetBaseIcon(resolved), IconProvider.IconSize);
+        }
+
+        private static Image GetPinnedImage(DocumentItem item)
+        {
+            var resolved = item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item;
+            var isPinned = item != null && (item.IsPinItem || (resolved != null && PinChecker?.Invoke(resolved) == true));
+            return isPinned ? IconProvider.Get(AppIcon.PinOverlay, IconProvider.PinIconSize) : null;
+        }
+
+        private static AppIcon GetBaseIcon(DocumentItem item)
+        {
             if (item == null)
-                return IconProvider.Get(AppIcon.Item, 16);
+                return AppIcon.Item;
 
             if (item.NodeType == NodeType.Folder)
             {
                 switch (item.Type)
                 {
-                    case BookmarkType.File: return IconProvider.Get(AppIcon.FolderLinkFile, 16);
-                    case BookmarkType.Symbol: return IconProvider.Get(AppIcon.FolderLinkSymbol, 16);
-                    default: return IconProvider.Get(AppIcon.Folder, 16);
+                    case BookmarkType.File: return AppIcon.FolderLinkFile;
+                    case BookmarkType.Symbol: return AppIcon.FolderLinkSymbol;
+                    default: return AppIcon.Folder;
                 }
             }
 
             switch (item.Type)
             {
-                case BookmarkType.File: return IconProvider.Get(AppIcon.LinkFile, 16);
-                case BookmarkType.Symbol: return IconProvider.Get(AppIcon.LinkSymbol, 16);
-                default: return IconProvider.Get(AppIcon.Item, 16);
+                case BookmarkType.File: return AppIcon.LinkFile;
+                case BookmarkType.Symbol: return AppIcon.LinkSymbol;
+                default: return AppIcon.Item;
             }
         }
+
     }
 }

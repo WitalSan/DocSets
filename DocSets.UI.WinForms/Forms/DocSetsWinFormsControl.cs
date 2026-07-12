@@ -72,7 +72,6 @@ namespace DocSets
         private bool _localStateRestored;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
         private const string AddGroupTag = "__ADD_GROUP__";
-        int _iconSize => ToPhysicalIconSize(16);
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
@@ -148,7 +147,7 @@ namespace DocSets
             root.Controls.Add(top, 0, 0);
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
-            _toolStrip.ImageScalingSize = new Size(_iconSize, _iconSize);
+            _toolStrip.ImageScalingSize = new Size(IconProvider.IconSize, IconProvider.IconSize);
             //AddButton("+Группа", _viewModel.AddSetCommand);
             //AddButton("Переим.", _viewModel.RenameSetCommand);
             //AddButton("-Группа", _viewModel.DeleteSetCommand);
@@ -374,8 +373,8 @@ namespace DocSets
                     var marker = new Label
                     {
                         AutoSize = false,
-                        Width = _iconSize,
-                        Height = _iconSize,
+                        Width = IconProvider.IconSize,
+                        Height = IconProvider.IconSize,
                         Margin = new Padding(2, 0, 0, 0),
                         BackColor = color == BookmarkColor.None ? Color.White : GetBookmarkColor(color),
                         BorderStyle = BorderStyle.FixedSingle,
@@ -776,9 +775,8 @@ namespace DocSets
                 case "name":
                 {
                     var target = _viewModel.ResolvePin(item);
-                    if (target == null) return item?.IsPinItem == true ? "* <missing>" : string.Empty;
-                    var name = target.NodeType == NodeType.Folder && string.IsNullOrWhiteSpace(target.Name) ? "Новая папка" : target.Name ?? string.Empty;
-                    return item?.IsPinItem == true || _viewModel.IsPinned(target) ? "* " + name : name;
+                    if (target == null) return item?.IsPinItem == true ? "<missing>" : string.Empty;
+                    return target.NodeType == NodeType.Folder && string.IsNullOrWhiteSpace(target.Name) ? "Новая папка" : target.Name ?? string.Empty;
                 }
                 case "file": return item?.Path ?? string.Empty;
                 case "line": return item == null || item.NodeType == NodeType.Folder ? string.Empty : item.Line.ToString();
@@ -794,7 +792,7 @@ namespace DocSets
             var button = new ToolStripButton(text)
             {
                 DisplayStyle = icon.HasValue ? ToolStripItemDisplayStyle.ImageAndText : ToolStripItemDisplayStyle.Text,
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, _iconSize) : null,
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, IconProvider.IconSize) : null,
                 ToolTipText = toolTipText ?? text
             };
             button.Click += (_, __) => Execute(command, null);
@@ -804,22 +802,22 @@ namespace DocSets
         private void AddTreeNavigationButtons()
         {
             _expandAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _expandAllButton.Image = IconProvider.Get(AppIcon.ExpandAll, _iconSize);
+            _expandAllButton.Image = IconProvider.Get(AppIcon.ExpandAll, IconProvider.IconSize);
             _expandAllButton.ToolTipText = "Развернуть все узлы дерева";
             _expandAllButton.Click += (_, __) => _tree.ExpandAll();
 
             _collapseAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, _iconSize);
+            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, IconProvider.IconSize);
             _collapseAllButton.ToolTipText = "Свернуть все узлы дерева";
             _collapseAllButton.Click += (_, __) => _tree.CollapseAll();
 
             _previousTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, _iconSize);
+            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, IconProvider.IconSize);
             _previousTreeNodeButton.ToolTipText = "Перейти к предыдущей видимой закладке";
             _previousTreeNodeButton.Click += (_, __) => MoveTreeBookmark(-1);
 
             _nextTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, _iconSize);
+            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, IconProvider.IconSize);
             _nextTreeNodeButton.ToolTipText = "Перейти к следующей видимой закладке";
             _nextTreeNodeButton.Click += (_, __) => MoveTreeBookmark(1);
 
@@ -827,13 +825,6 @@ namespace DocSets
             _toolStrip.Items.Add(_collapseAllButton);
             _toolStrip.Items.Add(_previousTreeNodeButton);
             _toolStrip.Items.Add(_nextTreeNodeButton);
-        }
-
-        private int ToPhysicalIconSize(int desiredSize)
-        {
-            return Math.Max(
-                1,
-                (int)Math.Round(desiredSize / 96f * _toolStrip.DeviceDpi));
         }
 
         private void MoveTreeBookmark(int delta)
@@ -938,7 +929,7 @@ namespace DocSets
             _findPreviousButton.Click += (_, __) => MoveFindSelection(-1);
 
             _findButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _findButton.Image = IconProvider.Get(AppIcon.Find, _iconSize);
+            _findButton.Image = IconProvider.Get(AppIcon.Find, IconProvider.IconSize);
             _findButton.ToolTipText = "Найти закладку в текущем Set по активному документу";
             _findButton.Click += async (_, __) => await FindBookmarksInCurrentSetAsync();
 
@@ -991,7 +982,14 @@ namespace DocSets
             {
                 DataPropertyName = nameof(BookmarkTreeNode.Image),
                 ParentColumn = _columnsByKey["name"],
-                LeftMargin = 2
+                LeftMargin = 2, 
+            });
+            _tree.NodeControls.Add(new NodeIcon
+            {
+                DataPropertyName = nameof(BookmarkTreeNode.PinnedImage),
+                ParentColumn = _columnsByKey["name"],
+                LeftMargin = 2,
+                ScaleMode = ImageScaleMode.Clip
             });
 
             var colorNode = new NodeTextBox
@@ -1397,7 +1395,7 @@ namespace DocSets
         {
             var item = new ToolStripMenuItem(text)
             {
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, _iconSize) : null,
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, IconProvider.IconSize) : null,
                 Tag = command
             };
             
@@ -1553,7 +1551,7 @@ namespace DocSets
         {
             var item = new ToolStripMenuItem(text)
             {
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, _iconSize) : null
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, IconProvider.IconSize) : null
             };
             if (!string.IsNullOrEmpty(shortcut)) item.ShortcutKeyDisplayString = shortcut;
             item.Click += (_, __) => Execute(command, GetCurrentItem());
@@ -2067,7 +2065,7 @@ namespace DocSets
             var host = new ToolStripControlHost(editor)
             {
                 AutoSize = false,
-                Width = Math.Max(button.Width + _iconSize, Math.Max(90, textWidth)),
+                Width = Math.Max(button.Width + IconProvider.IconSize, Math.Max(90, textWidth)),
                 Height = Math.Max(_groupsStrip.Height - 4, editor.PreferredHeight + 2),
                 Margin = button.Margin,
                 Padding = Padding.Empty,
@@ -2442,7 +2440,7 @@ namespace DocSets
             _togglePropertiesButton.CheckOnClick = true;
             _togglePropertiesButton.Checked = true;
             _togglePropertiesButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, _iconSize);
+            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, IconProvider.IconSize);
             _togglePropertiesButton.ToolTipText = "Показать или скрыть панель свойств";
             _togglePropertiesButton.Click += (_, __) => SetPropertiesPanelVisible(_togglePropertiesButton.Checked);
             _toolStrip.Items.Add(_togglePropertiesButton);

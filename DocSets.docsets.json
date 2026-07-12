@@ -1,10 +1,10 @@
 {
-  "activeSet": "Default",
+  "activeSet": "TreeNode",
   "items": [
     {
       "id": "default",
       "parent": "",
-      "name": "Default",
+      "name": "TreeNode",
       "nodeType": "Folder",
       "type": "Empty",
       "symbol": "",
@@ -13,6 +13,25 @@
       "line": 1,
       "column": 1,
       "comment": ""
+    },
+    {
+      "id": "bookmarktreenode-getimage",
+      "parent": "default",
+      "name": "BookmarkTreeNode.GetImage",
+      "symbol": "DocSets.BookmarkTreeNode.GetImage",
+      "project": "DocSets",
+      "path": "DocSets.UI.WinForms\\TreeViewAdv\\BookmarkTreeNode.cs",
+      "line": 90,
+      "column": 31,
+      "comment": "",
+      "editorState": {
+        "caretLineOffset": 2,
+        "caretColumn": 31,
+        "selectionStartColumn": 1,
+        "selectionEndColumn": 1,
+        "firstVisibleLineOffset": -28,
+        "codePreview": "        private static Image GetImage(DocumentItem item)\n        {\n            var resolved = item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item;\n            return IconProvider.Get(GetBaseIcon(resolved), IconProvider.IconSize);\n        }"
+      }
     }
   ],
   "ui": {

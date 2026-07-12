@@ -6,6 +6,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Reflection;
+using System.Windows.Forms;
 
 namespace DocSets
 {
@@ -24,7 +25,8 @@ namespace DocSets
         CollapseAll,
         ExpandAll,
         NavigatePrevious,
-        NavigateNext
+        NavigateNext,
+        PinOverlay
     }
 
     internal static class IconProvider
@@ -33,6 +35,25 @@ namespace DocSets
         private static readonly object SyncRoot = new object();
         private static readonly Dictionary<AppIcon, Image> Sources = new Dictionary<AppIcon, Image>();
         private static readonly Dictionary<Tuple<AppIcon, int>, Image> Scaled = new Dictionary<Tuple<AppIcon, int>, Image>();
+        private static readonly Dictionary<Tuple<AppIcon, AppIcon, int>, Image> Overlaid = new Dictionary<Tuple<AppIcon, AppIcon, int>, Image>();
+        private static int? _iconSize;
+        public static int PinIconSize => IconSize;
+        public static int IconSize
+        {
+            get
+            {
+                if (_iconSize == null) _iconSize = ToPhysicalIconSize(16);
+                return _iconSize.Value;
+            }
+        }
+
+        static private int ToPhysicalIconSize(int desiredSize)
+        {
+            //return Math.Max(
+            //    1,
+            //    (int)Math.Round(desiredSize / 96f * _toolStrip.DeviceDpi));
+            return 24;
+        }
 
         public static Image Get(AppIcon icon, int size)
         {
@@ -46,6 +67,43 @@ namespace DocSets
                 return result;
             }
         }
+
+        public static Image GetWithOverlay(AppIcon icon, AppIcon overlay, int size, int overlaySize)
+        {
+            if (size <= 0) throw new ArgumentOutOfRangeException(nameof(size));
+            var key = Tuple.Create(icon, overlay, size);
+            lock (SyncRoot)
+            {
+                if (Overlaid.TryGetValue(key, out var cached)) return cached;
+                var result = Overlay(Get(icon, size), Get(overlay, overlaySize), size);
+                Overlaid.Add(key, result);
+                return result;
+            }
+        }
+
+        public static Image GetPinned(AppIcon icon, int size)
+        {
+            return GetWithOverlay(icon, AppIcon.PinOverlay, size, (int)(size*0.7));
+        }
+
+        private static Image Overlay(Image source, Image overlay, int size)
+        {
+            var bitmap = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+            bitmap.SetResolution(source.HorizontalResolution, source.VerticalResolution);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.CompositingMode = CompositingMode.SourceOver;
+                graphics.CompositingQuality = CompositingQuality.HighQuality;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                graphics.SmoothingMode = SmoothingMode.HighQuality;
+                graphics.DrawImageUnscaled(source, 0, 0);
+                graphics.DrawImageUnscaled(overlay, 0, 0);
+            }
+            return bitmap;
+        }
+
         private static Image GetSource(AppIcon icon)
         {
             if (Sources.TryGetValue(icon, out var cached))
