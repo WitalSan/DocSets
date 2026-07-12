@@ -38,6 +38,10 @@ namespace DocSets
         private IReadOnlyList<WorkspaceInfo> workspaces = Array.Empty<WorkspaceInfo>();
         private WorkspaceInfo selectedWorkspace;
         private SolutionLocalState solutionState = new SolutionLocalState();
+        private DocumentItem historyRoot;
+        private string lastHistoryKey = "";
+        private string suppressedHistoryKey = "";
+        private bool historyProbeInProgress;
 
         public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
         {
@@ -76,6 +80,7 @@ namespace DocSets
 
         public DocumentItem Root => state.Root;
         public ObservableCollection<DocumentItem> Sets => state.Root.Children;
+        public DocumentItem HistoryRoot => historyRoot;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
 
@@ -359,8 +364,10 @@ namespace DocSets
             // Root may contain both folders and leaf items; only folders are represented as tabs.
             NormalizeNodes(state.Sets);
             ApplyIdMigration(state.EnsureReadableIds());
+            historyRoot = null;
+            EnsureHistoryRoot();
 
-            if (state.Sets.Count == 0)
+            if (!state.Sets.Any(x => x != null && !x.IsLocalOnly))
             {
                 state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
                 state.ActiveSet = "Default";
@@ -376,9 +383,9 @@ namespace DocSets
                 var activeViewId = solutionState.ActiveViewId;
                 SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
                                   string.Equals(x.Id, activeViewId, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot &&
                                   string.Equals(x.Name, preferredSetName ?? state.ActiveSet, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder);
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot);
 
                 var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
                 SetSelectedNodes(restoredNode == null
@@ -533,15 +540,23 @@ namespace DocSets
         {
             var set = SelectedSet;
             if (set == null) return;
+            if (set.IsHistoryRoot)
+            {
+                if (MessageBox.Show(ownerAccessor(), "Очистить историю переходов?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                set.Children.Clear();
+                SaveSolutionState();
+                InvalidateCommands();
+                return;
+            }
             if (MessageBox.Show(ownerAccessor(), $"Удалить группу '{set.Name}'?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
             state.Sets.Remove(set);
-            if (!state.Sets.Any(x => x != null && x.NodeType == NodeType.Folder))
+            if (!state.Sets.Any(x => x != null && x.NodeType == NodeType.Folder && !x.IsLocalOnly))
             {
                 state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
             }
 
-            SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder);
+            SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot);
             state.ActiveSet = SelectedSet?.Name ?? "";
             _ = SaveAsync();
             InvalidateCommands();
@@ -859,6 +874,8 @@ namespace DocSets
         private async Task OpenBookmarkAsync(DocumentItem item)
         {
             if (!IsBookmark(item)) return;
+            if (item.IsHistoryItem)
+                suppressedHistoryKey = GetHistoryKey(item);
             await store.OpenBookmarkAsync(item);
             if (item.Type == BookmarkType.File)
             {
@@ -982,12 +999,21 @@ namespace DocSets
 
             if (MessageBox.Show(ownerAccessor(), text, "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
+            var historyChanged = false;
             foreach (var node in FilterOutDescendants(nodes))
             {
+                if (node.IsHistoryRoot)
+                {
+                    node.Children.Clear();
+                    historyChanged = true;
+                    continue;
+                }
+                historyChanged |= node.IsHistoryItem || ReferenceEquals(node.Parent, historyRoot);
                 FindOwnerCollection(node)?.Remove(node);
             }
 
             SetSelectedNodes(Enumerable.Empty<DocumentItem>());
+            if (historyChanged) SaveSolutionState();
             _ = SaveAsync();
             InvalidateCommands();
         }
@@ -1882,8 +1908,165 @@ namespace DocSets
         public void SaveSolutionState()
         {
             ApplyIdMigration(state?.EnsureReadableIds());
+            SaveHistoryToSolutionState();
             solutionState.Workspace = store.CurrentWorkspaceRelativePath ?? "";
             store.SaveSolutionState(solutionState);
+        }
+
+        public async Task TrackNavigationHistoryAsync()
+        {
+            if (!IsLoaded || historyProbeInProgress) return;
+            historyProbeInProgress = true;
+            try
+            {
+                var item = await store.CreateBookmarkFromActiveDocumentAsync();
+                if (item == null || string.IsNullOrWhiteSpace(item.Path))
+                {
+                    lastHistoryKey = "";
+                    return;
+                }
+
+                var key = GetHistoryKey(item);
+                if (string.IsNullOrWhiteSpace(key) ||
+                    string.Equals(lastHistoryKey, key, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                lastHistoryKey = key;
+
+                // Переход, инициированный из History, открывает цель, но не создаёт
+                // новую запись истории. Подавление действует только для этого перехода.
+                if (string.Equals(suppressedHistoryKey, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    suppressedHistoryKey = "";
+                    return;
+                }
+
+                suppressedHistoryKey = "";
+                AddOrRefreshHistoryItem(item);
+                SaveSolutionState();
+            }
+            finally
+            {
+                historyProbeInProgress = false;
+            }
+        }
+
+        private void EnsureHistoryRoot()
+        {
+            if (historyRoot != null && ReferenceEquals(historyRoot.Parent, state.Root)) return;
+            historyRoot = state.Sets.FirstOrDefault(x => x != null && x.IsHistoryRoot);
+            if (historyRoot == null)
+            {
+                historyRoot = new DocumentItem
+                {
+                    Id = "history",
+                    Name = "History",
+                    NodeType = NodeType.Folder,
+                    Type = BookmarkType.Empty,
+                    IsLocalOnly = true,
+                    IsHistoryRoot = true
+                };
+                state.Sets.Insert(0, historyRoot);
+            }
+
+            historyRoot.Children.Clear();
+            foreach (var saved in solutionState.History ?? new List<NavigationHistoryLocalItem>())
+            {
+                historyRoot.Children.Add(new DocumentItem
+                {
+                    Id = saved.Id ?? "",
+                    Name = saved.Name ?? "",
+                    NodeType = NodeType.Item,
+                    Type = saved.Type,
+                    Symbol = saved.Symbol ?? "",
+                    Project = saved.Project ?? "",
+                    Path = saved.Path ?? "",
+                    Line = saved.Line,
+                    Column = saved.Column,
+                    Comment = saved.Comment ?? "",
+                    EditorState = saved.EditorState?.Clone(),
+                    IsLocalOnly = true,
+                    IsHistoryItem = true
+                });
+            }
+        }
+
+        private void AddOrRefreshHistoryItem(DocumentItem source)
+        {
+            EnsureHistoryRoot();
+            var key = GetHistoryKey(source);
+            var existing = historyRoot.Children.FirstOrDefault(x => string.Equals(GetHistoryKey(x), key, StringComparison.OrdinalIgnoreCase));
+            if (existing != null) historyRoot.Children.Remove(existing);
+
+            var now = DateTime.Now;
+            var item = new DocumentItem
+            {
+                Id = CreateHistoryReadableId(source.Name),
+                Name = source.Name,
+                NodeType = NodeType.Item,
+                Type = string.IsNullOrWhiteSpace(source.Symbol) ? BookmarkType.File : BookmarkType.Symbol,
+                Symbol = source.Symbol,
+                Project = source.Project,
+                Path = source.Path,
+                Line = source.Line,
+                Column = source.Column,
+                Comment = now.ToString("yyyy-MM-dd HH:mm:ss"),
+                EditorState = source.EditorState?.Clone(),
+                IsLocalOnly = true,
+                IsHistoryItem = true
+            };
+            historyRoot.Children.Insert(0, item);
+            while (historyRoot.Children.Count > 2000)
+                historyRoot.Children.RemoveAt(historyRoot.Children.Count - 1);
+        }
+
+        private string CreateHistoryReadableId(string name)
+        {
+            var builder = new System.Text.StringBuilder();
+            var separatorPending = false;
+            foreach (var c in (name ?? "").Trim().ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    if (separatorPending && builder.Length > 0) builder.Append('-');
+                    builder.Append(c);
+                    separatorPending = false;
+                }
+                else separatorPending = true;
+            }
+            var baseId = "history-" + (builder.Length == 0 ? "item" : builder.ToString().Trim('-'));
+            var used = new HashSet<string>(EnumerateAllNodes().Where(x => x != null).Select(x => x.Id), StringComparer.OrdinalIgnoreCase);
+            var id = baseId;
+            var index = 2;
+            while (!used.Add(id)) id = baseId + "-" + index++;
+            return id;
+        }
+
+        private void SaveHistoryToSolutionState()
+        {
+            if (solutionState == null) return;
+            solutionState.History = historyRoot?.Children.Select(x => new NavigationHistoryLocalItem
+            {
+                Id = x.Id,
+                Name = x.Name,
+                Type = x.Type,
+                Symbol = x.Symbol,
+                Project = x.Project,
+                Path = x.Path,
+                Line = x.Line,
+                Column = x.Column,
+                Comment = x.Comment,
+                VisitedAt = DateTime.TryParse(x.Comment, out var visited) ? visited : DateTime.Now,
+                EditorState = x.EditorState?.Clone()
+            }).ToList() ?? new List<NavigationHistoryLocalItem>();
+        }
+
+        private static string GetHistoryKey(DocumentItem item)
+        {
+            if (item == null) return "";
+            if (!string.IsNullOrWhiteSpace(item.Symbol))
+                return (item.Project ?? "") + "|" + item.Symbol;
+            return item.Path ?? "";
         }
 
         private void ApplyIdMigration(IDictionary<string, string> idMap)

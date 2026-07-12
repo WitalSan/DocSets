@@ -45,6 +45,45 @@ namespace DocSets
 
         [JsonProperty("propertiesVisible")]
         public bool PropertiesVisible { get; set; } = true;
+
+        [JsonProperty("history")]
+        public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
+    }
+
+    public sealed class NavigationHistoryLocalItem
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; } = "";
+
+        [JsonProperty("name")]
+        public string Name { get; set; } = "";
+
+        [JsonProperty("type")]
+        public BookmarkType Type { get; set; } = BookmarkType.Symbol;
+
+        [JsonProperty("symbol")]
+        public string Symbol { get; set; } = "";
+
+        [JsonProperty("project")]
+        public string Project { get; set; } = "";
+
+        [JsonProperty("path")]
+        public string Path { get; set; } = "";
+
+        [JsonProperty("line")]
+        public int Line { get; set; } = 1;
+
+        [JsonProperty("column")]
+        public int Column { get; set; } = 1;
+
+        [JsonProperty("comment")]
+        public string Comment { get; set; } = "";
+
+        [JsonProperty("visitedAt")]
+        public DateTime VisitedAt { get; set; }
+
+        [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
+        public EditorState EditorState { get; set; }
     }
 
     public sealed class TreeViewLocalState
@@ -135,7 +174,7 @@ namespace DocSets
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "root" };
 
-            foreach (var item in EnumerateItems(Sets))
+            foreach (var item in EnumerateItems(Sets).Where(x => !x.IsLocalOnly))
             {
                 var oldId = item.Id ?? string.Empty;
                 var newId = CreateReadableId(item.Name, usedIds);
@@ -156,7 +195,7 @@ namespace DocSets
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "root" };
 
-            foreach (var item in EnumerateItems(Sets))
+            foreach (var item in EnumerateItems(Sets).Where(x => !x.IsLocalOnly))
             {
                 var oldId = item.Id ?? string.Empty;
                 var keepExisting = !string.IsNullOrWhiteSpace(oldId) && !IsGuidId(oldId) && usedIds.Add(oldId);
@@ -229,7 +268,7 @@ namespace DocSets
 
             foreach (var item in Sets ?? new ObservableCollection<DocumentItem>())
             {
-                if (item == null) continue;
+                if (item == null || item.IsLocalOnly) continue;
                 AppendFlatItem(item, "", result, usedIds);
             }
 
@@ -263,7 +302,10 @@ namespace DocSets
             });
 
             foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>())
+            {
+                if (child == null || child.IsLocalOnly) continue;
                 AppendFlatItem(child, id, result, usedIds);
+            }
         }
 
         private static ObservableCollection<DocumentItem> BuildTreeFromFlatItems(IEnumerable<DocumentItemStorageDto> flatItems)
@@ -551,6 +593,10 @@ namespace DocSets
         private EditorState editorState;
         private bool isExpanded;
         private bool isMultiSelected;
+        private bool isLocalOnly;
+        private bool isHistoryRoot;
+        private bool isHistoryItem;
+        private bool isMethodSymbol;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
 
         [JsonIgnore]
@@ -735,6 +781,35 @@ namespace DocSets
                 });
                 OnPropertyChanged();
             }
+        }
+
+
+        [JsonIgnore]
+        public bool IsLocalOnly
+        {
+            get => isLocalOnly;
+            set => isLocalOnly = value;
+        }
+
+        [JsonIgnore]
+        public bool IsHistoryRoot
+        {
+            get => isHistoryRoot;
+            set => isHistoryRoot = value;
+        }
+
+        [JsonIgnore]
+        public bool IsHistoryItem
+        {
+            get => isHistoryItem;
+            set => isHistoryItem = value;
+        }
+
+        [JsonIgnore]
+        public bool IsMethodSymbol
+        {
+            get => isMethodSymbol;
+            set => isMethodSymbol = value;
         }
 
         [JsonIgnore]

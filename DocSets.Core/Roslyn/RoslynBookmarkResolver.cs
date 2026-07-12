@@ -110,6 +110,7 @@ namespace DocSets
 
                 item.Name = CreateDisplayName(symbol);
                 item.Symbol = symbol.ToDisplayString(StoredSymbolFormat);
+                item.IsMethodSymbol = symbol.Kind == SymbolKind.Method;
                 item.Project = document.Project.Name ?? "";
                 var symbolLocation = symbol.Locations.FirstOrDefault(x => x.IsInSource);
                 var symbolAnchorLine = symbolLocation?.GetLineSpan().StartLinePosition.Line + 1 ?? line;

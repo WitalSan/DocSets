@@ -12,6 +12,7 @@ namespace DocSets
         private readonly DocSetsWinFormsControl winFormsControl;
         private readonly DispatcherTimer solutionLoadRetryTimer;
         private readonly DispatcherTimer workspaceSyncTimer;
+        private readonly DispatcherTimer navigationHistoryTimer;
         private readonly EnvDTE.SolutionEvents solutionEvents;
         private bool workspaceSyncInProgress;
         private int solutionLoadRetryCount;
@@ -27,6 +28,9 @@ namespace DocSets
 
             workspaceSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
             workspaceSyncTimer.Tick += async (_, __) => await CheckWorkspaceChangesAsync();
+
+            navigationHistoryTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            navigationHistoryTimer.Tick += async (_, __) => await viewModel.TrackNavigationHistoryAsync();
 
             var dte = Package.GetGlobalService(typeof(EnvDTE.DTE)) as EnvDTE.DTE;
             solutionEvents = dte?.Events?.SolutionEvents;
@@ -45,12 +49,14 @@ namespace DocSets
                 }
 
                 workspaceSyncTimer.Start();
+                navigationHistoryTimer.Start();
             };
 
             Unloaded += (_, __) =>
             {
                 solutionLoadRetryTimer.Stop();
                 workspaceSyncTimer.Stop();
+                navigationHistoryTimer.Stop();
                 winFormsControl.SaveLocalSettings();
             };
         }

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Menu;
 using WpfCommand = System.Windows.Input.ICommand;
 
 namespace DocSets
@@ -1496,7 +1497,24 @@ namespace DocSets
                 activeItem.Invalidate();
             }
 
+            ConfigureGroupsOverflow();
+
             _groupsStrip.Invalidate();
+        }
+        
+        private void ConfigureGroupsOverflow()
+        {
+            //TODO: выпадающий список групп (когда кнопки не влезают) хотелось в одну колонку - не работает все равно несколько групп в строке
+            var overflowButton = _groupsStrip.OverflowButton;
+
+            if (overflowButton?.DropDown == null)
+                return;
+
+            overflowButton.DropDown.LayoutStyle =
+                ToolStripLayoutStyle.VerticalStackWithOverflow;
+
+            overflowButton.DropDown.AutoSize = true;
+            overflowButton.DropDown.MaximumSize = new Size(350, 0);
         }
 
         private void AddNodeMenu(string text, WpfCommand command, string shortcut = null, AppIcon? icon = null)
