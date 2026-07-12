@@ -12,6 +12,7 @@ namespace DocSets
         private readonly DocSetsWinFormsControl winFormsControl;
         private readonly DispatcherTimer solutionLoadRetryTimer;
         private readonly DispatcherTimer workspaceSyncTimer;
+        private readonly EnvDTE.SolutionEvents solutionEvents;
         private bool workspaceSyncInProgress;
         private int solutionLoadRetryCount;
 
@@ -26,6 +27,11 @@ namespace DocSets
 
             workspaceSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
             workspaceSyncTimer.Tick += async (_, __) => await CheckWorkspaceChangesAsync();
+
+            var dte = Package.GetGlobalService(typeof(EnvDTE.DTE)) as EnvDTE.DTE;
+            solutionEvents = dte?.Events?.SolutionEvents;
+            if (solutionEvents != null)
+                solutionEvents.BeforeClosing += OnSolutionBeforeClosing;
 
             Loaded += (_, __) =>
             {
@@ -45,7 +51,24 @@ namespace DocSets
             {
                 solutionLoadRetryTimer.Stop();
                 workspaceSyncTimer.Stop();
+                winFormsControl.SaveLocalSettings();
             };
+        }
+
+        private void OnSolutionBeforeClosing()
+        {
+            winFormsControl.SaveLocalSettings();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                winFormsControl.SaveLocalSettings();
+                if (solutionEvents != null)
+                    solutionEvents.BeforeClosing -= OnSolutionBeforeClosing;
+            }
+            base.Dispose(disposing);
         }
 
         internal async System.Threading.Tasks.Task AddBookmarkFromEditorAsync()

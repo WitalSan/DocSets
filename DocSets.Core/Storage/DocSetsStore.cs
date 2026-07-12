@@ -372,29 +372,52 @@ namespace DocSets
             return solutionDirectory.StartsWith(directory);
         }
 
-        private string WorkspaceSelectionFilePath
+        private string SolutionSettingsFilePath
         {
             get
             {
                 var solutionName = Path.GetFileNameWithoutExtension(solutionFilePath) ?? "solution";
-                return Path.Combine(solutionDirectory, ".vs", "DockSets", solutionName + ".workspace");
+                return Path.Combine(solutionDirectory, ".vs", "DockSets", solutionName + ".json");
             }
         }
 
-        private string LoadActiveWorkspaceName()
-        {
-            try { return File.Exists(WorkspaceSelectionFilePath) ? File.ReadAllText(WorkspaceSelectionFilePath).Trim() : ""; }
-            catch { return ""; }
-        }
-
-        private void SaveActiveWorkspaceName(string relativePath)
+        public SolutionLocalState LoadSolutionState()
         {
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceSelectionFilePath));
-                File.WriteAllText(WorkspaceSelectionFilePath, relativePath ?? "");
+                if (File.Exists(SolutionSettingsFilePath))
+                {
+                    var json = File.ReadAllText(SolutionSettingsFilePath);
+                    return JsonConvert.DeserializeObject<SolutionLocalState>(json) ?? new SolutionLocalState();
+                }
+
+                var legacyPath = Path.ChangeExtension(SolutionSettingsFilePath, ".workspace");
+                if (File.Exists(legacyPath))
+                {
+                    return new SolutionLocalState { Workspace = File.ReadAllText(legacyPath).Trim() };
+                }
             }
             catch { }
+            return new SolutionLocalState();
+        }
+
+        public void SaveSolutionState(SolutionLocalState state)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SolutionSettingsFilePath));
+                File.WriteAllText(SolutionSettingsFilePath, JsonConvert.SerializeObject(state ?? new SolutionLocalState(), Formatting.Indented));
+            }
+            catch { }
+        }
+
+        private string LoadActiveWorkspaceName() => LoadSolutionState().Workspace ?? "";
+
+        private void SaveActiveWorkspaceName(string relativePath)
+        {
+            var state = LoadSolutionState();
+            state.Workspace = relativePath ?? "";
+            SaveSolutionState(state);
         }
 
         private string ToSolutionRelativePath(string fullPath)

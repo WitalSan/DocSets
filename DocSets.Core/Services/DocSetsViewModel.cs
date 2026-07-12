@@ -37,6 +37,7 @@ namespace DocSets
         private int activeSaveCount;
         private IReadOnlyList<WorkspaceInfo> workspaces = Array.Empty<WorkspaceInfo>();
         private WorkspaceInfo selectedWorkspace;
+        private SolutionLocalState solutionState = new SolutionLocalState();
 
         public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
         {
@@ -50,6 +51,7 @@ namespace DocSets
             DeleteSetCommand = new RelayCommand(DeleteSet, () => IsLoaded && SelectedSet != null);
             MoveSetUpCommand = new RelayCommand(() => MoveSet(-1), () => IsLoaded && CanMove(Sets, SelectedSet, -1));
             MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && CanMove(Sets, SelectedSet, 1));
+            RegenerateAllIdsCommand = new RelayCommand(async () => await RegenerateAllIdsAsync(), () => IsLoaded);
 
             AddFolderCommand = new RelayCommand(p => AddFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
             AddRootFolderCommand = AddFolderCommand;
@@ -83,7 +85,9 @@ namespace DocSets
             private set => SetProperty(ref selectedWorkspace, value);
         }
 
-        public DocumentSetsUiSettings Ui => state.Ui;
+        public DocumentSetsUiSettings Ui => solutionState.Ui ?? (solutionState.Ui = new DocumentSetsUiSettings());
+
+        public SolutionLocalState SolutionState => solutionState;
 
         public bool IsLoaded
         {
@@ -98,13 +102,13 @@ namespace DocSets
             {
                 if (!SetProperty(ref selectedSet, value)) return;
 
-                state.ActiveSet = selectedSet?.Name ?? "";
+                solutionState.ActiveViewId = selectedSet?.Id ?? "full-tree";
                 SetSelectedNodes(Enumerable.Empty<DocumentItem>());
                 OnPropertyChanged(nameof(CurrentNodes));
                 InvalidateCommands();
                 if (IsLoaded && !isApplyingState)
                 {
-                    _ = SaveAsync();
+                    SaveSolutionState();
                 }
             }
         }
@@ -220,6 +224,7 @@ namespace DocSets
         public ICommand DeleteSetCommand { get; }
         public ICommand MoveSetUpCommand { get; }
         public ICommand MoveSetDownCommand { get; }
+        public ICommand RegenerateAllIdsCommand { get; }
         public ICommand AddFolderCommand { get; }
         public ICommand AddRootFolderCommand { get; }
         public ICommand AddChildFolderCommand { get; }
@@ -246,6 +251,7 @@ namespace DocSets
         public async Task LoadAsync()
         {
             await RefreshWorkspacesAsync();
+            solutionState = store.LoadSolutionState() ?? new SolutionLocalState();
             var loadedState = await store.LoadAsync();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
             await RefreshWorkspacesAsync();
@@ -303,6 +309,7 @@ namespace DocSets
 
         private void Root_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
         {
+            ApplyIdMigration(state.EnsureReadableIds());
             TreeChanged?.Invoke(this, e);
             if (IsLoaded && !isApplyingState && e != null
                 && e.PropertyName != nameof(DocumentItem.IsExpanded)
@@ -340,10 +347,15 @@ namespace DocSets
             state = loadedState;
             state.Root.TreeChanged += Root_TreeChanged;
             if (state.Ui == null) state.Ui = new DocumentSetsUiSettings();
+            if (solutionState.Ui == null || (solutionState.Ui.Columns.Count == 0 && state.Ui.Columns.Count > 0))
+            {
+                solutionState.Ui = state.Ui;
+            }
 
             // Legacy NodeType.Set is normalized while DTO objects are created.
             // Root may contain both folders and leaf items; only folders are represented as tabs.
             NormalizeNodes(state.Sets);
+            ApplyIdMigration(state.EnsureReadableIds());
 
             if (state.Sets.Count == 0)
             {
@@ -358,13 +370,11 @@ namespace DocSets
                 OnPropertyChanged(nameof(Sets));
                 OnPropertyChanged(nameof(Ui));
 
-                var setName = string.IsNullOrWhiteSpace(preferredSetName)
-                    ? state.ActiveSet
-                    : preferredSetName;
-
+                var activeViewId = solutionState.ActiveViewId;
                 SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
-                                  string.Equals(x.Name, setName, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && x.Name == state.ActiveSet)
+                                  string.Equals(x.Id, activeViewId, StringComparison.OrdinalIgnoreCase))
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
+                                  string.Equals(x.Name, preferredSetName ?? state.ActiveSet, StringComparison.OrdinalIgnoreCase))
                               ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder);
 
                 var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
@@ -1792,6 +1802,52 @@ namespace DocSets
             var index = collection.IndexOf(item);
             var newIndex = index + delta;
             return index >= 0 && newIndex >= 0 && newIndex < collection.Count;
+        }
+
+        private async Task RegenerateAllIdsAsync()
+        {
+            if (!IsLoaded) return;
+
+            var idMap = state.RegenerateAllReadableIds();
+            ApplyIdMigration(idMap);
+
+            await SaveAsync();
+            SaveSolutionState();
+            InvalidateCommands();
+        }
+
+        public void SaveSolutionState()
+        {
+            ApplyIdMigration(state?.EnsureReadableIds());
+            solutionState.Workspace = store.CurrentWorkspaceRelativePath ?? "";
+            store.SaveSolutionState(solutionState);
+        }
+
+        private void ApplyIdMigration(IDictionary<string, string> idMap)
+        {
+            if (idMap == null || idMap.Count == 0 || solutionState == null) return;
+
+            string Map(string id)
+            {
+                if (string.IsNullOrWhiteSpace(id)) return id;
+                return idMap.TryGetValue(id, out var mapped) ? mapped : id;
+            }
+
+            solutionState.ActiveViewId = Map(solutionState.ActiveViewId);
+
+            var oldViews = solutionState.Views ?? new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
+            var newViews = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in oldViews)
+            {
+                var key = Map(pair.Key);
+                var view = pair.Value ?? new TreeViewLocalState();
+                view.CollapsedIds = (view.CollapsedIds ?? new List<string>()).Select(Map).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                view.SelectedIds = (view.SelectedIds ?? new List<string>()).Select(Map).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (view.LegacyExpandedIds != null)
+                    view.LegacyExpandedIds = view.LegacyExpandedIds.Select(Map).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                newViews[key] = view;
+            }
+            solutionState.Views = newViews;
         }
 
         public async Task SaveAsync()

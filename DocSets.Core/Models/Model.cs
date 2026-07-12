@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using Newtonsoft.Json;
 
 namespace DocSets
@@ -16,6 +17,47 @@ namespace DocSets
         public string FullPath { get; set; } = "";
 
         public override string ToString() => Name;
+    }
+
+
+    public sealed class SolutionLocalState
+    {
+        [JsonProperty("workspace")]
+        public string Workspace { get; set; } = "";
+
+        [JsonProperty("activeViewId")]
+        public string ActiveViewId { get; set; } = "full-tree";
+
+        [JsonProperty("views")]
+        public Dictionary<string, TreeViewLocalState> Views { get; set; } = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
+
+        [JsonProperty("ui")]
+        public DocumentSetsUiSettings Ui { get; set; } = new DocumentSetsUiSettings();
+
+        [JsonProperty("activationMode")]
+        public string ActivationMode { get; set; } = "ClassicDoubleClickOpen";
+
+        [JsonProperty("filterText")]
+        public string FilterText { get; set; } = "";
+
+        [JsonProperty("filterColors")]
+        public List<BookmarkColor> FilterColors { get; set; } = new List<BookmarkColor>();
+
+        [JsonProperty("propertiesVisible")]
+        public bool PropertiesVisible { get; set; } = true;
+    }
+
+    public sealed class TreeViewLocalState
+    {
+        [JsonProperty("collapsedIds")]
+        public List<string> CollapsedIds { get; set; } = new List<string>();
+
+        // Compatibility with solution-state files written before collapsedIds was introduced.
+        [JsonProperty("expandedIds", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> LegacyExpandedIds { get; set; }
+
+        [JsonProperty("selectedIds")]
+        public List<string> SelectedIds { get; set; } = new List<string>();
     }
 
     public sealed class DocumentSetsState : NotifyObject
@@ -88,8 +130,100 @@ namespace DocSets
             set => SetProperty(ref ui, value ?? new DocumentSetsUiSettings());
         }
 
+        public Dictionary<string, string> RegenerateAllReadableIds()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "root" };
+
+            foreach (var item in EnumerateItems(Sets))
+            {
+                var oldId = item.Id ?? string.Empty;
+                var newId = CreateReadableId(item.Name, usedIds);
+                item.Id = newId;
+
+                if (!string.IsNullOrWhiteSpace(oldId) &&
+                    !string.Equals(oldId, newId, StringComparison.OrdinalIgnoreCase))
+                {
+                    result[oldId] = newId;
+                }
+            }
+
+            return result;
+        }
+
+        public Dictionary<string, string> EnsureReadableIds()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "root" };
+
+            foreach (var item in EnumerateItems(Sets))
+            {
+                var oldId = item.Id ?? string.Empty;
+                var keepExisting = !string.IsNullOrWhiteSpace(oldId) && !IsGuidId(oldId) && usedIds.Add(oldId);
+                if (keepExisting) continue;
+
+                var newId = CreateReadableId(item.Name, usedIds);
+                item.Id = newId;
+                if (!string.IsNullOrWhiteSpace(oldId) && !string.Equals(oldId, newId, StringComparison.OrdinalIgnoreCase))
+                    result[oldId] = newId;
+            }
+
+            return result;
+        }
+
+        private static IEnumerable<DocumentItem> EnumerateItems(IEnumerable<DocumentItem> items)
+        {
+            if (items == null) yield break;
+            foreach (var item in items)
+            {
+                if (item == null) continue;
+                yield return item;
+                foreach (var child in EnumerateItems(item.Children)) yield return child;
+            }
+        }
+
+        private static bool IsGuidId(string value)
+        {
+            Guid parsed;
+            return Guid.TryParse(value, out parsed) ||
+                   (value != null && value.Length == 32 && Guid.TryParseExact(value, "N", out parsed));
+        }
+
+        private static string CreateReadableId(string name, ISet<string> usedIds)
+        {
+            var baseId = NormalizeId(name);
+            if (string.IsNullOrWhiteSpace(baseId)) baseId = "item";
+
+            var id = baseId;
+            var index = 2;
+            while (!usedIds.Add(id)) id = baseId + "-" + index++;
+            return id;
+        }
+
+        private static string NormalizeId(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            var builder = new StringBuilder();
+            var separatorPending = false;
+            foreach (var c in value.Trim().ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    if (separatorPending && builder.Length > 0) builder.Append('-');
+                    builder.Append(c);
+                    separatorPending = false;
+                }
+                else
+                {
+                    separatorPending = true;
+                }
+            }
+            return builder.ToString().Trim('-');
+        }
+
         private List<DocumentItemStorageDto> BuildFlatItemsForStorage()
         {
+            EnsureReadableIds();
             var result = new List<DocumentItemStorageDto>();
             var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -105,11 +239,10 @@ namespace DocSets
         private static void AppendFlatItem(DocumentItem item, string parentId,
             ICollection<DocumentItemStorageDto> result, ISet<string> usedIds)
         {
-            var id = string.IsNullOrWhiteSpace(item.Id) ? Guid.NewGuid().ToString("N") : item.Id;
-            if (!usedIds.Add(id))
+            var id = item.Id;
+            if (string.IsNullOrWhiteSpace(id) || !usedIds.Add(id))
             {
-                id = Guid.NewGuid().ToString("N");
-                usedIds.Add(id);
+                id = CreateReadableId(item.Name, usedIds);
             }
             item.Id = id;
             result.Add(new DocumentItemStorageDto
@@ -172,7 +305,7 @@ namespace DocSets
 
             return new DocumentItem
             {
-                Id = string.IsNullOrWhiteSpace(source.Id) ? Guid.NewGuid().ToString("N") : source.Id,
+                Id = source.Id ?? string.Empty,
                 Name = source.Name ?? "",
                 NodeType = source.NodeType == NodeType.Set ? NodeType.Folder : source.NodeType,
                 Type = type,
@@ -403,7 +536,7 @@ namespace DocSets
 
     public sealed class DocumentItem : NotifyObject
     {
-        private string id = Guid.NewGuid().ToString("N");
+        private string id = string.Empty;
         private DocumentItem parent;
         private string name = "";
         private BookmarkType type;
@@ -424,7 +557,7 @@ namespace DocSets
         public string Id
         {
             get => id;
-            set => id = string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString("N") : value;
+            set => id = value ?? string.Empty;
         }
 
         [JsonIgnore]

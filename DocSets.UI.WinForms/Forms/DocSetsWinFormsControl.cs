@@ -64,9 +64,10 @@ namespace DocSets
         private bool _propertiesVisible = true;
         private bool _showSetsOverview;
         private readonly object _setsOverviewExpansionOwner = new object();
-        private readonly Dictionary<object, HashSet<DocumentItem>> _expandedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
+        private readonly Dictionary<object, HashSet<DocumentItem>> _collapsedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
         private readonly Dictionary<object, HashSet<DocumentItem>> _selectedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
         private object _renderedExpansionOwner;
+        private bool _localStateRestored;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
         int _iconSize => ToPhysicalIconSize(16);
 
@@ -105,6 +106,7 @@ namespace DocSets
         {
             if (disposing)
             {
+                SaveLocalSettings();
                 _viewModel.TreeChanged -= ViewModel_TreeChanged;
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Dispose();
@@ -216,7 +218,7 @@ namespace DocSets
 
             row.Controls.Add(new Label { Text = "Фильтр:", AutoSize = true, Padding = new Padding(0, 5, 4, 0) });
             _filterTextBox.Width = 220;
-            _filterTextBox.TextChanged += (_, __) => RebuildTree();
+            _filterTextBox.TextChanged += (_, __) => { RebuildTree(); SaveLocalState(); };
             row.Controls.Add(_filterTextBox);
 
             var colorStrip = new ToolStrip
@@ -287,6 +289,7 @@ namespace DocSets
 
             UpdateFilterColorUi();
             RebuildTree();
+            SaveLocalState();
         }
 
         private void ClearColorFilter()
@@ -303,6 +306,7 @@ namespace DocSets
 
             UpdateFilterColorUi();
             RebuildTree();
+            SaveLocalState();
         }
 
         private void ResetFilters()
@@ -320,6 +324,7 @@ namespace DocSets
 
             UpdateFilterColorUi();
             RebuildTree();
+            SaveLocalState();
         }
 
         private void UpdateFilterColorUi()
@@ -522,7 +527,7 @@ namespace DocSets
             }
 
             _viewModel.Ui.Columns = layouts;
-            _ = _viewModel.SaveAsync();
+            SaveLocalState();
         }
 
         private void RestoreSplitterPosition()
@@ -569,7 +574,7 @@ namespace DocSets
             if (_viewModel.Ui.PropertiesPanelHeight != panelHeight)
             {
                 _viewModel.Ui.PropertiesPanelHeight = panelHeight;
-                _ = _viewModel.SaveAsync();
+                SaveLocalState();
             }
         }
 
@@ -1039,7 +1044,8 @@ namespace DocSets
             _groupMenu.Items.Add(new ToolStripSeparator());
             AddGroupMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
             AddGroupMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V", AppIcon.Paste);
-
+            _groupMenu.Items.Add(new ToolStripSeparator());
+            AddRegenerateAllIdsMenu();
 
             _groupMenu.Opening += (_, e) =>
             {
@@ -1062,6 +1068,34 @@ namespace DocSets
             };
         }
 
+
+        private void AddRegenerateAllIdsMenu()
+        {
+            var item = new ToolStripMenuItem("Обновить все Id")
+            {
+                Name = "RegenerateAllIdsMenuItem",
+                Tag = _viewModel.RegenerateAllIdsCommand
+            };
+
+            item.Click += (_, __) =>
+            {
+                var result = MessageBox.Show(
+                    this,
+                    "Все Id будут заново сформированы из текущих имен элементов. " +
+                    "Локальные настройки других решений, использующих этот workspace, могут стать недействительными. Продолжить?",
+                    "Обновить все Id",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+
+                if (result != DialogResult.Yes) return;
+
+                Execute(_viewModel.RegenerateAllIdsCommand, null);
+                RefreshAll();
+            };
+
+            _groupMenu.Items.Add(item);
+        }
 
         private void AddRenameGroupMenu()
         {
@@ -1594,8 +1628,126 @@ namespace DocSets
             }
         }
 
+        private string GetViewKey(object owner)
+        {
+            if (ReferenceEquals(owner, _setsOverviewExpansionOwner)) return "full-tree";
+            return (owner as DocumentItem)?.Id ?? "";
+        }
+
+        private void RestoreLocalState()
+        {
+            var local = _viewModel.SolutionState;
+            _showSetsOverview = string.Equals(local.ActiveViewId, "full-tree", StringComparison.OrdinalIgnoreCase);
+            if (!_showSetsOverview)
+            {
+                var set = _viewModel.Sets.FirstOrDefault(x => string.Equals(x.Id, local.ActiveViewId, StringComparison.OrdinalIgnoreCase));
+                if (set != null) _viewModel.SelectedSet = set;
+                else _showSetsOverview = true;
+            }
+
+            if (Enum.TryParse(local.ActivationMode, out TreeActivationMode mode))
+                _treeActivationMode = mode;
+            _filterTextBox.Text = local.FilterText ?? string.Empty;
+            _filterColors.Clear();
+            foreach (var color in local.FilterColors ?? new List<BookmarkColor>()) _filterColors.Add(color);
+            _propertiesVisible = local.PropertiesVisible;
+            _contentSplit.Panel2Collapsed = !_propertiesVisible;
+            _togglePropertiesButton.Checked = _propertiesVisible;
+
+            var byId = EnumerateItems(_viewModel.Root.Children).Where(x => !string.IsNullOrWhiteSpace(x.Id))
+                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+            _collapsedItemsByView.Clear();
+            _selectedItemsByView.Clear();
+            foreach (var pair in local.Views ?? new Dictionary<string, TreeViewLocalState>())
+            {
+                object owner = string.Equals(pair.Key, "full-tree", StringComparison.OrdinalIgnoreCase)
+                    ? _setsOverviewExpansionOwner
+                    : (object)_viewModel.Sets.FirstOrDefault(x => string.Equals(x.Id, pair.Key, StringComparison.OrdinalIgnoreCase));
+                if (owner == null) continue;
+                var viewState = pair.Value ?? new TreeViewLocalState();
+                var collapsedIds = viewState.CollapsedIds ?? new List<string>();
+                if (collapsedIds.Count == 0 && viewState.LegacyExpandedIds != null)
+                {
+                    var legacyExpanded = new HashSet<string>(viewState.LegacyExpandedIds, StringComparer.OrdinalIgnoreCase);
+                    IEnumerable<DocumentItem> viewItems;
+                    if (ReferenceEquals(owner, _setsOverviewExpansionOwner))
+                        viewItems = EnumerateItems(_viewModel.Root.Children);
+                    else
+                        viewItems = EnumerateItems(((DocumentItem)owner).Children);
+
+                    collapsedIds = viewItems
+                        .Where(x => x != null && x.NodeType == NodeType.Folder && !legacyExpanded.Contains(x.Id))
+                        .Select(x => x.Id)
+                        .ToList();
+                }
+
+                _collapsedItemsByView[owner] = new HashSet<DocumentItem>(collapsedIds.Where(byId.ContainsKey).Select(id => byId[id]));
+                _selectedItemsByView[owner] = new HashSet<DocumentItem>((viewState.SelectedIds ?? new List<string>()).Where(byId.ContainsKey).Select(id => byId[id]));
+            }
+            _localStateRestored = true;
+            UpdateFilterColorUi();
+            WireTreeActivationBehavior();
+        }
+
+        private void CaptureRenderedViewState()
+        {
+            if (_renderedExpansionOwner == null)
+                return;
+
+            var collapsedItems = new HashSet<DocumentItem>();
+            foreach (var treeNode in EnumerateTreeNodes(_tree.Root))
+            {
+                var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
+                if (item != null && item.NodeType == NodeType.Folder && !treeNode.IsExpanded)
+                    collapsedItems.Add(item);
+            }
+            _collapsedItemsByView[_renderedExpansionOwner] = collapsedItems;
+
+            var selectedItems = new HashSet<DocumentItem>();
+            foreach (var treeNode in _tree.SelectedNodes)
+            {
+                var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
+                if (item != null)
+                    selectedItems.Add(item);
+            }
+            _selectedItemsByView[_renderedExpansionOwner] = selectedItems;
+        }
+
+        public void SaveLocalSettings()
+        {
+            CaptureRenderedViewState();
+            SaveLocalState();
+        }
+
+        private void SaveLocalState()
+        {
+            if (!_localStateRestored || !_viewModel.IsLoaded) return;
+            var local = _viewModel.SolutionState;
+            local.ActiveViewId = _showSetsOverview ? "full-tree" : (_viewModel.SelectedSet?.Id ?? "full-tree");
+            local.ActivationMode = _treeActivationMode.ToString();
+            local.FilterText = _filterTextBox.Text ?? string.Empty;
+            local.FilterColors = _filterColors.ToList();
+            local.PropertiesVisible = _propertiesVisible;
+            local.Views = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in _collapsedItemsByView)
+            {
+                var key = GetViewKey(pair.Key); if (string.IsNullOrWhiteSpace(key)) continue;
+                local.Views[key] = new TreeViewLocalState { CollapsedIds = pair.Value.Where(x => x != null).Select(x => x.Id).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() };
+            }
+            foreach (var pair in _selectedItemsByView)
+            {
+                var key = GetViewKey(pair.Key); if (string.IsNullOrWhiteSpace(key)) continue;
+                if (!local.Views.TryGetValue(key, out var view)) local.Views[key] = view = new TreeViewLocalState();
+                view.SelectedIds = pair.Value.Where(x => x != null).Select(x => x.Id).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            }
+            _viewModel.SaveSolutionState();
+        }
+
         public void RefreshAll()
         {
+            if (_viewModel.IsLoaded && !_localStateRestored)
+                RestoreLocalState();
+
             _refreshing = true;
             try
             {
@@ -1678,6 +1830,8 @@ namespace DocSets
                 return;
 
             _showSetsOverview = true;
+            _viewModel.SolutionState.ActiveViewId = "full-tree";
+            _viewModel.SaveSolutionState();
             ClearFindResults();
             UpdateGroupButtonsChecked();
             RebuildTree();
@@ -1873,32 +2027,8 @@ namespace DocSets
             // Save both states of the view that is currently rendered before rebuilding it.
             if (_renderedExpansionOwner != null)
             {
-                var expandedItems = new HashSet<DocumentItem>();
-                foreach (var treeNode in EnumerateTreeNodes(_tree.Root))
-                {
-                    if (!treeNode.IsExpanded)
-                        continue;
-
-                    var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
-                    if (item == null)
-                        continue;
-
-                    expandedItems.Add(item);
-                }
-
-                _expandedItemsByView[_renderedExpansionOwner] = expandedItems;
-
-                var selectedItems = new HashSet<DocumentItem>();
-                foreach (var treeNode in _tree.SelectedNodes)
-                {
-                    var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
-                    if (item == null)
-                        continue;
-
-                    selectedItems.Add(item);
-                }
-
-                _selectedItemsByView[_renderedExpansionOwner] = selectedItems;
+                CaptureRenderedViewState();
+                SaveLocalState();
             }
 
             var expansionOwner = _showSetsOverview
@@ -1930,21 +2060,15 @@ namespace DocSets
                     }
                 }
 
-                if (expansionOwner == null || !_expandedItemsByView.TryGetValue(expansionOwner, out var expandedForView))
-                {
-                    // Preserve the original first-display behavior independently for every tab.
-                    _tree.ExpandAll();
-                }
-                else
+                // Nodes are expanded by default. Persist only the exceptions.
+                _tree.ExpandAll();
+                if (expansionOwner != null && _collapsedItemsByView.TryGetValue(expansionOwner, out var collapsedForView))
                 {
                     foreach (var treeNode in EnumerateTreeNodes(_tree.Root))
                     {
                         var item = (treeNode.Tag as BookmarkTreeNode)?.Item;
-                        if (item == null)
-                            continue;
-
-                        if (expandedForView.Contains(item))
-                            treeNode.IsExpanded = true;
+                        if (item != null && collapsedForView.Contains(item))
+                            treeNode.IsExpanded = false;
                     }
                 }
 
@@ -2116,6 +2240,7 @@ namespace DocSets
             if (selectionOwner != null)
             {
                 _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(items);
+                SaveLocalState();
             }
 
             if (_showSetsOverview)
@@ -2155,6 +2280,7 @@ namespace DocSets
             _propertiesVisible = visible;
             _contentSplit.Panel2Collapsed = !visible;
             _togglePropertiesButton.Checked = visible;
+            if (_localStateRestored) SaveLocalState();
             if (visible)
             {
                 RestoreSplitterPosition();
@@ -2275,6 +2401,8 @@ namespace DocSets
 
             UnwireTreeActivationBehavior();
             _treeActivationMode = mode;
+            _viewModel.SolutionState.ActivationMode = mode.ToString();
+            _viewModel.SaveSolutionState();
             WireTreeActivationBehavior();
             UpdateActivationModeButtons();
         }
