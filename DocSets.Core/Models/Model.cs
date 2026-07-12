@@ -48,6 +48,18 @@ namespace DocSets
 
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
+
+        [JsonProperty("pins")]
+        public List<PinLocalItem> Pins { get; set; } = new List<PinLocalItem>();
+    }
+
+    public sealed class PinLocalItem
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; } = "";
+
+        [JsonProperty("targetId")]
+        public string TargetId { get; set; } = "";
     }
 
     public sealed class NavigationHistoryLocalItem
@@ -553,7 +565,8 @@ namespace DocSets
         Symbol = 0,
         Default = Symbol,
         File = 1,
-        Empty = 2
+        Empty = 2,
+        Pin = 3
     }
 
     public enum DocumentTreeChangeKind
@@ -596,6 +609,9 @@ namespace DocSets
         private bool isLocalOnly;
         private bool isHistoryRoot;
         private bool isHistoryItem;
+        private bool isPinRoot;
+        private bool isPinItem;
+        private string targetId = string.Empty;
         private bool isMethodSymbol;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
 
@@ -803,6 +819,27 @@ namespace DocSets
         {
             get => isHistoryItem;
             set => isHistoryItem = value;
+        }
+
+        [JsonIgnore]
+        public bool IsPinRoot
+        {
+            get => isPinRoot;
+            set => isPinRoot = value;
+        }
+
+        [JsonIgnore]
+        public bool IsPinItem
+        {
+            get => isPinItem;
+            set => isPinItem = value;
+        }
+
+        [JsonIgnore]
+        public string TargetId
+        {
+            get => targetId;
+            set => targetId = value ?? string.Empty;
         }
 
         [JsonIgnore]

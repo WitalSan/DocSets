@@ -1,0 +1,22 @@
+{
+  "activeSet": "Default",
+  "items": [
+    {
+      "id": "default",
+      "parent": "",
+      "name": "Default",
+      "nodeType": "Folder",
+      "type": "Empty",
+      "symbol": "",
+      "project": "",
+      "path": "",
+      "line": 1,
+      "column": 1,
+      "comment": ""
+    }
+  ],
+  "ui": {
+    "columns": [],
+    "propertiesPanelHeight": 150
+  }
+}

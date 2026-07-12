@@ -39,6 +39,7 @@ namespace DocSets
         private WorkspaceInfo selectedWorkspace;
         private SolutionLocalState solutionState = new SolutionLocalState();
         private DocumentItem historyRoot;
+        private DocumentItem pinRoot;
         private string lastHistoryKey = "";
         private string suppressedHistoryKey = "";
         private bool historyProbeInProgress;
@@ -72,6 +73,7 @@ namespace DocSets
             CopySelectedNodesCommand = new RelayCommand(_ => CopySelectedNodes(), _ => IsLoaded && SelectedNodes.Count > 0);
             PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
+            TogglePinCommand = new RelayCommand(p => TogglePin(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanTogglePin(p as DocumentItem ?? SelectedNode));
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
             state.Root.TreeChanged += Root_TreeChanged;
         }
@@ -81,6 +83,7 @@ namespace DocSets
         public DocumentItem Root => state.Root;
         public ObservableCollection<DocumentItem> Sets => state.Root.Children;
         public DocumentItem HistoryRoot => historyRoot;
+        public DocumentItem PinRoot => pinRoot;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
 
@@ -248,6 +251,7 @@ namespace DocSets
         public ICommand PasteNodesCommand { get; }
         public ICommand CopySelectedNodesAsJsonCommand { get; }
         public ICommand PasteNodesFromJsonCommand { get; }
+        public ICommand TogglePinCommand { get; }
 
         // Compatibility aliases for old command names.
         public ICommand RenameBookmarkCommand => RenameNodeCommand;
@@ -366,6 +370,7 @@ namespace DocSets
             ApplyIdMigration(state.EnsureReadableIds());
             historyRoot = null;
             EnsureHistoryRoot();
+            EnsurePinRoot();
 
             if (!state.Sets.Any(x => x != null && !x.IsLocalOnly))
             {
@@ -873,6 +878,7 @@ namespace DocSets
 
         private async Task OpenBookmarkAsync(DocumentItem item)
         {
+            item = ResolvePin(item);
             if (!IsBookmark(item)) return;
             if (item.IsHistoryItem)
                 suppressedHistoryKey = GetHistoryKey(item);
@@ -885,6 +891,7 @@ namespace DocSets
 
         public async Task SyncWithCurrentPositionAsync(DocumentItem item)
         {
+            item = ResolvePin(item);
             if (item == null)
             {
                 return;
@@ -938,6 +945,7 @@ namespace DocSets
 
         private async Task UpdateBookmarkAsync(DocumentItem item)
         {
+            item = ResolvePin(item);
             if (!IsBookmark(item)) return;
             var updated = await store.CreateBookmarkFromActiveDocumentAsync();
             if (updated == null)
@@ -976,6 +984,7 @@ namespace DocSets
 
         private void RenameNode(DocumentItem item)
         {
+            item = ResolvePin(item);
             if (item == null) return;
             var caption = item.NodeType == NodeType.Folder ? "Новое название папки:" : "Новое название закладки:";
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", caption, item.Name);
@@ -1000,20 +1009,37 @@ namespace DocSets
             if (MessageBox.Show(ownerAccessor(), text, "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
             var historyChanged = false;
+            var pinChanged = false;
             foreach (var node in FilterOutDescendants(nodes))
             {
-                if (node.IsHistoryRoot)
+                if (node.IsHistoryRoot || node.IsPinRoot)
                 {
                     node.Children.Clear();
-                    historyChanged = true;
+                    historyChanged |= node.IsHistoryRoot;
+                    pinChanged |= node.IsPinRoot;
                     continue;
                 }
+
+                if (node.IsPinItem)
+                {
+                    pinChanged = true;
+                    FindOwnerCollection(node)?.Remove(node);
+                    continue;
+                }
+
+                var deletedIds = new HashSet<string>((new[] { node }).Concat(EnumerateNodes(node.Children)).Select(x => x.Id).Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
+                foreach (var pin in pinRoot?.Children.Where(x => deletedIds.Contains(x.TargetId)).ToList() ?? new List<DocumentItem>())
+                {
+                    pinRoot.Children.Remove(pin);
+                    pinChanged = true;
+                }
+
                 historyChanged |= node.IsHistoryItem || ReferenceEquals(node.Parent, historyRoot);
                 FindOwnerCollection(node)?.Remove(node);
             }
 
             SetSelectedNodes(Enumerable.Empty<DocumentItem>());
-            if (historyChanged) SaveSolutionState();
+            if (historyChanged || pinChanged) SaveSolutionState();
             _ = SaveAsync();
             InvalidateCommands();
         }
@@ -1059,7 +1085,7 @@ namespace DocSets
             var selected = FilterOutDescendants(SelectedNodes).ToList();
             if (selected.Count == 0) return;
 
-            var nodes = selected.Select(x => x.Clone()).ToList();
+            var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
             var json = SerializeClipboardNodes(nodes);
 
             var data = new DataObject();
@@ -1072,7 +1098,7 @@ namespace DocSets
             var selected = FilterOutDescendants(SelectedNodes).ToList();
             if (selected.Count == 0) return;
 
-            var nodes = selected.Select(x => x.Clone()).ToList();
+            var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
             var json = SerializeClipboardNodes(nodes);
 
             var data = new DataObject();
@@ -1153,7 +1179,7 @@ namespace DocSets
             var sourceNodes = FilterOutDescendants(SelectedNodes).ToList();
             if (sourceNodes.Count == 0) return;
 
-            var copies = sourceNodes.Select(x => x.Clone()).ToList();
+            var copies = sourceNodes.Select(CloneResolved).Where(x => x != null).ToList();
             var insertIndex = Math.Max(0, Math.Min(plan.Index, plan.Collection.Count));
             foreach (var copy in copies)
             {
@@ -1449,7 +1475,11 @@ namespace DocSets
             return CanMove(collection, item, delta);
         }
 
-        private static bool IsBookmark(DocumentItem item) => item != null && item.Type != BookmarkType.Empty;
+        private bool IsBookmark(DocumentItem item)
+        {
+            item = ResolvePin(item);
+            return item != null && item.Type != BookmarkType.Empty && item.Type != BookmarkType.Pin;
+        }
 
         private static bool CanHaveChildren(DocumentItem item) => item != null && item.NodeType == NodeType.Folder;
 
@@ -1909,6 +1939,7 @@ namespace DocSets
         {
             ApplyIdMigration(state?.EnsureReadableIds());
             SaveHistoryToSolutionState();
+            SavePinsToSolutionState();
             solutionState.Workspace = store.CurrentWorkspaceRelativePath ?? "";
             store.SaveSolutionState(solutionState);
         }
@@ -1996,28 +2027,33 @@ namespace DocSets
             EnsureHistoryRoot();
             var key = GetHistoryKey(source);
             var existing = historyRoot.Children.FirstOrDefault(x => string.Equals(GetHistoryKey(x), key, StringComparison.OrdinalIgnoreCase));
-            if (existing != null) historyRoot.Children.Remove(existing);
-
             var now = DateTime.Now;
-            var item = new DocumentItem
+            var item = existing ?? new DocumentItem
             {
                 Id = CreateHistoryReadableId(source.Name),
-                Name = source.Name,
                 NodeType = NodeType.Item,
-                Type = string.IsNullOrWhiteSpace(source.Symbol) ? BookmarkType.File : BookmarkType.Symbol,
-                Symbol = source.Symbol,
-                Project = source.Project,
-                Path = source.Path,
-                Line = source.Line,
-                Column = source.Column,
-                Comment = now.ToString("yyyy-MM-dd HH:mm:ss"),
-                EditorState = source.EditorState?.Clone(),
                 IsLocalOnly = true,
                 IsHistoryItem = true
             };
+
+            item.Name = source.Name;
+            item.Type = string.IsNullOrWhiteSpace(source.Symbol) ? BookmarkType.File : BookmarkType.Symbol;
+            item.Symbol = source.Symbol;
+            item.Project = source.Project;
+            item.Path = source.Path;
+            item.Line = source.Line;
+            item.Column = source.Column;
+            item.Comment = now.ToString("yyyy-MM-dd HH:mm:ss");
+            item.EditorState = source.EditorState?.Clone();
+
+            if (existing != null) historyRoot.Children.Remove(existing);
             historyRoot.Children.Insert(0, item);
             while (historyRoot.Children.Count > 2000)
-                historyRoot.Children.RemoveAt(historyRoot.Children.Count - 1);
+            {
+                var removable = historyRoot.Children.LastOrDefault(x => !IsPinned(x));
+                if (removable == null) break;
+                historyRoot.Children.Remove(removable);
+            }
         }
 
         private string CreateHistoryReadableId(string name)
@@ -2069,6 +2105,94 @@ namespace DocSets
             return item.Path ?? "";
         }
 
+        private void EnsurePinRoot()
+        {
+            if (pinRoot != null && ReferenceEquals(pinRoot.Parent, state.Root)) return;
+            pinRoot = state.Sets.FirstOrDefault(x => x != null && x.IsPinRoot);
+            if (pinRoot == null)
+            {
+                pinRoot = new DocumentItem
+                {
+                    Id = "pin",
+                    Name = "Pin",
+                    NodeType = NodeType.Folder,
+                    Type = BookmarkType.Empty,
+                    IsLocalOnly = true,
+                    IsPinRoot = true
+                };
+                var historyIndex = historyRoot == null ? 0 : state.Sets.IndexOf(historyRoot) + 1;
+                state.Sets.Insert(Math.Max(0, historyIndex), pinRoot);
+            }
+
+            pinRoot.Children.Clear();
+            foreach (var saved in solutionState.Pins ?? new List<PinLocalItem>())
+            {
+                pinRoot.Children.Add(new DocumentItem
+                {
+                    Id = saved.Id ?? "",
+                    NodeType = NodeType.Item,
+                    Type = BookmarkType.Pin,
+                    TargetId = saved.TargetId ?? "",
+                    IsLocalOnly = true,
+                    IsPinItem = true
+                });
+            }
+        }
+
+        public DocumentItem ResolvePin(DocumentItem item)
+        {
+            if (item == null || !item.IsPinItem) return item;
+            return EnumerateAllNodes().FirstOrDefault(x => !x.IsPinItem && string.Equals(x.Id, item.TargetId, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private DocumentItem CloneResolved(DocumentItem item)
+        {
+            return ResolvePin(item)?.Clone();
+        }
+
+        public bool IsPinned(DocumentItem item)
+        {
+            return item != null && pinRoot != null && pinRoot.Children.Any(x => string.Equals(x.TargetId, item.Id, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool CanTogglePin(DocumentItem item)
+        {
+            if (item == null || item.IsPinRoot || item.IsHistoryRoot) return false;
+            if (item.IsPinItem) return true;
+            return !string.IsNullOrWhiteSpace(item.Id);
+        }
+
+        private void TogglePin(DocumentItem item)
+        {
+            EnsurePinRoot();
+            if (item == null) return;
+            if (item.IsPinItem)
+            {
+                pinRoot.Children.Remove(item);
+            }
+            else
+            {
+                var existing = pinRoot.Children.FirstOrDefault(x => string.Equals(x.TargetId, item.Id, StringComparison.OrdinalIgnoreCase));
+                if (existing != null) pinRoot.Children.Remove(existing);
+                else pinRoot.Children.Add(new DocumentItem
+                {
+                    Id = "pin-" + Guid.NewGuid().ToString("N"),
+                    NodeType = NodeType.Item,
+                    Type = BookmarkType.Pin,
+                    TargetId = item.Id,
+                    IsLocalOnly = true,
+                    IsPinItem = true
+                });
+            }
+            SaveSolutionState();
+            OnPropertyChanged(nameof(CurrentNodes));
+        }
+
+        private void SavePinsToSolutionState()
+        {
+            solutionState.Pins = pinRoot?.Children.Select(x => new PinLocalItem { Id = x.Id, TargetId = x.TargetId }).ToList() ?? new List<PinLocalItem>();
+        }
+
         private void ApplyIdMigration(IDictionary<string, string> idMap)
         {
             if (idMap == null || idMap.Count == 0 || solutionState == null) return;
@@ -2080,6 +2204,17 @@ namespace DocSets
             }
 
             solutionState.ActiveViewId = Map(solutionState.ActiveViewId);
+            foreach (var pin in solutionState.Pins ?? new List<PinLocalItem>())
+            {
+                pin.TargetId = Map(pin.TargetId);
+            }
+            if (pinRoot != null)
+            {
+                foreach (var pin in pinRoot.Children)
+                {
+                    pin.TargetId = Map(pin.TargetId);
+                }
+            }
 
             var oldViews = solutionState.Views ?? new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             var newViews = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);

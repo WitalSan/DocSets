@@ -8,6 +8,10 @@ namespace DocSets
 {
     internal sealed class BookmarkTreeNode : Node
     {
+        public static System.Func<DocumentItem, DocumentItem> PinResolver { get; set; }
+        public static System.Func<DocumentItem, bool> PinChecker { get; set; }
+
+        private DocumentItem ResolvedItem => Item != null && Item.IsPinItem ? PinResolver?.Invoke(Item) : Item;
 
         public BookmarkTreeNode(DocumentItem item) : this(item, true)
         {
@@ -17,7 +21,7 @@ namespace DocSets
         {
             Item = item;
             Tag = item;
-            Image = GetImage(item);
+            Image = GetImage(item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item);
             if (rebuildChildren)
                 RebuildChildren();
         }
@@ -44,21 +48,31 @@ namespace DocSets
 
         public string Name
         {
-            get => Item.NodeType == NodeType.Folder ? (string.IsNullOrWhiteSpace(Item.Name) ? "Новая папка" : Item.Name) : Item.Name;
+            get
+            {
+                var resolved = ResolvedItem;
+                var name = resolved?.NodeType == NodeType.Folder ? (string.IsNullOrWhiteSpace(resolved.Name) ? "Новая папка" : resolved.Name) : resolved?.Name;
+                var isPinned = Item.IsPinItem || (resolved != null && PinChecker?.Invoke(resolved) == true);
+                return isPinned ? "* " + (name ?? "<missing>") : name;
+            }
             set
             {
-                Item.Name = value ?? string.Empty;
+                var target = ResolvedItem ?? Item;
+                var newValue = value ?? string.Empty;
+                if ((Item.IsPinItem || (target != null && PinChecker?.Invoke(target) == true)) && newValue.StartsWith("* "))
+                    newValue = newValue.Substring(2);
+                target.Name = newValue;
                 NotifyModel();
             }
         }
 
-        public string Kind => Item.NodeType == NodeType.Folder ? "Папка" : "Закладка";
-        public string File => Item.Type == BookmarkType.Empty ? string.Empty : Item.Path;
-        public string Line => Item.Type == BookmarkType.Empty ? string.Empty : Item.Line.ToString();
-        public string Project => Item.Type == BookmarkType.Symbol ? Item.Project ?? string.Empty : string.Empty;
-        public string Symbol => Item.Type == BookmarkType.Symbol ? Item.Symbol ?? string.Empty : string.Empty;
-        public string Comment => Item.CommentFirstLine;
-        public string ColorMarker => Item.Color == BookmarkColor.None ? string.Empty : "■";
+        public string Kind => ResolvedItem?.NodeType == NodeType.Folder ? "Папка" : "Закладка";
+        public string File => ResolvedItem == null || ResolvedItem.Type == BookmarkType.Empty ? string.Empty : ResolvedItem.Path;
+        public string Line => ResolvedItem == null || ResolvedItem.Type == BookmarkType.Empty ? string.Empty : ResolvedItem.Line.ToString();
+        public string Project => ResolvedItem?.Type == BookmarkType.Symbol ? ResolvedItem.Project ?? string.Empty : string.Empty;
+        public string Symbol => ResolvedItem?.Type == BookmarkType.Symbol ? ResolvedItem.Symbol ?? string.Empty : string.Empty;
+        public string Comment => ResolvedItem?.CommentFirstLine ?? string.Empty;
+        public string ColorMarker => ResolvedItem == null || ResolvedItem.Color == BookmarkColor.None ? string.Empty : "■";
 
         public void RebuildChildren()
         {

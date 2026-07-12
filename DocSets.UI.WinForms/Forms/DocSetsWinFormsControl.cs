@@ -15,6 +15,7 @@ namespace DocSets
     {
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
+        private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
@@ -76,6 +77,8 @@ namespace DocSets
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
             this._viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            BookmarkTreeNode.PinResolver = _viewModel.ResolvePin;
+            BookmarkTreeNode.PinChecker = _viewModel.IsPinned;
             Dock = DockStyle.Fill;
             BuildLayout();
             BuildTree();
@@ -165,18 +168,17 @@ namespace DocSets
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip);
 
-            _groupsStrip.Dock = DockStyle.Fill;
-            _groupsStrip.GripStyle = ToolStripGripStyle.Hidden;
-            _groupsStrip.RenderMode = ToolStripRenderMode.System;
-            _groupsStrip.CanOverflow = true;
-            _groupsStrip.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
-            _groupsStrip.Stretch = true;
-            _groupsStrip.AutoSize = false;
-            _groupsStrip.ShowItemToolTips = true;
-            _groupsStrip.Padding = new Padding(2, 1, 2, 1);
+            var groupsPanel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
+            groupsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            groupsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            ConfigureGroupsStrip(_standardGroupsStrip, canOverflow: false);
+            ConfigureGroupsStrip(_groupsStrip, canOverflow: true);
             _groupsStrip.MouseUp += GroupsStrip_MouseUp;
             _groupsStrip.KeyDown += GroupsStrip_KeyDown;
-            root.Controls.Add(_groupsStrip, 0, 2);
+            groupsPanel.Controls.Add(_standardGroupsStrip, 0, 0);
+            groupsPanel.Controls.Add(_groupsStrip, 0, 1);
+            root.Controls.Add(groupsPanel, 0, 2);
             root.Controls.Add(CreateFilterRow(), 0, 1);
 
             _contentSplit.Dock = DockStyle.Fill;
@@ -197,6 +199,19 @@ namespace DocSets
             _statusLabel.Padding = new Padding(4, 2, 4, 2);
             root.Controls.Add(_contentSplit, 0, 3);
             root.Controls.Add(_statusLabel, 0, 4);
+        }
+
+        private static void ConfigureGroupsStrip(ToolStrip strip, bool canOverflow)
+        {
+            strip.Dock = DockStyle.Fill;
+            strip.GripStyle = ToolStripGripStyle.Hidden;
+            strip.RenderMode = ToolStripRenderMode.System;
+            strip.CanOverflow = canOverflow;
+            strip.LayoutStyle = ToolStripLayoutStyle.HorizontalStackWithOverflow;
+            strip.Stretch = true;
+            strip.AutoSize = true;
+            strip.ShowItemToolTips = true;
+            strip.Padding = new Padding(2, 1, 2, 1);
         }
 
         private Control CreateFilterRow()
@@ -754,11 +769,17 @@ namespace DocSets
             }
         }
 
-        private static string GetColumnText(DocumentItem item, string key)
+        private string GetColumnText(DocumentItem item, string key)
         {
             switch (key)
             {
-                case "name": return item?.Name ?? string.Empty;
+                case "name":
+                {
+                    var target = _viewModel.ResolvePin(item);
+                    if (target == null) return item?.IsPinItem == true ? "* <missing>" : string.Empty;
+                    var name = target.NodeType == NodeType.Folder && string.IsNullOrWhiteSpace(target.Name) ? "Новая папка" : target.Name ?? string.Empty;
+                    return item?.IsPinItem == true || _viewModel.IsPinned(target) ? "* " + name : name;
+                }
                 case "file": return item?.Path ?? string.Empty;
                 case "line": return item == null || item.NodeType == NodeType.Folder ? string.Empty : item.Line.ToString();
                 case "comment": return item?.CommentFirstLine ?? string.Empty;
@@ -1017,6 +1038,10 @@ namespace DocSets
             _nodeMenu.ImageScalingSize = new Size(16, 16);
             _groupMenu.ImageScalingSize = new Size(16, 16);
             AddNodeMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
+            AddNodeMenu("Pin / Unpin", _viewModel.TogglePinCommand);
+            var goToOriginalMenu = new ToolStripMenuItem("Перейти к оригиналу") { Name = "GoToPinOriginal" };
+            goToOriginalMenu.Click += (_, __) => GoToPinOriginal(GetCurrentItem());
+            _nodeMenu.Items.Add(goToOriginalMenu);
             AddSyncWithCurrentPositionMenu();
             //AddMenu("Обновить", _viewModel.UpdateBookmarkCommand);
             //AddMenu("Переименовать", _viewModel.RenameNodeCommand);
@@ -1338,6 +1363,12 @@ namespace DocSets
                 return;
             }
 
+            item = _viewModel.ResolvePin(item);
+            if (item == null)
+            {
+                return;
+            }
+
             var itemSet = _viewModel.GetSetContainingNode(item) ?? _viewModel.SelectedSet;
             var itemParent = _viewModel.GetParentFolder(item);
 
@@ -1390,8 +1421,8 @@ namespace DocSets
                 return null;
             }
 
-            return _groupsStrip.Items
-                .OfType<ToolStripButton>()
+            return _standardGroupsStrip.Items.OfType<ToolStripButton>()
+                .Concat(_groupsStrip.Items.OfType<ToolStripButton>())
                 .FirstOrDefault(x => ReferenceEquals(x.Tag, set));
         }
 
@@ -1443,7 +1474,8 @@ namespace DocSets
 
         private void UpdateGroupButtonsChecked()
         {
-            foreach (ToolStripItem item in _groupsStrip.Items)
+            foreach (var strip in new[] { _standardGroupsStrip, _groupsStrip })
+            foreach (ToolStripItem item in strip.Items)
             {
                 if (item is ToolStripButton groupButton)
                 {
@@ -1575,6 +1607,23 @@ namespace DocSets
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Start();
             };
+            _propertiesPanel.PinChanged += (_, __) =>
+            {
+                var current = GetCurrentItem();
+                var target = _viewModel.ResolvePin(current);
+                if (target == null)
+                {
+                    return;
+                }
+
+                if (_viewModel.IsPinned(target) != _propertiesPanel.PinChecked)
+                {
+                    Execute(_viewModel.TogglePinCommand, target);
+                    RebuildTree();
+                    LoadPropertiesPanel(current);
+                    RefreshStatus();
+                }
+            };
             _propertiesPanel.RefreshCodeRequested += async (_, __) =>
             {
                 var current = _propertiesPanel.CurrentItem ?? GetCurrentItem();
@@ -1606,6 +1655,8 @@ namespace DocSets
                 var current = GetCurrentItem();
                 UpdateColorMenuChecks(current);
                 UpdateNodeMenuEnabled(_nodeMenu.Items, current);
+                var goToOriginal = _nodeMenu.Items.Find("GoToPinOriginal", false).FirstOrDefault();
+                if (goToOriginal != null) goToOriginal.Visible = current?.IsPinItem == true;
             };
         }
 
@@ -1840,6 +1891,7 @@ namespace DocSets
             _groupsStrip.SuspendLayout();
             try
             {
+                _standardGroupsStrip.Items.Clear();
                 _groupsStrip.Items.Clear();
 
                 var setsButton = new ToolStripButton("Full-Tree")
@@ -1853,10 +1905,12 @@ namespace DocSets
                     Overflow = ToolStripItemOverflow.Never
                 };
                 setsButton.Click += (_, __) => SelectSetsOverview();
-                _groupsStrip.Items.Add(setsButton);
-                _groupsStrip.Items.Add(new ToolStripSeparator());
+                _standardGroupsStrip.Items.Add(setsButton);
 
-                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder))
+                AddStandardGroupButton(_viewModel.HistoryRoot);
+                AddStandardGroupButton(_viewModel.PinRoot);
+
+                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsPinRoot))
                 {
                     var button = new ToolStripButton(set.Name)
                     {
@@ -1896,6 +1950,23 @@ namespace DocSets
             }
 
             ApplyGroupsOverflowPolicy();
+        }
+
+        private void AddStandardGroupButton(DocumentItem set)
+        {
+            if (set == null) return;
+            var button = new ToolStripButton(set.Name)
+            {
+                Tag = set,
+                CheckOnClick = false,
+                Checked = !_showSetsOverview && ReferenceEquals(set, _viewModel.SelectedSet),
+                DisplayStyle = ToolStripItemDisplayStyle.Text,
+                AutoSize = true,
+                ToolTipText = set.Name,
+                Overflow = ToolStripItemOverflow.Never
+            };
+            button.Click += (_, __) => SelectSetFromButton(button);
+            _standardGroupsStrip.Items.Add(button);
         }
 
         private void SelectSetsOverview()
@@ -2335,7 +2406,35 @@ namespace DocSets
         private void LoadPropertiesPanel(DocumentItem item)
         {
             _propertiesSaveTimer.Stop();
-            _propertiesPanel.LoadItem(item);
+            var target = _viewModel.ResolvePin(item);
+            _propertiesPanel.LoadItem(target, target != null && _viewModel.IsPinned(target));
+        }
+
+        private void GoToPinOriginal(DocumentItem pin)
+        {
+            if (pin?.IsPinItem != true)
+            {
+                return;
+            }
+
+            var target = _viewModel.ResolvePin(pin);
+            if (target == null)
+            {
+                return;
+            }
+
+            var set = _viewModel.GetSetContainingNode(target);
+            if (set != null && !ReferenceEquals(_viewModel.SelectedSet, set))
+            {
+                _showSetsOverview = false;
+                _viewModel.SelectedSet = set;
+                UpdateGroupButtonsChecked();
+                RebuildTree();
+            }
+
+            _viewModel.SetSelectedNodes(new[] { target });
+            SyncSelectionFromViewModel();
+            LoadPropertiesPanel(target);
         }
 
         private void AddPropertiesPanelButton()

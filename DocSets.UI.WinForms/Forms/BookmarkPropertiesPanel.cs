@@ -26,12 +26,14 @@ namespace DocSets
         private readonly TabControl tabs = new TabControl();
         private readonly Panel detailsHost = new Panel();
         private readonly Dictionary<BookmarkColor, Button> colorButtons = new Dictionary<BookmarkColor, Button>();
+        private readonly CheckBox pinCheckBox = new CheckBox();
         private bool loading;
         private DocumentItem item;
         private BookmarkColor selectedColor;
 
         public event EventHandler ItemChanged;
         public event EventHandler RefreshCodeRequested;
+        public event EventHandler PinChanged;
 
         public BookmarkPropertiesPanel()
         {
@@ -43,8 +45,9 @@ namespace DocSets
         }
 
         public DocumentItem CurrentItem => item;
+        public bool PinChecked => pinCheckBox.Checked;
 
-        public void LoadItem(DocumentItem value)
+        public void LoadItem(DocumentItem value, bool isPinned = false)
         {
             loading = true;
             try
@@ -65,6 +68,7 @@ namespace DocSets
                 commentTextBox.Text = value?.Comment ?? string.Empty;
                 UpdateCodePreview(value);
                 selectedColor = value?.Color ?? BookmarkColor.None;
+                pinCheckBox.Checked = value != null && isPinned;
                 UpdateColorButtons();
                 UpdateEnabledState();
             }
@@ -116,6 +120,11 @@ namespace DocSets
 
             var colorRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 3) };
             colorRow.Controls.Add(CreatePalette());
+            pinCheckBox.Text = "Pin";
+            pinCheckBox.AutoSize = true;
+            pinCheckBox.Margin = new Padding(10, 4, 0, 0);
+            pinCheckBox.CheckedChanged += (_, __) => { if (!loading) PinChanged?.Invoke(this, EventArgs.Empty); };
+            colorRow.Controls.Add(pinCheckBox);
             root.Controls.Add(colorRow, 0, 0);
 
             tabs.Dock = DockStyle.Fill;
