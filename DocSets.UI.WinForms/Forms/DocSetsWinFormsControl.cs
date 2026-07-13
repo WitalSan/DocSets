@@ -51,6 +51,7 @@ namespace DocSets
         private readonly Dictionary<BookmarkColor, ToolStripMenuItem> _filterColorMenuItems = new Dictionary<BookmarkColor, ToolStripMenuItem>();
         private readonly FlowLayoutPanel _selectedFilterColorsPanel = new FlowLayoutPanel();
         private readonly ToolStripDropDownButton _filterColorsButton = new ToolStripDropDownButton();
+        private readonly CheckBox _recentCurrentSolutionOnly = new CheckBox();
         private ToolStripMenuItem _noColorFilterMenuItem;
         private bool _updatingColorFilter;
         private bool _restoringSplitter;
@@ -289,6 +290,18 @@ namespace DocSets
             _selectedFilterColorsPanel.Padding = new Padding(0);
             row.Controls.Add(_selectedFilterColorsPanel);
 
+            _recentCurrentSolutionOnly.Text = "Текущее solution";
+            _recentCurrentSolutionOnly.AutoSize = true;
+            _recentCurrentSolutionOnly.Margin = new Padding(10, 4, 0, 0);
+            _recentCurrentSolutionOnly.Visible = false;
+            _recentCurrentSolutionOnly.CheckedChanged += (_, __) =>
+            {
+                if (_refreshing) return;
+                RebuildTree();
+                SaveLocalState();
+            };
+            row.Controls.Add(_recentCurrentSolutionOnly);
+
             UpdateFilterColorUi();
             return row;
         }
@@ -486,11 +499,18 @@ namespace DocSets
             if (item == null)
                 return false;
 
+            var resolved = _viewModel.ResolvePin(item) ?? item;
+            if (!_showSetsOverview && _recentCurrentSolutionOnly.Checked && ReferenceEquals(_viewModel.SelectedSet, _viewModel.RecentRoot) &&
+                !string.Equals(resolved.ModifiedInSolution, _viewModel.CurrentSolutionName, StringComparison.OrdinalIgnoreCase))
+                return false;
             var text = (_filterTextBox.Text ?? string.Empty).Trim();
-            if (text.Length > 0 && (item.Name ?? string.Empty).IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0)
+            var displayName = item.IsRecentItem ? item.Name : resolved.Name;
+            if (text.Length > 0 &&
+                (displayName ?? string.Empty).IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0 &&
+                (resolved.ModifiedInSolution ?? string.Empty).IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0)
                 return false;
 
-            return _filterColors.Count == 0 || _filterColors.Contains(item.Color);
+            return _filterColors.Count == 0 || _filterColors.Contains(resolved.Color);
         }
 
         private static IEnumerable<ColumnSpec> GetDefaultColumnSpecs()
@@ -501,6 +521,9 @@ namespace DocSets
             yield return new ColumnSpec("file", "Файл", 280);
             yield return new ColumnSpec("line", "Строка", 70);
             yield return new ColumnSpec("symbol", "Символ", 260);
+            yield return new ColumnSpec("solution", "Solution", 150, false);
+            yield return new ColumnSpec("modified", "Изменено", 145, false);
+            yield return new ColumnSpec("created", "Создано", 145, false);
         }
 
         private void BuildColumns()
@@ -531,7 +554,7 @@ namespace DocSets
                     layoutByKey.TryGetValue(spec.Key, out var saved);
                     var column = new TreeColumn(spec.Header, saved?.Width > 0 ? saved.Width : spec.DefaultWidth)
                     {
-                        IsVisible = saved?.IsVisible ?? true
+                        IsVisible = saved?.IsVisible ?? spec.DefaultVisible
                     };
 
                     _tree.Columns.Add(column);
@@ -796,19 +819,23 @@ namespace DocSets
 
         private string GetColumnText(DocumentItem item, string key)
         {
+            var target = _viewModel.ResolvePin(item) ?? item;
             switch (key)
             {
                 case "name":
                 {
-                    var target = _viewModel.ResolvePin(item);
                     if (target == null) return item?.IsPinItem == true ? "<missing>" : string.Empty;
+                    if (item?.IsRecentItem == true) return item.Name ?? string.Empty;
                     return target.NodeType == NodeType.Folder && string.IsNullOrWhiteSpace(target.Name) ? "Новая папка" : target.Name ?? string.Empty;
                 }
-                case "file": return item?.Path ?? string.Empty;
-                case "line": return item == null || item.NodeType == NodeType.Folder ? string.Empty : item.Line.ToString();
-                case "comment": return item?.CommentFirstLine ?? string.Empty;
-                case "project": return item?.Project ?? string.Empty;
-                case "symbol": return item?.Symbol ?? string.Empty;
+                case "file": return target?.Path ?? string.Empty;
+                case "line": return target == null || target.NodeType == NodeType.Folder ? string.Empty : target.Line.ToString();
+                case "comment": return target?.CommentFirstLine ?? string.Empty;
+                case "project": return target?.Project ?? string.Empty;
+                case "symbol": return target?.Symbol ?? string.Empty;
+                case "solution": return target?.ModifiedInSolution ?? string.Empty;
+                case "modified": return target?.ModifiedAtUtc?.ToLocalTime().ToString("g") ?? string.Empty;
+                case "created": return target?.CreatedAtUtc?.ToLocalTime().ToString("g") ?? string.Empty;
                 default: return string.Empty;
             }
         }
@@ -1089,6 +1116,9 @@ namespace DocSets
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = _columnsByKey["comment"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Project), ParentColumn = _columnsByKey["project"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Symbol), ParentColumn = _columnsByKey["symbol"] });
+            _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Solution), ParentColumn = _columnsByKey["solution"] });
+            _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Modified), ParentColumn = _columnsByKey["modified"] });
+            _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Created), ParentColumn = _columnsByKey["created"] });
         }
         private string GetColumnTextForOverflow(TreeColumn column, TreeNodeAdv node)
         {
@@ -1667,6 +1697,7 @@ namespace DocSets
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_propertiesPanel.ApplyToCurrentItem())
                 {
+                    _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
                     await _viewModel.SaveAsync();
                     RebuildTree();
                     RefreshStatus();
@@ -1728,6 +1759,7 @@ namespace DocSets
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_propertiesPanel.ApplyToCurrentItem())
                 {
+                    _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
                     await _viewModel.SaveAsync();
                     RebuildTree();
                     RefreshStatus();
@@ -1742,6 +1774,7 @@ namespace DocSets
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_experimentalPropertiesPanel.ApplyToCurrentItem())
                 {
+                    _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
                     await _viewModel.SaveAsync();
                     RebuildTree();
                     RefreshStatus();
@@ -1800,6 +1833,7 @@ namespace DocSets
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_experimentalPropertiesPanel.ApplyToCurrentItem())
                 {
+                    _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
                     await _viewModel.SaveAsync();
                     RebuildTree();
                     RefreshStatus();
@@ -1813,11 +1847,15 @@ namespace DocSets
                 var changed = false;
                 var classicDescription = _propertiesPanel.GetPendingChangeDescription();
                 if (classicDescription != null) _viewModel.CaptureUndoState(classicDescription);
-                changed |= _propertiesPanel.ApplyToCurrentItem();
+                var classicChanged = _propertiesPanel.ApplyToCurrentItem();
+                if (classicChanged) _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
+                changed |= classicChanged;
 
                 var experimentalDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
                 if (experimentalDescription != null) _viewModel.CaptureUndoState(experimentalDescription);
-                changed |= _experimentalPropertiesPanel.ApplyToCurrentItem();
+                var experimentalChanged = _experimentalPropertiesPanel.ApplyToCurrentItem();
+                if (experimentalChanged) _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
+                changed |= experimentalChanged;
                 if (changed)
                 {
                     _ = _viewModel.SaveAsync();
@@ -1953,6 +1991,7 @@ namespace DocSets
             _filterTextBox.Text = local.FilterText ?? string.Empty;
             _filterColors.Clear();
             foreach (var color in local.FilterColors ?? new List<BookmarkColor>()) _filterColors.Add(color);
+            _recentCurrentSolutionOnly.Checked = local.RecentCurrentSolutionOnly;
             _propertiesVisible = local.PropertiesVisible;
             _contentSplit.Panel2Collapsed = !_propertiesVisible;
             _togglePropertiesButton.Checked = _propertiesVisible;
@@ -2033,6 +2072,7 @@ namespace DocSets
             local.ActivationMode = _treeActivationMode.ToString();
             local.FilterText = _filterTextBox.Text ?? string.Empty;
             local.FilterColors = _filterColors.ToList();
+            local.RecentCurrentSolutionOnly = _recentCurrentSolutionOnly.Checked;
             local.PropertiesVisible = _propertiesVisible;
             local.PropertiesSectionOrder = _experimentalPropertiesPanel.SectionOrder.ToList();
             local.ExpandedPropertiesSections = _experimentalPropertiesPanel.ExpandedSections.ToList();
@@ -2106,9 +2146,10 @@ namespace DocSets
 
 
                 AddStandardGroupButton(_viewModel.HistoryRoot, IconProvider.Get(AppIcon.Item));
+                AddStandardGroupButton(_viewModel.RecentRoot, IconProvider.Get(AppIcon.LinkSymbol));
                 AddStandardGroupButton(_viewModel.PinRoot, IconProvider.Get(AppIcon.PinOverlay));
 
-                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsPinRoot))
+                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot))
                 {
                     var button = new ToolStripButton(set.Name)
                     {
@@ -2369,6 +2410,7 @@ namespace DocSets
 
         private void RebuildTree()
         {
+            _recentCurrentSolutionOnly.Visible = !_showSetsOverview && ReferenceEquals(_viewModel.SelectedSet, _viewModel.RecentRoot);
             // Expansion and selection state belong to the displayed tab, not to the TreeView as a whole.
             // Save both states of the view that is currently rendered before rebuilding it.
             if (_renderedExpansionOwner != null)
@@ -2578,10 +2620,14 @@ namespace DocSets
 
             var pendingPropertyChange = _propertiesPanel.GetPendingChangeDescription();
             if (pendingPropertyChange != null) _viewModel.CaptureUndoState(pendingPropertyChange);
-            var propertiesChanged = _propertiesPanel.ApplyToCurrentItem();
+            var classicChanged = _propertiesPanel.ApplyToCurrentItem();
+            if (classicChanged) _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
+            var propertiesChanged = classicChanged;
             var experimentalPendingPropertyChange = _experimentalPropertiesPanel.GetPendingChangeDescription();
             if (experimentalPendingPropertyChange != null) _viewModel.CaptureUndoState(experimentalPendingPropertyChange);
-            propertiesChanged |= _experimentalPropertiesPanel.ApplyToCurrentItem();
+            var experimentalChanged = _experimentalPropertiesPanel.ApplyToCurrentItem();
+            if (experimentalChanged) _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
+            propertiesChanged |= experimentalChanged;
             if (propertiesChanged)
             {
                 _ = _viewModel.SaveAsync();
@@ -3174,16 +3220,18 @@ namespace DocSets
 
         private sealed class ColumnSpec
         {
-            public ColumnSpec(string key, string header, int defaultWidth)
+            public ColumnSpec(string key, string header, int defaultWidth, bool defaultVisible = true)
             {
                 Key = key;
                 Header = header;
                 DefaultWidth = defaultWidth;
+                DefaultVisible = defaultVisible;
             }
 
             public string Key { get; }
             public string Header { get; }
             public int DefaultWidth { get; }
+            public bool DefaultVisible { get; }
         }
 
         private readonly Dictionary<float, Font> boldFonts = new Dictionary<float, Font>();
@@ -3205,14 +3253,15 @@ namespace DocSets
 
         private void NameNode_LabelChanged(object sender, LabelEventArgs e)
         {
-            if (!_showSetsOverview || !(e.Subject is BookmarkTreeNode treeNode))
+            if (!(e.Subject is BookmarkTreeNode treeNode))
             {
                 return;
             }
 
             var set = treeNode.Item;
-            if (!set.IsRootChild || set.NodeType != NodeType.Folder)
+            if (!_showSetsOverview || !set.IsRootChild || set.NodeType != NodeType.Folder)
             {
+                _viewModel.MarkBookmarkModified(set);
                 return;
             }
 

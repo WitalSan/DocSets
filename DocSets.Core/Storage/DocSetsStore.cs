@@ -37,6 +37,8 @@ namespace DocSets
 
         public string SolutionFilePath => solutionFilePath;
 
+        public string CurrentSolutionName => Path.GetFileNameWithoutExtension(solutionFilePath) ?? string.Empty;
+
         public string StorageDirectory => storageDirectory;
 
         public bool IsSharedWorkspace => isSharedWorkspace;

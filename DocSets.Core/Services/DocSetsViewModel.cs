@@ -27,6 +27,7 @@ namespace DocSets
         private readonly FileBookmarkTrackingService fileTracking;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
+        private readonly RecentBookmarksService recentBookmarksService;
         private readonly PinService pinService;
         private readonly UndoRedoService undoRedoService;
         private readonly Func<Window> ownerAccessor;
@@ -44,6 +45,7 @@ namespace DocSets
         private SolutionLocalState solutionState = new SolutionLocalState();
         private bool historyProbeInProgress;
         private bool isRestoringUndoState;
+        private bool refreshingRecent;
         private int mutationDepth;
         private bool mutationChanged;
         private bool mutationSaveRequested;
@@ -58,6 +60,7 @@ namespace DocSets
             fileTracking = new FileBookmarkTrackingService(package, store.ToFullPath);
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
+            recentBookmarksService = new RecentBookmarksService();
             pinService = new PinService();
             undoRedoService = new UndoRedoService();
 
@@ -68,10 +71,10 @@ namespace DocSets
             MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && treeService.CanMove(Sets, SelectedSet, 1));
             RegenerateAllIdsCommand = new RelayCommand(async () => await RegenerateAllIdsAsync(), () => IsLoaded);
 
-            AddFolderCommand = new RelayCommand(p => AddFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
+            AddFolderCommand = new RelayCommand(p => AddFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanModifySet(SelectedSet));
             AddRootFolderCommand = AddFolderCommand;
             AddChildFolderCommand = AddFolderCommand;
-            AddBookmarkCommand = new RelayCommand(async p => await AddBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
+            AddBookmarkCommand = new RelayCommand(async p => await AddBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanModifySet(SelectedSet));
             OpenBookmarkCommand = new RelayCommand(async p => await OpenBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && IsBookmark(p as DocumentItem ?? SelectedNode));
             UpdateBookmarkCommand = new RelayCommand(async p => await UpdateBookmarkAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && IsBookmark(p as DocumentItem ?? SelectedNode));
             SyncWithCurrentPositionCommand = new RelayCommand(async p => await SyncWithCurrentPositionAsync(p as DocumentItem ?? SelectedNode), p => IsLoaded && (p as DocumentItem ?? SelectedNode) != null);
@@ -81,12 +84,12 @@ namespace DocSets
             MoveNodeDownCommand = new RelayCommand(() => MoveNode(1), () => IsLoaded && CanMoveNode(SelectedNode, 1));
 
             CopySelectedNodesCommand = new RelayCommand(_ => CopySelectedNodes(), _ => IsLoaded && SelectedNodes.Count > 0);
-            PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsText());
+            PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && CanModifySet(SelectedSet) && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
             TogglePinCommand = new RelayCommand(p => TogglePin(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanTogglePin(p as DocumentItem ?? SelectedNode));
             UndoCommand = new RelayCommand(async () => await UndoAsync(), () => IsLoaded && undoRedoService.CanUndo);
             RedoCommand = new RelayCommand(async () => await RedoAsync(), () => IsLoaded && undoRedoService.CanRedo);
-            PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
+            PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && CanModifySet(SelectedSet) && ClipboardContainsJsonText());
             state.Root.TreeChanged += Root_TreeChanged;
         }
 
@@ -95,7 +98,9 @@ namespace DocSets
         public DocumentItem Root => state.Root;
         public ObservableCollection<DocumentItem> Sets => state.Root.Children;
         public DocumentItem HistoryRoot => historyService.Root;
+        public DocumentItem RecentRoot => recentBookmarksService.Root;
         public DocumentItem PinRoot => pinService.Root;
+        public string CurrentSolutionName => store.CurrentSolutionName;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
 
@@ -337,7 +342,20 @@ namespace DocSets
 
         private void Root_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
         {
+            if (refreshingRecent) return;
             ApplyIdMigration(state.EnsureReadableIds());
+            if (ShouldRefreshRecent(e))
+            {
+                refreshingRecent = true;
+                try
+                {
+                    recentBookmarksService.Refresh();
+                }
+                finally
+                {
+                    refreshingRecent = false;
+                }
+            }
             TreeChanged?.Invoke(this, e);
             if (IsLoaded && !isApplyingState && e != null
                 && e.PropertyName != nameof(DocumentItem.IsExpanded)
@@ -396,7 +414,8 @@ namespace DocSets
             treeService.NormalizeNodes(state.Sets);
             ApplyIdMigration(state.EnsureReadableIds());
             historyService.Attach(state, solutionState.History);
-            pinService.Attach(state, solutionState.Pins, historyService.Root);
+            recentBookmarksService.Attach(state, historyService.Root);
+            pinService.Attach(state, solutionState.Pins, recentBookmarksService.Root);
 
             if (!state.Sets.Any(x => x != null && !x.IsLocalOnly))
             {
@@ -414,9 +433,9 @@ namespace DocSets
                 var activeViewId = solutionState.ActiveViewId;
                 SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
                                   string.Equals(x.Id, activeViewId, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot &&
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot &&
                                   string.Equals(x.Name, preferredSetName ?? state.ActiveSet, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot);
+                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
 
                 var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
                 SetSelectedNodes(restoredNode == null
@@ -541,7 +560,7 @@ namespace DocSets
 
         public bool TryRenameSet(DocumentItem set, string name, bool showErrors)
         {
-            if (set == null) return false;
+            if (set == null || set.IsLocalOnly) return false;
             if (string.IsNullOrWhiteSpace(name)) return false;
 
             name = name.Trim();
@@ -575,7 +594,12 @@ namespace DocSets
         {
             var set = SelectedSet;
             if (set == null) return;
-            if (set.IsHistoryRoot)
+            if (set.IsRecentRoot)
+            {
+                Show("Недавние закладки формируются автоматически.");
+                return;
+            }
+            if (set.IsHistoryRoot || set.IsPinRoot)
             {
                 if (MessageBox.Show(ownerAccessor(), "Очистить историю переходов?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 set.Children.Clear();
@@ -593,7 +617,7 @@ namespace DocSets
                 state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
             }
 
-            SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot);
+            SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
             state.ActiveSet = SelectedSet?.Name ?? "";
             });
             InvalidateCommands();
@@ -680,7 +704,7 @@ namespace DocSets
 
             var currentSet = GetSetContainingNode(item);
             var targetSet = destinationSet ?? currentSet ?? SelectedSet;
-            if (targetSet == null)
+            if (!CanModifySet(targetSet))
             {
                 return;
             }
@@ -718,6 +742,7 @@ namespace DocSets
                 {
                     targetCollection.Add(item);
                 }
+                if (IsStoredBookmark(item)) StampModified(item, ensureCreated: true);
             }
 
             if (destinationParent?.NodeType == NodeType.Folder)
@@ -736,13 +761,14 @@ namespace DocSets
         public async Task AddPreparedBookmarkAsync(DocumentItem bookmark, DocumentItem destinationSet, DocumentItem target)
         {
             var set = destinationSet ?? SelectedSet;
-            if (set == null || bookmark == null)
+            if (!CanModifySet(set) || bookmark == null)
             {
                 return;
             }
 
             bookmark.NodeType = NodeType.Item;
             bookmark.Children.Clear();
+            StampCreated(bookmark);
 
             if (target != null && !treeService.ContainsNode(set.Children, target))
             {
@@ -956,6 +982,8 @@ namespace DocSets
                 item.Project = updated.Project;
             }
 
+            StampModified(item, ensureCreated: true);
+
             SelectedNode = item;
             SetSelectedNodes(new[] { item });
             });
@@ -1001,6 +1029,7 @@ namespace DocSets
             {
                 await fileTracking.TrackFromActiveDocumentAsync(item);
             }
+            StampModified(item, ensureCreated: true);
             });
         }
 
@@ -1015,6 +1044,7 @@ namespace DocSets
             _ = ExecuteMutationAsync(nameof(RenameNode), () =>
             {
                 item.Name = name.Trim();
+                if (IsStoredBookmark(item)) StampModified(item, ensureCreated: true);
                 SelectedNode = item;
             });
         }
@@ -1038,6 +1068,10 @@ namespace DocSets
             var pinChanged = false;
             foreach (var node in treeService.FilterOutDescendants(nodes))
             {
+                if (node.IsRecentRoot || node.IsRecentItem)
+                {
+                    continue;
+                }
                 if (node.IsHistoryRoot || node.IsPinRoot)
                 {
                     node.Children.Clear();
@@ -1107,6 +1141,7 @@ namespace DocSets
             {
             var collection = treeService.FindOwnerCollection(SelectedNode);
             treeService.Move(collection, SelectedNode, delta);
+            if (IsStoredBookmark(SelectedNode)) StampModified(SelectedNode, ensureCreated: true);
             });
         }
 
@@ -1177,7 +1212,7 @@ namespace DocSets
 
         private void PasteNodes(DocumentItem target, IList<DocumentItem> nodes)
         {
-            if (nodes == null || nodes.Count == 0) return;
+            if (!CanModifySet(SelectedSet) || nodes == null || nodes.Count == 0) return;
 
             _ = ExecuteMutationAsync(nameof(PasteNodes), () =>
             {
@@ -1187,6 +1222,7 @@ namespace DocSets
             DocumentItem last = null;
             foreach (var node in nodes.Select(x => x.Clone()))
             {
+                StampCreatedTree(node);
                 collection.Add(node);
                 last = node;
             }
@@ -1200,6 +1236,8 @@ namespace DocSets
 
         public bool CanCopySelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
         {
+            var targetSet = GetSetContainingNode(target) ?? (target?.IsRootChild == true ? target : SelectedSet);
+            if (!CanModifySet(targetSet)) return false;
             return treeService.CreateCopyPlan(state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
         }
 
@@ -1214,6 +1252,7 @@ namespace DocSets
             await ExecuteMutationAsync(nameof(CopySelectedNodesToAsync), () =>
             {
             var copies = sourceNodes.Select(CloneResolved).Where(x => x != null).ToList();
+            foreach (var copy in copies) StampCreatedTree(copy);
             var insertIndex = Math.Max(0, Math.Min(plan.Index, plan.Collection.Count));
             foreach (var copy in copies)
             {
@@ -1234,6 +1273,8 @@ namespace DocSets
 
         public bool CanMoveSelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
         {
+            var targetSet = GetSetContainingNode(target) ?? (target?.IsRootChild == true ? target : SelectedSet);
+            if (!CanModifySet(targetSet)) return false;
             return treeService.CreateMovePlan(state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
         }
 
@@ -1256,6 +1297,7 @@ namespace DocSets
             foreach (var node in nodes)
             {
                 plan.Collection.Insert(insertIndex++, node);
+                if (IsStoredBookmark(node)) StampModified(node, ensureCreated: true);
             }
 
             if (target?.NodeType == NodeType.Folder && position == DropPosition.Inside)
@@ -1763,7 +1805,67 @@ namespace DocSets
 
         public DocumentItem ResolvePin(DocumentItem item)
         {
-            return pinService.Resolve(item);
+            return recentBookmarksService.Resolve(pinService.Resolve(item));
+        }
+
+        public void MarkBookmarkModified(DocumentItem item)
+        {
+            item = ResolvePin(item);
+            if (!IsStoredBookmark(item)) return;
+            StampModified(item, ensureCreated: true);
+        }
+
+        private bool IsStoredBookmark(DocumentItem item)
+        {
+            return item != null && !item.IsLocalOnly && item.NodeType == NodeType.Item &&
+                   (item.Type == BookmarkType.Symbol || item.Type == BookmarkType.File);
+        }
+
+        private static bool CanModifySet(DocumentItem set)
+        {
+            return set != null && !set.IsLocalOnly;
+        }
+
+        private void StampCreated(DocumentItem item)
+        {
+            if (item == null || item.NodeType != NodeType.Item ||
+                (item.Type != BookmarkType.Symbol && item.Type != BookmarkType.File)) return;
+
+            var now = DateTimeOffset.UtcNow;
+            item.CreatedAtUtc = now;
+            item.ModifiedAtUtc = now;
+            item.ModifiedInSolution = store.CurrentSolutionName;
+        }
+
+        private void StampCreatedTree(DocumentItem item)
+        {
+            if (item == null) return;
+            StampCreated(item);
+            foreach (var child in item.Children ?? new ObservableCollection<DocumentItem>()) StampCreatedTree(child);
+        }
+
+        private void StampModified(DocumentItem item, bool ensureCreated)
+        {
+            if (item == null) return;
+            var now = DateTimeOffset.UtcNow;
+            if (ensureCreated && !item.CreatedAtUtc.HasValue) item.CreatedAtUtc = now;
+            item.ModifiedAtUtc = now;
+            item.ModifiedInSolution = store.CurrentSolutionName;
+        }
+
+        private static bool ShouldRefreshRecent(DocumentTreeChangedEventArgs e)
+        {
+            if (e == null || e.Item?.IsLocalOnly == true) return false;
+            if (e.Kind == DocumentTreeChangeKind.Added || e.Kind == DocumentTreeChangeKind.Removed || e.Kind == DocumentTreeChangeKind.Reset)
+                return true;
+            if (e.Kind != DocumentTreeChangeKind.PropertyChanged) return false;
+
+            return e.PropertyName == nameof(DocumentItem.Name) ||
+                   e.PropertyName == nameof(DocumentItem.NodeType) ||
+                   e.PropertyName == nameof(DocumentItem.Type) ||
+                   e.PropertyName == nameof(DocumentItem.CreatedAtUtc) ||
+                   e.PropertyName == nameof(DocumentItem.ModifiedAtUtc) ||
+                   e.PropertyName == nameof(DocumentItem.ModifiedInSolution);
         }
 
         private DocumentItem CloneResolved(DocumentItem item)
@@ -1807,6 +1909,7 @@ namespace DocSets
                 foreach (var target in targets)
                 {
                     target.Color = color;
+                    if (IsStoredBookmark(target)) StampModified(target, ensureCreated: true);
                 }
             });
             InvalidateCommands();

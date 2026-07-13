@@ -67,7 +67,7 @@ namespace DocSets
 
         public bool CanToggle(DocumentItem item)
         {
-            if (item == null || item.IsPinRoot || item.IsHistoryRoot)
+            if (item == null || item.IsPinRoot || item.IsHistoryRoot || item.IsRecentRoot)
             {
                 return false;
             }

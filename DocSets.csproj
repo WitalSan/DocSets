@@ -72,6 +72,7 @@
     <Compile Include="DocSets.Core\Services\DocumentTreeService.cs" />
     <Compile Include="DocSets.Core\Services\NavigationHistoryService.cs" />
     <Compile Include="DocSets.Core\Services\PinService.cs" />
+    <Compile Include="DocSets.Core\Services\RecentBookmarksService.cs" />
     <Compile Include="DocSets.Core\Services\UndoRedoService.cs" />
     <Compile Include="DocSets.Core\Services\FileBookmarkTrackingService.cs" />
     <Compile Include="DocSets.Core\Services\EditorStateService.cs" />

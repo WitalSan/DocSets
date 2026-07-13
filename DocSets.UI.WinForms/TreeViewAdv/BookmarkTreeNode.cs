@@ -1,5 +1,6 @@
 ﻿using Aga.Controls.Tree;
 using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -11,7 +12,7 @@ namespace DocSets
         public static System.Func<DocumentItem, DocumentItem> PinResolver { get; set; }
         public static System.Func<DocumentItem, bool> PinChecker { get; set; }
 
-        private DocumentItem ResolvedItem => Item != null && Item.IsPinItem ? PinResolver?.Invoke(Item) : Item;
+        private DocumentItem ResolvedItem => Item != null && (Item.IsPinItem || Item.IsRecentItem) ? PinResolver?.Invoke(Item) : Item;
 
         public BookmarkTreeNode(DocumentItem item) : this(item, true)
         {
@@ -54,6 +55,7 @@ namespace DocSets
             {
                 var resolved = ResolvedItem;
                 var name = resolved?.NodeType == NodeType.Folder ? (string.IsNullOrWhiteSpace(resolved.Name) ? "Новая папка" : resolved.Name) : resolved?.Name;
+                if (Item?.IsRecentItem == true && !string.IsNullOrWhiteSpace(Item.Name)) return Item.Name;
                 return name ?? "<missing>";
             }
             set
@@ -71,7 +73,15 @@ namespace DocSets
         public string Project => ResolvedItem?.Type == BookmarkType.Symbol ? ResolvedItem.Project ?? string.Empty : string.Empty;
         public string Symbol => ResolvedItem?.Type == BookmarkType.Symbol ? ResolvedItem.Symbol ?? string.Empty : string.Empty;
         public string Comment => ResolvedItem?.CommentFirstLine ?? string.Empty;
+        public string Solution => ResolvedItem?.ModifiedInSolution ?? string.Empty;
+        public string Modified => FormatDate(ResolvedItem?.ModifiedAtUtc);
+        public string Created => FormatDate(ResolvedItem?.CreatedAtUtc);
         public string ColorMarker => ResolvedItem == null || ResolvedItem.Color == BookmarkColor.None ? string.Empty : "■";
+
+        private static string FormatDate(DateTimeOffset? value)
+        {
+            return value.HasValue ? value.Value.ToLocalTime().ToString("g") : string.Empty;
+        }
 
         public void RebuildChildren()
         {
@@ -87,13 +97,13 @@ namespace DocSets
 
         private static Image GetImage(DocumentItem item)
         {
-            var resolved = item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item;
+            var resolved = item != null && (item.IsPinItem || item.IsRecentItem) ? PinResolver?.Invoke(item) : item;
             return IconProvider.Get(GetBaseIcon(resolved), IconProvider.IconSize);
         }
 
         private static Image GetPinnedImage(DocumentItem item)
         {
-            var resolved = item != null && item.IsPinItem ? PinResolver?.Invoke(item) : item;
+            var resolved = item != null && (item.IsPinItem || item.IsRecentItem) ? PinResolver?.Invoke(item) : item;
             var isPinned = item != null && (item.IsPinItem || (resolved != null && PinChecker?.Invoke(resolved) == true));
             return isPinned ? IconProvider.Get(AppIcon.PinOverlay, IconProvider.PinIconSize) : null;
         }

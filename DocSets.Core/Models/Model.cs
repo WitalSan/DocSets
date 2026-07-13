@@ -43,6 +43,9 @@ namespace DocSets
         [JsonProperty("filterColors")]
         public List<BookmarkColor> FilterColors { get; set; } = new List<BookmarkColor>();
 
+        [JsonProperty("recentCurrentSolutionOnly")]
+        public bool RecentCurrentSolutionOnly { get; set; }
+
         [JsonProperty("propertiesVisible")]
         public bool PropertiesVisible { get; set; } = true;
 
@@ -316,6 +319,9 @@ namespace DocSets
                 Column = item.Column,
                 Comment = item.Comment ?? "",
                 Color = item.Color,
+                CreatedAtUtc = item.CreatedAtUtc,
+                ModifiedAtUtc = item.ModifiedAtUtc,
+                ModifiedInSolution = item.ModifiedInSolution ?? "",
                 EditorState = item.EditorState?.Clone()
             });
 
@@ -376,6 +382,9 @@ namespace DocSets
                 Column = source.Column < 1 ? 1 : source.Column,
                 Comment = source.Comment ?? "",
                 Color = source.Color,
+                CreatedAtUtc = source.CreatedAtUtc,
+                ModifiedAtUtc = source.ModifiedAtUtc,
+                ModifiedInSolution = source.ModifiedInSolution ?? "",
                 EditorState = source.EditorState?.Clone(),
                 Children = new ObservableCollection<DocumentItem>()
             };
@@ -502,6 +511,15 @@ namespace DocSets
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public BookmarkColor Color { get; set; }
 
+        [JsonProperty("createdAtUtc", NullValueHandling = NullValueHandling.Ignore)]
+        public DateTimeOffset? CreatedAtUtc { get; set; }
+
+        [JsonProperty("modifiedAtUtc", NullValueHandling = NullValueHandling.Ignore)]
+        public DateTimeOffset? ModifiedAtUtc { get; set; }
+
+        [JsonProperty("modifiedInSolution", NullValueHandling = NullValueHandling.Ignore)]
+        public string ModifiedInSolution { get; set; }
+
         [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
         public EditorState EditorState { get; set; }
     }
@@ -606,6 +624,9 @@ namespace DocSets
         private string path = "";
         private string comment = "";
         private BookmarkColor color;
+        private DateTimeOffset? createdAtUtc;
+        private DateTimeOffset? modifiedAtUtc;
+        private string modifiedInSolution = "";
         private int line = 1;
         private int column = 1;
         private NodeType nodeType;
@@ -617,6 +638,8 @@ namespace DocSets
         private bool isHistoryItem;
         private bool isPinRoot;
         private bool isPinItem;
+        private bool isRecentRoot;
+        private bool isRecentItem;
         private string targetId = string.Empty;
         private bool isMethodSymbol;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
@@ -741,6 +764,27 @@ namespace DocSets
         }
 
         [JsonIgnore]
+        public DateTimeOffset? CreatedAtUtc
+        {
+            get => createdAtUtc;
+            set => SetProperty(ref createdAtUtc, value);
+        }
+
+        [JsonIgnore]
+        public DateTimeOffset? ModifiedAtUtc
+        {
+            get => modifiedAtUtc;
+            set => SetProperty(ref modifiedAtUtc, value);
+        }
+
+        [JsonIgnore]
+        public string ModifiedInSolution
+        {
+            get => modifiedInSolution;
+            set => SetProperty(ref modifiedInSolution, value ?? "");
+        }
+
+        [JsonIgnore]
         public string CommentFirstLine
         {
             get
@@ -839,6 +883,20 @@ namespace DocSets
         {
             get => isPinItem;
             set => isPinItem = value;
+        }
+
+        [JsonIgnore]
+        public bool IsRecentRoot
+        {
+            get => isRecentRoot;
+            set => isRecentRoot = value;
+        }
+
+        [JsonIgnore]
+        public bool IsRecentItem
+        {
+            get => isRecentItem;
+            set => isRecentItem = value;
         }
 
         [JsonIgnore]
@@ -964,6 +1022,9 @@ namespace DocSets
                 Column = Column,
                 Comment = Comment,
                 Color = Color,
+                CreatedAtUtc = CreatedAtUtc,
+                ModifiedAtUtc = ModifiedAtUtc,
+                ModifiedInSolution = ModifiedInSolution,
                 EditorState = EditorState?.Clone(),
                 IsExpanded = IsExpanded,
                 Children = new ObservableCollection<DocumentItem>()
