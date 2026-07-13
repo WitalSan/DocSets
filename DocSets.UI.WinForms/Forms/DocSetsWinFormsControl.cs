@@ -1085,7 +1085,7 @@ namespace DocSets
             _nodeMenu.ImageScalingSize = new Size(16, 16);
             _groupMenu.ImageScalingSize = new Size(16, 16);
             AddNodeMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
-            AddNodeMenu("Pin / Unpin", _viewModel.TogglePinCommand);
+            AddNodeMenu("Pin / Unpin", _viewModel.TogglePinCommand, null, AppIcon.PinOverlay);
             var goToOriginalMenu = new ToolStripMenuItem("Перейти к оригиналу") { Name = "GoToPinOriginal" };
             goToOriginalMenu.Click += (_, __) => GoToPinOriginal(GetCurrentItem());
             _nodeMenu.Items.Add(goToOriginalMenu);

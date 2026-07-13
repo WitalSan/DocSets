@@ -25,6 +25,10 @@ namespace DocSets
         private readonly AsyncPackage package;
         private readonly DocSetsStore store;
         private readonly FileBookmarkTrackingService fileTracking;
+        private readonly DocumentTreeService treeService;
+        private readonly NavigationHistoryService historyService;
+        private readonly PinService pinService;
+        private readonly UndoRedoService undoRedoService;
         private readonly Func<Window> ownerAccessor;
         private DocumentSetsState state = new DocumentSetsState();
         private DocumentItem selectedSet;
@@ -38,15 +42,13 @@ namespace DocSets
         private IReadOnlyList<WorkspaceInfo> workspaces = Array.Empty<WorkspaceInfo>();
         private WorkspaceInfo selectedWorkspace;
         private SolutionLocalState solutionState = new SolutionLocalState();
-        private DocumentItem historyRoot;
-        private DocumentItem pinRoot;
-        private string lastHistoryKey = "";
-        private string suppressedHistoryKey = "";
         private bool historyProbeInProgress;
-        private const int UndoLimit = 100;
-        private readonly Stack<UndoEntry> undoStack = new Stack<UndoEntry>();
-        private readonly Stack<UndoEntry> redoStack = new Stack<UndoEntry>();
         private bool isRestoringUndoState;
+        private int mutationDepth;
+        private bool mutationChanged;
+        private bool mutationSaveRequested;
+        private readonly SemaphoreSlim mutationGate = new SemaphoreSlim(1, 1);
+        private readonly AsyncLocal<int> mutationNesting = new AsyncLocal<int>();
 
         public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
         {
@@ -54,12 +56,16 @@ namespace DocSets
             this.ownerAccessor = ownerAccessor ?? (() => null);
             store = new DocSetsStore(package);
             fileTracking = new FileBookmarkTrackingService(package, store.ToFullPath);
+            treeService = new DocumentTreeService();
+            historyService = new NavigationHistoryService();
+            pinService = new PinService();
+            undoRedoService = new UndoRedoService();
 
             AddSetCommand = new RelayCommand(AddSet, () => IsLoaded);
             RenameSetCommand = new RelayCommand(RenameSet, () => IsLoaded && SelectedSet != null);
             DeleteSetCommand = new RelayCommand(DeleteSet, () => IsLoaded && SelectedSet != null);
-            MoveSetUpCommand = new RelayCommand(() => MoveSet(-1), () => IsLoaded && CanMove(Sets, SelectedSet, -1));
-            MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && CanMove(Sets, SelectedSet, 1));
+            MoveSetUpCommand = new RelayCommand(() => MoveSet(-1), () => IsLoaded && treeService.CanMove(Sets, SelectedSet, -1));
+            MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && treeService.CanMove(Sets, SelectedSet, 1));
             RegenerateAllIdsCommand = new RelayCommand(async () => await RegenerateAllIdsAsync(), () => IsLoaded);
 
             AddFolderCommand = new RelayCommand(p => AddFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && SelectedSet != null);
@@ -78,8 +84,8 @@ namespace DocSets
             PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
             TogglePinCommand = new RelayCommand(p => TogglePin(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanTogglePin(p as DocumentItem ?? SelectedNode));
-            UndoCommand = new RelayCommand(async () => await UndoAsync(), () => IsLoaded && undoStack.Count > 0);
-            RedoCommand = new RelayCommand(async () => await RedoAsync(), () => IsLoaded && redoStack.Count > 0);
+            UndoCommand = new RelayCommand(async () => await UndoAsync(), () => IsLoaded && undoRedoService.CanUndo);
+            RedoCommand = new RelayCommand(async () => await RedoAsync(), () => IsLoaded && undoRedoService.CanRedo);
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
             state.Root.TreeChanged += Root_TreeChanged;
         }
@@ -88,8 +94,8 @@ namespace DocSets
 
         public DocumentItem Root => state.Root;
         public ObservableCollection<DocumentItem> Sets => state.Root.Children;
-        public DocumentItem HistoryRoot => historyRoot;
-        public DocumentItem PinRoot => pinRoot;
+        public DocumentItem HistoryRoot => historyService.Root;
+        public DocumentItem PinRoot => pinService.Root;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
 
@@ -337,6 +343,17 @@ namespace DocSets
                 && e.PropertyName != nameof(DocumentItem.IsExpanded)
                 && e.PropertyName != nameof(DocumentItem.IsMultiSelected))
             {
+                if (e.Item?.IsLocalOnly == true)
+                {
+                    return;
+                }
+
+                if (mutationDepth > 0)
+                {
+                    mutationChanged = true;
+                    return;
+                }
+
                 _ = SaveAsync();
             }
         }
@@ -376,11 +393,10 @@ namespace DocSets
 
             // Legacy NodeType.Set is normalized while DTO objects are created.
             // Root may contain both folders and leaf items; only folders are represented as tabs.
-            NormalizeNodes(state.Sets);
+            treeService.NormalizeNodes(state.Sets);
             ApplyIdMigration(state.EnsureReadableIds());
-            historyRoot = null;
-            EnsureHistoryRoot();
-            EnsurePinRoot();
+            historyService.Attach(state, solutionState.History);
+            pinService.Attach(state, solutionState.Pins, historyService.Root);
 
             if (!state.Sets.Any(x => x != null && !x.IsLocalOnly))
             {
@@ -492,7 +508,6 @@ namespace DocSets
 
         private void AddSet()
         {
-            CaptureUndoState();
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название группы:");
             if (string.IsNullOrWhiteSpace(name)) return;
             name = name.Trim();
@@ -502,11 +517,13 @@ namespace DocSets
                 return;
             }
 
-            var set = new DocumentItem { Name = name, NodeType = NodeType.Folder, Type = BookmarkType.Empty };
-            state.Sets.Add(set);
-            SelectedSet = set;
-            _ = SaveAsync();
-            InvalidateCommands();
+            _ = ExecuteMutationAsync(nameof(AddSet), () =>
+            {
+                var set = new DocumentItem { Name = name, NodeType = NodeType.Folder, Type = BookmarkType.Empty };
+                state.Sets.Add(set);
+                SelectedSet = set;
+                InvalidateCommands();
+            });
         }
 
         private void RenameSet()
@@ -524,7 +541,6 @@ namespace DocSets
 
         public bool TryRenameSet(DocumentItem set, string name, bool showErrors)
         {
-            CaptureUndoState("Переименование группы");
             if (set == null) return false;
             if (string.IsNullOrWhiteSpace(name)) return false;
 
@@ -544,18 +560,19 @@ namespace DocSets
                 return false;
             }
 
-            set.Name = name;
-            state.ActiveSet = name;
-            OnPropertyChanged(nameof(Sets));
-            OnPropertyChanged(nameof(SelectedSet));
-            _ = SaveAsync();
-            InvalidateCommands();
+            _ = ExecuteMutationAsync(nameof(TryRenameSet), () =>
+            {
+                set.Name = name;
+                state.ActiveSet = name;
+                OnPropertyChanged(nameof(Sets));
+                OnPropertyChanged(nameof(SelectedSet));
+                InvalidateCommands();
+            });
             return true;
         }
 
         private void DeleteSet()
         {
-            CaptureUndoState();
             var set = SelectedSet;
             if (set == null) return;
             if (set.IsHistoryRoot)
@@ -568,6 +585,8 @@ namespace DocSets
             }
             if (MessageBox.Show(ownerAccessor(), $"Удалить группу '{set.Name}'?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
+            _ = ExecuteMutationAsync(nameof(DeleteSet), () =>
+            {
             state.Sets.Remove(set);
             if (!state.Sets.Any(x => x != null && x.NodeType == NodeType.Folder && !x.IsLocalOnly))
             {
@@ -576,18 +595,19 @@ namespace DocSets
 
             SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot);
             state.ActiveSet = SelectedSet?.Name ?? "";
-            _ = SaveAsync();
+            });
             InvalidateCommands();
         }
         private void AddFolder(DocumentItem parent)
         {
-            CaptureUndoState();
             var set = SelectedSet;
             if (set == null) return;
 
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название папки:", "Новая папка");
             if (string.IsNullOrWhiteSpace(name)) return;
 
+            _ = ExecuteMutationAsync(nameof(AddFolder), () =>
+            {
             var folder = new DocumentItem { Name = name.Trim(), NodeType = NodeType.Folder, Type = BookmarkType.Empty, IsExpanded = true };
             if (parent != null && parent.NodeType == NodeType.Folder)
             {
@@ -600,7 +620,7 @@ namespace DocSets
             }
 
             SelectedNode = folder;
-            _ = SaveAsync();
+            });
             InvalidateCommands();
         }
 
@@ -643,34 +663,12 @@ namespace DocSets
 
         public DocumentItem GetSetContainingNode(DocumentItem item)
         {
-            if (item == null)
-            {
-                return null;
-            }
-
-            if (item.IsRootChild && item.NodeType == NodeType.Folder) return item;
-            return state.Sets.FirstOrDefault(set => ContainsNode(set.Children, item));
+            return treeService.GetSetContainingNode(state, item);
         }
 
         public DocumentItem GetParentFolder(DocumentItem item)
         {
-            if (item == null)
-            {
-                return null;
-            }
-
-            if (item.Parent != null && !ReferenceEquals(item.Parent, state.Root)) return item.Parent;
-
-            foreach (var set in state.Sets)
-            {
-                var parent = FindParentFolder(set.Children, item);
-                if (parent != null)
-                {
-                    return parent;
-                }
-            }
-
-            return null;
+            return treeService.GetParentFolder(state, item);
         }
 
         public async Task MoveExistingNodeAsync(DocumentItem item, DocumentItem destinationSet, DocumentItem destinationParent)
@@ -689,12 +687,12 @@ namespace DocSets
 
             if (destinationParent != null)
             {
-                if (destinationParent.NodeType != NodeType.Folder || !ContainsNode(targetSet.Children, destinationParent))
+                if (destinationParent.NodeType != NodeType.Folder || !treeService.ContainsNode(targetSet.Children, destinationParent))
                 {
                     destinationParent = null;
                 }
 
-                if (ReferenceEquals(destinationParent, item) || IsDescendantOf(destinationParent, item))
+                if (ReferenceEquals(destinationParent, item) || treeService.IsDescendantOf(destinationParent, item))
                 {
                     destinationParent = null;
                 }
@@ -704,17 +702,19 @@ namespace DocSets
                 ? destinationParent.Children
                 : targetSet.Children;
 
+            await ExecuteMutationAsync(nameof(MoveExistingNodeAsync), () =>
+            {
             // При редактировании свойств тот же экземпляр item не должен быть добавлен
             // в дерево повторно. Если место назначения изменилось, удаляем все
             // вхождения этой ссылки из всех групп и добавляем ровно один раз.
-            var currentOwner = currentSet == null ? null : FindOwnerCollection(currentSet.Children, item);
+            var currentOwner = currentSet == null ? null : treeService.FindOwnerCollection(currentSet.Children, item);
             var destinationChanged = !ReferenceEquals(currentOwner, targetCollection);
-            var alreadyInTarget = ContainsReference(targetCollection, item);
+            var alreadyInTarget = treeService.ContainsReference(targetCollection, item);
 
             if (destinationChanged || !alreadyInTarget)
             {
-                RemoveNodeReferenceFromAllSets(item);
-                if (!ContainsReference(targetCollection, item))
+                treeService.RemoveNodeReferenceFromAllSets(state, item);
+                if (!treeService.ContainsReference(targetCollection, item))
                 {
                     targetCollection.Add(item);
                 }
@@ -728,7 +728,7 @@ namespace DocSets
             SelectedSet = targetSet;
             SelectedNode = item;
             SetSelectedNodes(new[] { item });
-            await SaveAsync();
+            });
             OnPropertyChanged(nameof(CurrentNodes));
             InvalidateCommands();
         }
@@ -744,12 +744,14 @@ namespace DocSets
             bookmark.NodeType = NodeType.Item;
             bookmark.Children.Clear();
 
-            if (target != null && !ContainsNode(set.Children, target))
+            if (target != null && !treeService.ContainsNode(set.Children, target))
             {
                 target = null;
             }
 
-            var collection = GetInsertCollection(set, target);
+            await ExecuteMutationAsync(nameof(AddPreparedBookmarkAsync), async () =>
+            {
+            var collection = treeService.GetInsertCollection(set, target);
             collection.Add(bookmark);
             if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
 
@@ -760,7 +762,7 @@ namespace DocSets
             {
                 await fileTracking.TrackFromActiveDocumentAsync(bookmark);
             }
-            await SaveAsync();
+            });
             OnPropertyChanged(nameof(CurrentNodes));
             InvalidateCommands();
         }
@@ -833,18 +835,20 @@ namespace DocSets
                 };
             }
 
-            if (target != null && !ContainsNode(set.Children, target))
+            if (target != null && !treeService.ContainsNode(set.Children, target))
             {
                 target = null;
             }
 
-            var collection = GetInsertCollection(set, target);
+            await ExecuteMutationAsync(nameof(CreateFolderFromActiveDocumentAsync), () =>
+            {
+            var collection = treeService.GetInsertCollection(set, target);
             collection.Add(folder);
             if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
 
             SelectedNode = folder;
             SetSelectedNodes(new[] { folder });
-            await SaveAsync();
+            });
             OnPropertyChanged(nameof(CurrentNodes));
             InvalidateCommands();
             return folder;
@@ -881,7 +885,6 @@ namespace DocSets
 
         private async Task AddBookmarkAsync(DocumentItem target)
         {
-            CaptureUndoState();
             var bookmark = await CreateBookmarkFromActiveDocumentAsync(showErrors: true);
             if (bookmark == null)
             {
@@ -896,7 +899,7 @@ namespace DocSets
             item = ResolvePin(item);
             if (!IsBookmark(item)) return;
             if (item.IsHistoryItem)
-                suppressedHistoryKey = GetHistoryKey(item);
+                historyService.SuppressNext(item);
             await store.OpenBookmarkAsync(item);
             if (item.Type == BookmarkType.File)
             {
@@ -933,6 +936,8 @@ namespace DocSets
                 return;
             }
 
+            await ExecuteMutationAsync(nameof(SyncWithCurrentPositionAsync), async () =>
+            {
             item.Type = targetType;
             item.Path = updated.Path;
             item.Line = updated.Line;
@@ -953,14 +958,13 @@ namespace DocSets
 
             SelectedNode = item;
             SetSelectedNodes(new[] { item });
-            await SaveAsync();
+            });
             OnPropertyChanged(nameof(CurrentNodes));
             InvalidateCommands();
         }
 
         private async Task UpdateBookmarkAsync(DocumentItem item)
         {
-            CaptureUndoState();
             item = ResolvePin(item);
             if (!IsBookmark(item)) return;
             var updated = await store.CreateBookmarkFromActiveDocumentAsync();
@@ -970,6 +974,8 @@ namespace DocSets
                 return;
             }
 
+            await ExecuteMutationAsync(nameof(UpdateBookmarkAsync), async () =>
+            {
             if (item.Type == BookmarkType.File)
             {
                 item.Symbol = string.Empty;
@@ -995,26 +1001,26 @@ namespace DocSets
             {
                 await fileTracking.TrackFromActiveDocumentAsync(item);
             }
-            await SaveAsync();
+            });
         }
 
         private void RenameNode(DocumentItem item)
         {
-            CaptureUndoState("Переименование элемента");
             item = ResolvePin(item);
             if (item == null) return;
             var caption = item.NodeType == NodeType.Folder ? "Новое название папки:" : "Новое название закладки:";
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", caption, item.Name);
             if (string.IsNullOrWhiteSpace(name)) return;
 
-            item.Name = name.Trim();
-            SelectedNode = item;
-            _ = SaveAsync();
+            _ = ExecuteMutationAsync(nameof(RenameNode), () =>
+            {
+                item.Name = name.Trim();
+                SelectedNode = item;
+            });
         }
 
         private void DeleteNodes(DocumentItem item)
         {
-            CaptureUndoState();
             if (SelectedSet == null) return;
 
             var nodes = GetEffectiveNodes(item).ToList();
@@ -1026,9 +1032,11 @@ namespace DocSets
 
             if (MessageBox.Show(ownerAccessor(), text, "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
+            _ = ExecuteMutationAsync(nameof(DeleteNodes), () =>
+            {
             var historyChanged = false;
             var pinChanged = false;
-            foreach (var node in FilterOutDescendants(nodes))
+            foreach (var node in treeService.FilterOutDescendants(nodes))
             {
                 if (node.IsHistoryRoot || node.IsPinRoot)
                 {
@@ -1041,41 +1049,41 @@ namespace DocSets
                 if (node.IsPinItem)
                 {
                     pinChanged = true;
-                    FindOwnerCollection(node)?.Remove(node);
+                    treeService.FindOwnerCollection(node)?.Remove(node);
                     continue;
                 }
 
                 var deletedIds = new HashSet<string>((new[] { node }).Concat(EnumerateNodes(node.Children)).Select(x => x.Id).Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
-                foreach (var pin in pinRoot?.Children.Where(x => deletedIds.Contains(x.TargetId)).ToList() ?? new List<DocumentItem>())
-                {
-                    pinRoot.Children.Remove(pin);
-                    pinChanged = true;
-                }
+                var pinCount = PinRoot?.Children.Count ?? 0;
+                pinService.RemoveTargets(deletedIds);
+                pinChanged |= (PinRoot?.Children.Count ?? 0) != pinCount;
 
-                historyChanged |= node.IsHistoryItem || ReferenceEquals(node.Parent, historyRoot);
-                FindOwnerCollection(node)?.Remove(node);
+                historyChanged |= node.IsHistoryItem || ReferenceEquals(node.Parent, HistoryRoot);
+                treeService.FindOwnerCollection(node)?.Remove(node);
             }
 
             SetSelectedNodes(Enumerable.Empty<DocumentItem>());
             if (historyChanged || pinChanged) SaveSolutionState();
-            _ = SaveAsync();
+            });
             InvalidateCommands();
         }
 
         private void MoveSet(int delta)
         {
-            CaptureUndoState();
-            Move(state.Sets, SelectedSet, delta);
+            _ = ExecuteMutationAsync(nameof(MoveSet), () =>
+            {
+            treeService.Move(state.Sets, SelectedSet, delta);
             state.ActiveSet = SelectedSet?.Name ?? "";
-            _ = SaveAsync();
+            });
         }
 
         public void MoveSetRelative(DocumentItem source, DocumentItem target, bool after)
         {
-            CaptureUndoState();
             if (source == null || target == null || ReferenceEquals(source, target))
                 return;
 
+            _ = ExecuteMutationAsync(nameof(MoveSetRelative), () =>
+            {
             var sourceIndex = state.Sets.IndexOf(source);
             var targetIndex = state.Sets.IndexOf(target);
             if (sourceIndex < 0 || targetIndex < 0)
@@ -1089,21 +1097,22 @@ namespace DocSets
             state.Sets.Insert(insertIndex, source);
             state.ActiveSet = SelectedSet?.Name ?? "";
             OnPropertyChanged(nameof(Sets));
-            _ = SaveAsync();
+            });
             InvalidateCommands();
         }
 
         private void MoveNode(int delta)
         {
-            CaptureUndoState();
-            var collection = FindOwnerCollection(SelectedNode);
-            Move(collection, SelectedNode, delta);
-            _ = SaveAsync();
+            _ = ExecuteMutationAsync(nameof(MoveNode), () =>
+            {
+            var collection = treeService.FindOwnerCollection(SelectedNode);
+            treeService.Move(collection, SelectedNode, delta);
+            });
         }
 
         private void CopySelectedNodes()
         {
-            var selected = FilterOutDescendants(SelectedNodes).ToList();
+            var selected = treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (selected.Count == 0) return;
 
             var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
@@ -1116,7 +1125,7 @@ namespace DocSets
 
         private void CopySelectedNodesAsJson()
         {
-            var selected = FilterOutDescendants(SelectedNodes).ToList();
+            var selected = treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (selected.Count == 0) return;
 
             var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
@@ -1168,11 +1177,12 @@ namespace DocSets
 
         private void PasteNodes(DocumentItem target, IList<DocumentItem> nodes)
         {
-            CaptureUndoState();
             if (nodes == null || nodes.Count == 0) return;
 
-            NormalizeNodes(nodes);
-            var collection = GetInsertCollection(target);
+            _ = ExecuteMutationAsync(nameof(PasteNodes), () =>
+            {
+            treeService.NormalizeNodes(nodes);
+            var collection = treeService.GetInsertCollection(SelectedSet, target);
 
             DocumentItem last = null;
             foreach (var node in nodes.Select(x => x.Clone()))
@@ -1183,25 +1193,26 @@ namespace DocSets
 
             if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
             if (last != null) SelectedNode = last;
-            _ = SaveAsync();
+            });
             InvalidateCommands();
         }
 
 
         public bool CanCopySelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            return GetCopyPlan(target, position, fullTree) != null;
+            return treeService.CreateCopyPlan(state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
         }
 
         public async Task CopySelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            CaptureUndoState();
-            var plan = GetCopyPlan(target, position, fullTree);
+            var plan = treeService.CreateCopyPlan(state, SelectedSet, SelectedNodes, target, position, fullTree);
             if (plan == null) return;
 
-            var sourceNodes = FilterOutDescendants(SelectedNodes).ToList();
+            var sourceNodes = treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (sourceNodes.Count == 0) return;
 
+            await ExecuteMutationAsync(nameof(CopySelectedNodesToAsync), () =>
+            {
             var copies = sourceNodes.Select(CloneResolved).Where(x => x != null).ToList();
             var insertIndex = Math.Max(0, Math.Min(plan.Index, plan.Collection.Count));
             foreach (var copy in copies)
@@ -1217,27 +1228,28 @@ namespace DocSets
             }
 
             SetSelectedNodes(copies);
-            await SaveAsync();
+            });
             InvalidateCommands();
         }
 
         public bool CanMoveSelectedNodesTo(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            return GetMovePlan(target, position, fullTree) != null;
+            return treeService.CreateMovePlan(state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
         }
 
         public async Task MoveSelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            CaptureUndoState();
-            var plan = GetMovePlan(target, position, fullTree);
+            var plan = treeService.CreateMovePlan(state, SelectedSet, SelectedNodes, target, position, fullTree);
             if (plan == null) return;
 
-            var nodes = FilterOutDescendants(SelectedNodes).ToList();
+            var nodes = treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (nodes.Count == 0) return;
 
+            await ExecuteMutationAsync(nameof(MoveSelectedNodesToAsync), () =>
+            {
             foreach (var node in nodes)
             {
-                FindOwnerCollection(node)?.Remove(node);
+                treeService.FindOwnerCollection(node)?.Remove(node);
             }
 
             var insertIndex = Math.Max(0, Math.Min(plan.Index, plan.Collection.Count));
@@ -1252,74 +1264,8 @@ namespace DocSets
             }
 
             SetSelectedNodes(nodes);
-            await SaveAsync();
+            });
             InvalidateCommands();
-        }
-
-        private MovePlan GetCopyPlan(DocumentItem target, DropPosition position, bool fullTree)
-        {
-            if ((!fullTree && SelectedSet == null) || SelectedNodes.Count == 0) return null;
-
-            var nodes = FilterOutDescendants(SelectedNodes).ToList();
-            if (nodes.Count == 0) return null;
-
-            if (target == null)
-            {
-                var rootCollection = fullTree ? state.Root.Children : SelectedSet.Children;
-                return new MovePlan(rootCollection, rootCollection.Count);
-            }
-
-            if (position == DropPosition.Inside && target.NodeType == NodeType.Folder)
-            {
-                return new MovePlan(target.Children, target.Children.Count);
-            }
-
-            var owner = FindOwnerCollection(target);
-            if (owner == null) return null;
-
-            var targetIndex = owner.IndexOf(target);
-            if (targetIndex < 0) return null;
-
-            var index = position == DropPosition.After ? targetIndex + 1 : targetIndex;
-            return new MovePlan(owner, index);
-        }
-
-        private MovePlan GetMovePlan(DocumentItem target, DropPosition position, bool fullTree)
-        {
-            if ((!fullTree && SelectedSet == null) || SelectedNodes.Count == 0) return null;
-
-            var nodes = FilterOutDescendants(SelectedNodes).ToList();
-            if (nodes.Count == 0) return null;
-
-            foreach (var node in nodes)
-            {
-                if (ReferenceEquals(node, target) || IsDescendantOf(target, node))
-                {
-                    return null;
-                }
-            }
-
-            if (target == null)
-            {
-                var rootCollection = fullTree ? state.Root.Children : SelectedSet.Children;
-                return new MovePlan(rootCollection, rootCollection.Count);
-            }
-
-            if (position == DropPosition.Inside && target.NodeType == NodeType.Folder)
-            {
-                return new MovePlan(target.Children, target.Children.Count);
-            }
-
-            var owner = FindOwnerCollection(target);
-            if (owner == null) return null;
-
-            var targetIndex = owner.IndexOf(target);
-            if (targetIndex < 0) return null;
-
-            var selectedBeforeTarget = nodes.Count(x => ReferenceEquals(FindOwnerCollection(x), owner) && owner.IndexOf(x) >= 0 && owner.IndexOf(x) < targetIndex);
-            var index = position == DropPosition.After ? targetIndex + 1 : targetIndex;
-            index -= selectedBeforeTarget;
-            return new MovePlan(owner, index);
         }
 
         private IEnumerable<DocumentItem> GetEffectiveNodes(DocumentItem item)
@@ -1332,171 +1278,24 @@ namespace DocSets
             return item == null ? Enumerable.Empty<DocumentItem>() : new[] { item };
         }
 
-        private ObservableCollection<DocumentItem> GetInsertCollection(DocumentItem target)
-        {
-            return GetInsertCollection(SelectedSet, target);
-        }
-
-        private static ObservableCollection<DocumentItem> GetInsertCollection(DocumentItem set, DocumentItem target)
-        {
-            if (target?.NodeType == NodeType.Folder)
-            {
-                return target.Children;
-            }
-
-            return set?.Children ?? new ObservableCollection<DocumentItem>();
-        }
-
-        private void RemoveNodeReferenceFromAllSets(DocumentItem item)
-        {
-            if (item == null || state?.Sets == null)
-            {
-                return;
-            }
-
-            foreach (var set in state.Sets)
-            {
-                RemoveNodeReference(set.Children, item);
-            }
-        }
-
-        private static bool RemoveNodeReference(ObservableCollection<DocumentItem> nodes, DocumentItem item)
-        {
-            if (nodes == null || item == null)
-            {
-                return false;
-            }
-
-            var removed = false;
-            for (var i = nodes.Count - 1; i >= 0; i--)
-            {
-                var node = nodes[i];
-                if (ReferenceEquals(node, item))
-                {
-                    nodes.RemoveAt(i);
-                    removed = true;
-                    continue;
-                }
-
-                if (RemoveNodeReference(node.Children, item))
-                {
-                    removed = true;
-                }
-            }
-
-            return removed;
-        }
-
-        private static bool ContainsReference(IEnumerable<DocumentItem> nodes, DocumentItem item)
-        {
-            return nodes != null && item != null && nodes.Any(x => ReferenceEquals(x, item));
-        }
-
-        private static bool ContainsNode(IEnumerable<DocumentItem> nodes, DocumentItem item)
-        {
-            if (nodes == null || item == null) return false;
-
-            foreach (var node in nodes)
-            {
-                if (ReferenceEquals(node, item) || ContainsNode(node.Children, item))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static DocumentItem FindParentFolder(IEnumerable<DocumentItem> nodes, DocumentItem item)
-        {
-            if (nodes == null || item == null) return null;
-
-            foreach (var node in nodes)
-            {
-                if (node.Children != null && node.Children.Contains(item))
-                {
-                    return node;
-                }
-
-                var nested = FindParentFolder(node.Children, item);
-                if (nested != null)
-                {
-                    return nested;
-                }
-            }
-
-            return null;
-        }
-
-        private ObservableCollection<DocumentItem> FindOwnerCollection(DocumentItem item)
-        {
-            return item?.Parent?.Children;
-        }
-
-        private static ObservableCollection<DocumentItem> FindOwnerCollection(IEnumerable<DocumentItem> nodes, DocumentItem item)
-        {
-            var collection = nodes as ObservableCollection<DocumentItem>;
-            if (collection != null && collection.Contains(item))
-            {
-                return collection;
-            }
-
-            foreach (var node in nodes)
-            {
-                var nested = FindOwnerCollection(node.Children, item);
-                if (nested != null) return nested;
-            }
-
-            return null;
-        }
-
-
         private IEnumerable<DocumentItem> GetAllNodes()
         {
-            return SelectedSet?.Children == null ? Enumerable.Empty<DocumentItem>() : Flatten(SelectedSet.Children, includeCollapsed: true);
+            return SelectedSet?.Children == null
+                ? Enumerable.Empty<DocumentItem>()
+                : treeService.Flatten(SelectedSet.Children, includeCollapsed: true);
         }
 
         private IEnumerable<DocumentItem> GetVisibleNodes()
         {
-            return SelectedSet?.Children == null ? Enumerable.Empty<DocumentItem>() : Flatten(SelectedSet.Children, includeCollapsed: false);
-        }
-
-        private static IEnumerable<DocumentItem> Flatten(IEnumerable<DocumentItem> nodes, bool includeCollapsed)
-        {
-            foreach (var node in nodes)
-            {
-                yield return node;
-                if (includeCollapsed || node.IsExpanded)
-                {
-                    foreach (var child in Flatten(node.Children, includeCollapsed))
-                    {
-                        yield return child;
-                    }
-                }
-            }
-        }
-
-        private static IEnumerable<DocumentItem> FilterOutDescendants(IEnumerable<DocumentItem> nodes)
-        {
-            var list = (nodes ?? Enumerable.Empty<DocumentItem>()).Where(x => x != null).Distinct().ToList();
-            return list.Where(x => !list.Any(parent => !ReferenceEquals(parent, x) && IsDescendantOf(x, parent))).ToList();
-        }
-
-        private static bool IsDescendantOf(DocumentItem node, DocumentItem potentialParent)
-        {
-            if (node == null || potentialParent == null) return false;
-            foreach (var child in potentialParent.Children)
-            {
-                if (ReferenceEquals(child, node) || IsDescendantOf(node, child)) return true;
-            }
-
-            return false;
+            return SelectedSet?.Children == null
+                ? Enumerable.Empty<DocumentItem>()
+                : treeService.Flatten(SelectedSet.Children, includeCollapsed: false);
         }
 
         private bool CanMoveNode(DocumentItem item, int delta)
         {
-            var collection = FindOwnerCollection(item);
-            return CanMove(collection, item, delta);
+            var collection = treeService.FindOwnerCollection(item);
+            return treeService.CanMove(collection, item, delta);
         }
 
         private bool IsBookmark(DocumentItem item)
@@ -1506,21 +1305,6 @@ namespace DocSets
         }
 
         private static bool CanHaveChildren(DocumentItem item) => item != null && item.NodeType == NodeType.Folder;
-
-        private static void NormalizeNodes(IEnumerable<DocumentItem> nodes)
-        {
-            if (nodes == null) return;
-
-            foreach (var node in nodes)
-            {
-                if (node.Children == null)
-                {
-                    node.Children = new ObservableCollection<DocumentItem>();
-                }
-
-                NormalizeNodes(node.Children);
-            }
-        }
 
         private static string BuildText(IEnumerable<DocumentItem> nodes)
         {
@@ -1929,42 +1713,26 @@ namespace DocSets
             }
         }
 
-        private void Move<T>(ObservableCollection<T> collection, T item, int delta) where T : class
-        {
-            if (collection == null || item == null) return;
-            var index = collection.IndexOf(item);
-            var newIndex = index + delta;
-            if (index < 0 || newIndex < 0 || newIndex >= collection.Count) return;
-            collection.Move(index, newIndex);
-            InvalidateCommands();
-        }
-
-        private static bool CanMove<T>(ObservableCollection<T> collection, T item, int delta) where T : class
-        {
-            if (collection == null || item == null) return false;
-            var index = collection.IndexOf(item);
-            var newIndex = index + delta;
-            return index >= 0 && newIndex >= 0 && newIndex < collection.Count;
-        }
-
         private async Task RegenerateAllIdsAsync()
         {
-            CaptureUndoState();
             if (!IsLoaded) return;
 
+            await ExecuteMutationAsync(nameof(RegenerateAllIdsAsync), () =>
+            {
             var idMap = state.RegenerateAllReadableIds();
             ApplyIdMigration(idMap);
 
-            await SaveAsync();
+            _ = SaveAsync();
             SaveSolutionState();
+            });
             InvalidateCommands();
         }
 
         public void SaveSolutionState()
         {
             ApplyIdMigration(state?.EnsureReadableIds());
-            SaveHistoryToSolutionState();
-            SavePinsToSolutionState();
+            solutionState.History = historyService.Export();
+            solutionState.Pins = pinService.Export();
             solutionState.Workspace = store.CurrentWorkspaceRelativePath ?? "";
             store.SaveSolutionState(solutionState);
         }
@@ -1978,28 +1746,14 @@ namespace DocSets
                 var item = await store.CreateBookmarkFromActiveDocumentAsync();
                 if (item == null || string.IsNullOrWhiteSpace(item.Path))
                 {
-                    lastHistoryKey = "";
+                    historyService.ResetCurrentLocation();
                     return;
                 }
 
-                var key = GetHistoryKey(item);
-                if (string.IsNullOrWhiteSpace(key) ||
-                    string.Equals(lastHistoryKey, key, StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                lastHistoryKey = key;
-
-                // Переход, инициированный из History, открывает цель, но не создаёт
-                // новую запись истории. Подавление действует только для этого перехода.
-                if (string.Equals(suppressedHistoryKey, key, StringComparison.OrdinalIgnoreCase))
+                if (historyService.Record(item, pinService.IsPinned, DateTime.Now))
                 {
-                    suppressedHistoryKey = "";
-                    return;
+                    SaveSolutionState();
                 }
-
-                suppressedHistoryKey = "";
-                AddOrRefreshHistoryItem(item);
-                SaveSolutionState();
             }
             finally
             {
@@ -2007,167 +1761,9 @@ namespace DocSets
             }
         }
 
-        private void EnsureHistoryRoot()
-        {
-            if (historyRoot != null && ReferenceEquals(historyRoot.Parent, state.Root)) return;
-            historyRoot = state.Sets.FirstOrDefault(x => x != null && x.IsHistoryRoot);
-            if (historyRoot == null)
-            {
-                historyRoot = new DocumentItem
-                {
-                    Id = "history",
-                    Name = "History",
-                    NodeType = NodeType.Folder,
-                    Type = BookmarkType.Empty,
-                    IsLocalOnly = true,
-                    IsHistoryRoot = true
-                };
-                state.Sets.Insert(0, historyRoot);
-            }
-
-            historyRoot.Children.Clear();
-            foreach (var saved in solutionState.History ?? new List<NavigationHistoryLocalItem>())
-            {
-                historyRoot.Children.Add(new DocumentItem
-                {
-                    Id = saved.Id ?? "",
-                    Name = saved.Name ?? "",
-                    NodeType = NodeType.Item,
-                    Type = saved.Type,
-                    Symbol = saved.Symbol ?? "",
-                    Project = saved.Project ?? "",
-                    Path = saved.Path ?? "",
-                    Line = saved.Line,
-                    Column = saved.Column,
-                    Comment = saved.Comment ?? "",
-                    EditorState = saved.EditorState?.Clone(),
-                    IsLocalOnly = true,
-                    IsHistoryItem = true
-                });
-            }
-        }
-
-        private void AddOrRefreshHistoryItem(DocumentItem source)
-        {
-            EnsureHistoryRoot();
-            var key = GetHistoryKey(source);
-            var existing = historyRoot.Children.FirstOrDefault(x => string.Equals(GetHistoryKey(x), key, StringComparison.OrdinalIgnoreCase));
-            var now = DateTime.Now;
-            var item = existing ?? new DocumentItem
-            {
-                Id = CreateHistoryReadableId(source.Name),
-                NodeType = NodeType.Item,
-                IsLocalOnly = true,
-                IsHistoryItem = true
-            };
-
-            item.Name = source.Name;
-            item.Type = string.IsNullOrWhiteSpace(source.Symbol) ? BookmarkType.File : BookmarkType.Symbol;
-            item.Symbol = source.Symbol;
-            item.Project = source.Project;
-            item.Path = source.Path;
-            item.Line = source.Line;
-            item.Column = source.Column;
-            item.Comment = now.ToString("yyyy-MM-dd HH:mm:ss");
-            item.EditorState = source.EditorState?.Clone();
-
-            if (existing != null) historyRoot.Children.Remove(existing);
-            historyRoot.Children.Insert(0, item);
-            while (historyRoot.Children.Count > 2000)
-            {
-                var removable = historyRoot.Children.LastOrDefault(x => !IsPinned(x));
-                if (removable == null) break;
-                historyRoot.Children.Remove(removable);
-            }
-        }
-
-        private string CreateHistoryReadableId(string name)
-        {
-            var builder = new System.Text.StringBuilder();
-            var separatorPending = false;
-            foreach (var c in (name ?? "").Trim().ToLowerInvariant())
-            {
-                if (char.IsLetterOrDigit(c))
-                {
-                    if (separatorPending && builder.Length > 0) builder.Append('-');
-                    builder.Append(c);
-                    separatorPending = false;
-                }
-                else separatorPending = true;
-            }
-            var baseId = "history-" + (builder.Length == 0 ? "item" : builder.ToString().Trim('-'));
-            var used = new HashSet<string>(EnumerateAllNodes().Where(x => x != null).Select(x => x.Id), StringComparer.OrdinalIgnoreCase);
-            var id = baseId;
-            var index = 2;
-            while (!used.Add(id)) id = baseId + "-" + index++;
-            return id;
-        }
-
-        private void SaveHistoryToSolutionState()
-        {
-            if (solutionState == null) return;
-            solutionState.History = historyRoot?.Children.Select(x => new NavigationHistoryLocalItem
-            {
-                Id = x.Id,
-                Name = x.Name,
-                Type = x.Type,
-                Symbol = x.Symbol,
-                Project = x.Project,
-                Path = x.Path,
-                Line = x.Line,
-                Column = x.Column,
-                Comment = x.Comment,
-                VisitedAt = DateTime.TryParse(x.Comment, out var visited) ? visited : DateTime.Now,
-                EditorState = x.EditorState?.Clone()
-            }).ToList() ?? new List<NavigationHistoryLocalItem>();
-        }
-
-        private static string GetHistoryKey(DocumentItem item)
-        {
-            if (item == null) return "";
-            if (!string.IsNullOrWhiteSpace(item.Symbol))
-                return (item.Project ?? "") + "|" + item.Symbol;
-            return item.Path ?? "";
-        }
-
-        private void EnsurePinRoot()
-        {
-            if (pinRoot != null && ReferenceEquals(pinRoot.Parent, state.Root)) return;
-            pinRoot = state.Sets.FirstOrDefault(x => x != null && x.IsPinRoot);
-            if (pinRoot == null)
-            {
-                pinRoot = new DocumentItem
-                {
-                    Id = "pin",
-                    Name = "Pin",
-                    NodeType = NodeType.Folder,
-                    Type = BookmarkType.Empty,
-                    IsLocalOnly = true,
-                    IsPinRoot = true
-                };
-                var historyIndex = historyRoot == null ? 0 : state.Sets.IndexOf(historyRoot) + 1;
-                state.Sets.Insert(Math.Max(0, historyIndex), pinRoot);
-            }
-
-            pinRoot.Children.Clear();
-            foreach (var saved in solutionState.Pins ?? new List<PinLocalItem>())
-            {
-                pinRoot.Children.Add(new DocumentItem
-                {
-                    Id = saved.Id ?? "",
-                    NodeType = NodeType.Item,
-                    Type = BookmarkType.Pin,
-                    TargetId = saved.TargetId ?? "",
-                    IsLocalOnly = true,
-                    IsPinItem = true
-                });
-            }
-        }
-
         public DocumentItem ResolvePin(DocumentItem item)
         {
-            if (item == null || !item.IsPinItem) return item;
-            return EnumerateAllNodes().FirstOrDefault(x => !x.IsPinItem && string.Equals(x.Id, item.TargetId, StringComparison.OrdinalIgnoreCase));
+            return pinService.Resolve(item);
         }
 
         private DocumentItem CloneResolved(DocumentItem item)
@@ -2177,46 +1773,22 @@ namespace DocSets
 
         public bool IsPinned(DocumentItem item)
         {
-            return item != null && pinRoot != null && pinRoot.Children.Any(x => string.Equals(x.TargetId, item.Id, StringComparison.OrdinalIgnoreCase));
+            return pinService.IsPinned(item);
         }
 
         private bool CanTogglePin(DocumentItem item)
         {
-            if (item == null || item.IsPinRoot || item.IsHistoryRoot) return false;
-            if (item.IsPinItem) return true;
-            return !string.IsNullOrWhiteSpace(item.Id);
+            return pinService.CanToggle(item);
         }
 
         private void TogglePin(DocumentItem item)
         {
-            CaptureUndoState();
-            EnsurePinRoot();
-            if (item == null) return;
-            if (item.IsPinItem)
+            _ = ExecuteMutationAsync(nameof(TogglePin), () =>
             {
-                pinRoot.Children.Remove(item);
-            }
-            else
-            {
-                var existing = pinRoot.Children.FirstOrDefault(x => string.Equals(x.TargetId, item.Id, StringComparison.OrdinalIgnoreCase));
-                if (existing != null) pinRoot.Children.Remove(existing);
-                else pinRoot.Children.Add(new DocumentItem
-                {
-                    Id = "pin-" + Guid.NewGuid().ToString("N"),
-                    NodeType = NodeType.Item,
-                    Type = BookmarkType.Pin,
-                    TargetId = item.Id,
-                    IsLocalOnly = true,
-                    IsPinItem = true
-                });
-            }
-            SaveSolutionState();
-            OnPropertyChanged(nameof(CurrentNodes));
-        }
-
-        private void SavePinsToSolutionState()
-        {
-            solutionState.Pins = pinRoot?.Children.Select(x => new PinLocalItem { Id = x.Id, TargetId = x.TargetId }).ToList() ?? new List<PinLocalItem>();
+                pinService.Toggle(item);
+                SaveSolutionState();
+                OnPropertyChanged(nameof(CurrentNodes));
+            });
         }
 
         private void ApplyIdMigration(IDictionary<string, string> idMap)
@@ -2234,13 +1806,7 @@ namespace DocSets
             {
                 pin.TargetId = Map(pin.TargetId);
             }
-            if (pinRoot != null)
-            {
-                foreach (var pin in pinRoot.Children)
-                {
-                    pin.TargetId = Map(pin.TargetId);
-                }
-            }
+            pinService.ApplyIdMigration(idMap);
 
             var oldViews = solutionState.Views ?? new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             var newViews = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
@@ -2257,58 +1823,47 @@ namespace DocSets
             solutionState.Views = newViews;
         }
 
-        public IReadOnlyList<string> UndoOperations => undoStack.Select(x => x.Description).ToArray();
-        public IReadOnlyList<string> RedoOperations => redoStack.Select(x => x.Description).ToArray();
+        public IReadOnlyList<string> UndoOperations => undoRedoService.UndoOperations;
+        public IReadOnlyList<string> RedoOperations => undoRedoService.RedoOperations;
 
         public void CaptureUndoState(string description = "Изменение")
         {
             if (!IsLoaded || isApplyingState || isRestoringUndoState) return;
 
             var snapshot = CreateUndoSnapshot();
-            if (undoStack.Count > 0 && string.Equals(undoStack.Peek().Snapshot, snapshot, StringComparison.Ordinal)) return;
-
-            undoStack.Push(new UndoEntry(description, snapshot));
-            while (undoStack.Count > UndoLimit)
+            if (undoRedoService.Capture(description, snapshot))
             {
-                var kept = undoStack.Reverse().Take(UndoLimit).Reverse().ToArray();
-                undoStack.Clear();
-                foreach (var item in kept) undoStack.Push(item);
+                InvalidateCommands();
             }
-            redoStack.Clear();
-            InvalidateCommands();
         }
 
         public async Task UndoManyAsync(int count)
         {
-            for (var i = 0; i < count && undoStack.Count > 0; i++)
+            for (var i = 0; i < count && undoRedoService.CanUndo; i++)
                 await UndoAsync();
         }
 
         public async Task RedoManyAsync(int count)
         {
-            for (var i = 0; i < count && redoStack.Count > 0; i++)
+            for (var i = 0; i < count && undoRedoService.CanRedo; i++)
                 await RedoAsync();
         }
 
         private async Task UndoAsync()
         {
-            if (undoStack.Count == 0) return;
-            var target = undoStack.Pop();
-            redoStack.Push(new UndoEntry(target.Description, CreateUndoSnapshot()));
-            await RestoreUndoSnapshotAsync(target.Snapshot);
+            if (!undoRedoService.TryUndo(CreateUndoSnapshot(), out var targetSnapshot)) return;
+            await RestoreUndoSnapshotAsync(targetSnapshot);
         }
 
         private async Task RedoAsync()
         {
-            if (redoStack.Count == 0) return;
-            var target = redoStack.Pop();
-            undoStack.Push(new UndoEntry(target.Description, CreateUndoSnapshot()));
-            await RestoreUndoSnapshotAsync(target.Snapshot);
+            if (!undoRedoService.TryRedo(CreateUndoSnapshot(), out var targetSnapshot)) return;
+            await RestoreUndoSnapshotAsync(targetSnapshot);
         }
 
         private string CreateUndoSnapshot()
         {
-            SavePinsToSolutionState();
+            solutionState.Pins = pinService.Export();
             var envelope = new UndoSnapshot
             {
                 State = JsonConvert.SerializeObject(state),
@@ -2341,21 +1896,8 @@ namespace DocSets
 
         private void ClearUndoHistory()
         {
-            undoStack.Clear();
-            redoStack.Clear();
+            undoRedoService.Clear();
             InvalidateCommands();
-        }
-
-        private sealed class UndoEntry
-        {
-            public UndoEntry(string description, string snapshot)
-            {
-                Description = string.IsNullOrWhiteSpace(description) ? "Изменение" : description;
-                Snapshot = snapshot;
-            }
-
-            public string Description { get; }
-            public string Snapshot { get; }
         }
 
         private sealed class UndoSnapshot
@@ -2364,7 +1906,93 @@ namespace DocSets
             public string Pins { get; set; }
         }
 
-        public async Task SaveAsync()
+        private async Task ExecuteMutationAsync(string description, Func<Task> mutation)
+        {
+            if (mutation == null)
+            {
+                throw new ArgumentNullException(nameof(mutation));
+            }
+
+            var isOuterMutation = mutationNesting.Value == 0;
+            string undoSnapshot = null;
+            if (isOuterMutation)
+            {
+                await mutationGate.WaitAsync();
+            }
+
+            try
+            {
+                if (isOuterMutation)
+                {
+                    mutationChanged = false;
+                    mutationSaveRequested = false;
+                    if (IsLoaded && !isApplyingState && !isRestoringUndoState)
+                    {
+                        undoSnapshot = CreateUndoSnapshot();
+                    }
+                }
+
+                mutationNesting.Value++;
+                mutationDepth++;
+                try
+                {
+                    await mutation();
+                }
+                finally
+                {
+                    mutationDepth--;
+                    mutationNesting.Value--;
+                }
+
+                if (isOuterMutation)
+                {
+                    var currentSnapshot = undoSnapshot == null ? null : CreateUndoSnapshot();
+                    if (undoSnapshot != null
+                        && !string.Equals(undoSnapshot, currentSnapshot, StringComparison.Ordinal)
+                        && undoRedoService.Capture(description, undoSnapshot))
+                    {
+                        InvalidateCommands();
+                    }
+
+                    var shouldSave = mutationChanged || mutationSaveRequested;
+                    mutationChanged = false;
+                    mutationSaveRequested = false;
+                    if (shouldSave)
+                    {
+                        await SaveCoreAsync();
+                    }
+                }
+            }
+            finally
+            {
+                if (isOuterMutation)
+                {
+                    mutationGate.Release();
+                }
+            }
+        }
+
+        private Task ExecuteMutationAsync(string description, Action mutation)
+        {
+            return ExecuteMutationAsync(description, () =>
+            {
+                mutation();
+                return Task.CompletedTask;
+            });
+        }
+
+        public Task SaveAsync()
+        {
+            if (mutationDepth > 0)
+            {
+                mutationSaveRequested = true;
+                return Task.CompletedTask;
+            }
+
+            return SaveCoreAsync();
+        }
+
+        private async Task SaveCoreAsync()
         {
             if (!IsLoaded)
             {
@@ -2420,17 +2048,6 @@ namespace DocSets
             VsShellUtilities.ShowMessageBox(package, text, "DocSets", OLEMSGICON.OLEMSGICON_INFO, OLEMSGBUTTON.OLEMSGBUTTON_OK, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
         }
 
-        private sealed class MovePlan
-        {
-            public MovePlan(ObservableCollection<DocumentItem> collection, int index)
-            {
-                Collection = collection;
-                Index = index;
-            }
-
-            public ObservableCollection<DocumentItem> Collection { get; }
-            public int Index { get; }
-        }
     }
 
     internal enum DropPosition
