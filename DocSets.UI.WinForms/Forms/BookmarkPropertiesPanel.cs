@@ -78,6 +78,28 @@ namespace DocSets
             }
         }
 
+
+        public string GetPendingChangeDescription()
+        {
+            if (loading || item == null) return null;
+
+            var changes = new List<string>();
+            if (!string.Equals(item.Name ?? string.Empty, nameTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal)) changes.Add("имя");
+            if (item.NodeType != (folderCheckBox.Checked ? NodeType.Folder : NodeType.Item)) changes.Add("тип узла");
+            var type = fileButton.Checked ? BookmarkType.File : symbolButton.Checked ? BookmarkType.Symbol : BookmarkType.Empty;
+            if (item.Type != type) changes.Add("тип ссылки");
+            if (!string.Equals(item.Path ?? string.Empty, type == BookmarkType.Empty ? string.Empty : pathTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal)) changes.Add("путь");
+            if (!string.Equals(item.Symbol ?? string.Empty, type == BookmarkType.Symbol ? symbolTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal)) changes.Add("символ");
+            if (!string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal)) changes.Add("проект");
+            if (item.Line != (int)lineBox.Value) changes.Add("строка");
+            if (item.Column != (int)columnBox.Value) changes.Add("колонка");
+            if (!string.Equals(item.Comment ?? string.Empty, commentTextBox.Text ?? string.Empty, StringComparison.Ordinal)) changes.Add("комментарий");
+            if (item.Color != selectedColor) changes.Add("цвет");
+
+            if (changes.Count == 0) return null;
+            return changes.Count == 1 ? "Изменение свойства: " + changes[0] : "Изменение свойств: " + string.Join(", ", changes);
+        }
+
         public bool ApplyToCurrentItem()
         {
             if (loading || item == null)

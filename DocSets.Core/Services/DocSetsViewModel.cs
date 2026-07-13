@@ -43,6 +43,10 @@ namespace DocSets
         private string lastHistoryKey = "";
         private string suppressedHistoryKey = "";
         private bool historyProbeInProgress;
+        private const int UndoLimit = 100;
+        private readonly Stack<UndoEntry> undoStack = new Stack<UndoEntry>();
+        private readonly Stack<UndoEntry> redoStack = new Stack<UndoEntry>();
+        private bool isRestoringUndoState;
 
         public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
         {
@@ -74,6 +78,8 @@ namespace DocSets
             PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
             TogglePinCommand = new RelayCommand(p => TogglePin(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanTogglePin(p as DocumentItem ?? SelectedNode));
+            UndoCommand = new RelayCommand(async () => await UndoAsync(), () => IsLoaded && undoStack.Count > 0);
+            RedoCommand = new RelayCommand(async () => await RedoAsync(), () => IsLoaded && redoStack.Count > 0);
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && SelectedSet != null && ClipboardContainsJsonText());
             state.Root.TreeChanged += Root_TreeChanged;
         }
@@ -252,6 +258,8 @@ namespace DocSets
         public ICommand CopySelectedNodesAsJsonCommand { get; }
         public ICommand PasteNodesFromJsonCommand { get; }
         public ICommand TogglePinCommand { get; }
+        public ICommand UndoCommand { get; }
+        public ICommand RedoCommand { get; }
 
         // Compatibility aliases for old command names.
         public ICommand RenameBookmarkCommand => RenameNodeCommand;
@@ -266,6 +274,7 @@ namespace DocSets
             solutionState = store.LoadSolutionState() ?? new SolutionLocalState();
             var loadedState = await store.LoadAsync();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
+            ClearUndoHistory();
             await RefreshWorkspacesAsync();
         }
 
@@ -276,6 +285,7 @@ namespace DocSets
             if (!await store.SelectWorkspaceAsync(workspace.RelativePath)) return;
             var loadedState = await store.LoadAsync() ?? new DocumentSetsState();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
+            ClearUndoHistory();
             await RefreshWorkspacesAsync();
         }
 
@@ -482,6 +492,7 @@ namespace DocSets
 
         private void AddSet()
         {
+            CaptureUndoState();
             var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название группы:");
             if (string.IsNullOrWhiteSpace(name)) return;
             name = name.Trim();
@@ -513,6 +524,7 @@ namespace DocSets
 
         public bool TryRenameSet(DocumentItem set, string name, bool showErrors)
         {
+            CaptureUndoState("Переименование группы");
             if (set == null) return false;
             if (string.IsNullOrWhiteSpace(name)) return false;
 
@@ -543,6 +555,7 @@ namespace DocSets
 
         private void DeleteSet()
         {
+            CaptureUndoState();
             var set = SelectedSet;
             if (set == null) return;
             if (set.IsHistoryRoot)
@@ -568,6 +581,7 @@ namespace DocSets
         }
         private void AddFolder(DocumentItem parent)
         {
+            CaptureUndoState();
             var set = SelectedSet;
             if (set == null) return;
 
@@ -867,6 +881,7 @@ namespace DocSets
 
         private async Task AddBookmarkAsync(DocumentItem target)
         {
+            CaptureUndoState();
             var bookmark = await CreateBookmarkFromActiveDocumentAsync(showErrors: true);
             if (bookmark == null)
             {
@@ -945,6 +960,7 @@ namespace DocSets
 
         private async Task UpdateBookmarkAsync(DocumentItem item)
         {
+            CaptureUndoState();
             item = ResolvePin(item);
             if (!IsBookmark(item)) return;
             var updated = await store.CreateBookmarkFromActiveDocumentAsync();
@@ -984,6 +1000,7 @@ namespace DocSets
 
         private void RenameNode(DocumentItem item)
         {
+            CaptureUndoState("Переименование элемента");
             item = ResolvePin(item);
             if (item == null) return;
             var caption = item.NodeType == NodeType.Folder ? "Новое название папки:" : "Новое название закладки:";
@@ -997,6 +1014,7 @@ namespace DocSets
 
         private void DeleteNodes(DocumentItem item)
         {
+            CaptureUndoState();
             if (SelectedSet == null) return;
 
             var nodes = GetEffectiveNodes(item).ToList();
@@ -1046,6 +1064,7 @@ namespace DocSets
 
         private void MoveSet(int delta)
         {
+            CaptureUndoState();
             Move(state.Sets, SelectedSet, delta);
             state.ActiveSet = SelectedSet?.Name ?? "";
             _ = SaveAsync();
@@ -1053,6 +1072,7 @@ namespace DocSets
 
         public void MoveSetRelative(DocumentItem source, DocumentItem target, bool after)
         {
+            CaptureUndoState();
             if (source == null || target == null || ReferenceEquals(source, target))
                 return;
 
@@ -1075,6 +1095,7 @@ namespace DocSets
 
         private void MoveNode(int delta)
         {
+            CaptureUndoState();
             var collection = FindOwnerCollection(SelectedNode);
             Move(collection, SelectedNode, delta);
             _ = SaveAsync();
@@ -1147,6 +1168,7 @@ namespace DocSets
 
         private void PasteNodes(DocumentItem target, IList<DocumentItem> nodes)
         {
+            CaptureUndoState();
             if (nodes == null || nodes.Count == 0) return;
 
             NormalizeNodes(nodes);
@@ -1173,6 +1195,7 @@ namespace DocSets
 
         public async Task CopySelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
+            CaptureUndoState();
             var plan = GetCopyPlan(target, position, fullTree);
             if (plan == null) return;
 
@@ -1205,6 +1228,7 @@ namespace DocSets
 
         public async Task MoveSelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
+            CaptureUndoState();
             var plan = GetMovePlan(target, position, fullTree);
             if (plan == null) return;
 
@@ -1925,6 +1949,7 @@ namespace DocSets
 
         private async Task RegenerateAllIdsAsync()
         {
+            CaptureUndoState();
             if (!IsLoaded) return;
 
             var idMap = state.RegenerateAllReadableIds();
@@ -2164,6 +2189,7 @@ namespace DocSets
 
         private void TogglePin(DocumentItem item)
         {
+            CaptureUndoState();
             EnsurePinRoot();
             if (item == null) return;
             if (item.IsPinItem)
@@ -2229,6 +2255,113 @@ namespace DocSets
                 newViews[key] = view;
             }
             solutionState.Views = newViews;
+        }
+
+        public IReadOnlyList<string> UndoOperations => undoStack.Select(x => x.Description).ToArray();
+        public IReadOnlyList<string> RedoOperations => redoStack.Select(x => x.Description).ToArray();
+
+        public void CaptureUndoState(string description = "Изменение")
+        {
+            if (!IsLoaded || isApplyingState || isRestoringUndoState) return;
+
+            var snapshot = CreateUndoSnapshot();
+            if (undoStack.Count > 0 && string.Equals(undoStack.Peek().Snapshot, snapshot, StringComparison.Ordinal)) return;
+
+            undoStack.Push(new UndoEntry(description, snapshot));
+            while (undoStack.Count > UndoLimit)
+            {
+                var kept = undoStack.Reverse().Take(UndoLimit).Reverse().ToArray();
+                undoStack.Clear();
+                foreach (var item in kept) undoStack.Push(item);
+            }
+            redoStack.Clear();
+            InvalidateCommands();
+        }
+
+        public async Task UndoManyAsync(int count)
+        {
+            for (var i = 0; i < count && undoStack.Count > 0; i++)
+                await UndoAsync();
+        }
+
+        public async Task RedoManyAsync(int count)
+        {
+            for (var i = 0; i < count && redoStack.Count > 0; i++)
+                await RedoAsync();
+        }
+
+        private async Task UndoAsync()
+        {
+            if (undoStack.Count == 0) return;
+            var target = undoStack.Pop();
+            redoStack.Push(new UndoEntry(target.Description, CreateUndoSnapshot()));
+            await RestoreUndoSnapshotAsync(target.Snapshot);
+        }
+
+        private async Task RedoAsync()
+        {
+            if (redoStack.Count == 0) return;
+            var target = redoStack.Pop();
+            undoStack.Push(new UndoEntry(target.Description, CreateUndoSnapshot()));
+            await RestoreUndoSnapshotAsync(target.Snapshot);
+        }
+
+        private string CreateUndoSnapshot()
+        {
+            SavePinsToSolutionState();
+            var envelope = new UndoSnapshot
+            {
+                State = JsonConvert.SerializeObject(state),
+                Pins = JsonConvert.SerializeObject(solutionState.Pins ?? new List<PinLocalItem>())
+            };
+            return JsonConvert.SerializeObject(envelope);
+        }
+
+        private async Task RestoreUndoSnapshotAsync(string snapshot)
+        {
+            if (string.IsNullOrWhiteSpace(snapshot)) return;
+            var envelope = JsonConvert.DeserializeObject<UndoSnapshot>(snapshot);
+            var restoredState = JsonConvert.DeserializeObject<DocumentSetsState>(envelope?.State ?? "");
+            if (restoredState == null) return;
+
+            isRestoringUndoState = true;
+            try
+            {
+                solutionState.Pins = JsonConvert.DeserializeObject<List<PinLocalItem>>(envelope.Pins ?? "[]") ?? new List<PinLocalItem>();
+                ApplyLoadedState(restoredState, preferredSetName: null, selectedNodePath: null);
+                SaveSolutionState();
+                await SaveAsync();
+            }
+            finally
+            {
+                isRestoringUndoState = false;
+                InvalidateCommands();
+            }
+        }
+
+        private void ClearUndoHistory()
+        {
+            undoStack.Clear();
+            redoStack.Clear();
+            InvalidateCommands();
+        }
+
+        private sealed class UndoEntry
+        {
+            public UndoEntry(string description, string snapshot)
+            {
+                Description = string.IsNullOrWhiteSpace(description) ? "Изменение" : description;
+                Snapshot = snapshot;
+            }
+
+            public string Description { get; }
+            public string Snapshot { get; }
+        }
+
+        private sealed class UndoSnapshot
+        {
+            public string State { get; set; }
+            public string Pins { get; set; }
         }
 
         public async Task SaveAsync()

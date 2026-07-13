@@ -171,6 +171,12 @@
     <EmbeddedResource Include="-Icons-\NavigateNext.png">
       <LogicalName>DocSets.Icons.NavigateNext.png</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Undo.png">
+      <LogicalName>DocSets.Icons.Undo.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Redo.png">
+      <LogicalName>DocSets.Icons.Redo.png</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\PinOverlay.png">
       <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
     </EmbeddedResource>

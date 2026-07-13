@@ -18,6 +18,8 @@ namespace DocSets
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
+        private readonly ToolStripSplitButton _undoButton = new ToolStripSplitButton();
+        private readonly ToolStripSplitButton _redoButton = new ToolStripSplitButton();
         private readonly ToolStripButton _classicActivationButton = new ToolStripButton("Classic");
         private readonly ToolStripButton _clickOpenActivationButton = new ToolStripButton("Click→Open");
         private readonly ToolStripButton _collapseAllButton = new ToolStripButton();
@@ -148,6 +150,8 @@ namespace DocSets
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
             _toolStrip.ImageScalingSize = new Size(IconProvider.IconSize, IconProvider.IconSize);
+            SetupUndoRedoButtons();
+            _toolStrip.Items.Add(new ToolStripSeparator());
             //AddButton("+Группа", _viewModel.AddSetCommand);
             //AddButton("Переим.", _viewModel.RenameSetCommand);
             //AddButton("-Группа", _viewModel.DeleteSetCommand);
@@ -923,6 +927,50 @@ namespace DocSets
             _clickOpenActivationButton.Checked = _treeActivationMode == TreeActivationMode.ClickOpenDoubleClickProperties;
         }
 
+        private void SetupUndoRedoButtons()
+        {
+            _undoButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _undoButton.Image = IconProvider.Get(AppIcon.Undo, IconProvider.IconSize);
+            _undoButton.ImageScaling = ToolStripItemImageScaling.None;
+            _undoButton.ToolTipText = "Отменить (Ctrl+Z)";
+            _undoButton.ButtonClick += (_, __) => Execute(_viewModel.UndoCommand, null);
+            _undoButton.DropDownOpening += (_, __) => FillUndoDropDown(_undoButton, _viewModel.UndoOperations, true);
+
+            _redoButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _redoButton.Image = IconProvider.Get(AppIcon.Redo, IconProvider.IconSize);
+            _redoButton.ImageScaling = ToolStripItemImageScaling.None;
+            _redoButton.ToolTipText = "Повторить (Ctrl+Y)";
+            _redoButton.ButtonClick += (_, __) => Execute(_viewModel.RedoCommand, null);
+            _redoButton.DropDownOpening += (_, __) => FillUndoDropDown(_redoButton, _viewModel.RedoOperations, false);
+
+            _toolStrip.Items.Add(_undoButton);
+            _toolStrip.Items.Add(_redoButton);
+        }
+
+        private void FillUndoDropDown(ToolStripSplitButton button, IReadOnlyList<string> operations, bool undo)
+        {
+            button.DropDownItems.Clear();
+            if (operations.Count == 0)
+            {
+                button.DropDownItems.Add(new ToolStripMenuItem("Нет операций") { Enabled = false });
+                return;
+            }
+
+            for (var i = 0; i < operations.Count; i++)
+            {
+                var count = i + 1;
+                var item = new ToolStripMenuItem(operations[i]);
+                item.ToolTipText = undo ? $"Отменить операций: {count}" : $"Повторить операций: {count}";
+                item.Click += async (_, __) =>
+                {
+                    if (undo) await _viewModel.UndoManyAsync(count);
+                    else await _viewModel.RedoManyAsync(count);
+                    RefreshAll();
+                };
+                button.DropDownItems.Add(item);
+            }
+        }
+
         private void AddFindButtons()
         {
             _findPreviousButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
@@ -1594,6 +1642,8 @@ namespace DocSets
             _propertiesSaveTimer.Tick += async (_, __) =>
             {
                 _propertiesSaveTimer.Stop();
+                var undoDescription = _propertiesPanel.GetPendingChangeDescription();
+                if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_propertiesPanel.ApplyToCurrentItem())
                 {
                     await _viewModel.SaveAsync();
@@ -1639,6 +1689,8 @@ namespace DocSets
             _propertiesPanel.Leave += async (_, __) =>
             {
                 _propertiesSaveTimer.Stop();
+                var undoDescription = _propertiesPanel.GetPendingChangeDescription();
+                if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_propertiesPanel.ApplyToCurrentItem())
                 {
                     await _viewModel.SaveAsync();
@@ -1879,9 +1931,16 @@ namespace DocSets
                 RefreshGroupsStrip();
             }
             finally { _refreshing = false; }
+            RefreshToolbarItems();
             RebuildTree();
             RefreshStatus();
             RestoreSplitterPosition();
+        }
+
+        private void RefreshToolbarItems()
+        {
+            _undoButton.Enabled = _viewModel.UndoCommand.CanExecute(null);
+            _redoButton.Enabled = _viewModel.RedoCommand.CanExecute(null);
         }
 
 
@@ -2167,6 +2226,7 @@ namespace DocSets
                 if (rootStructureChanged) RefreshGroupsStrip();
                 RebuildTree();
             }
+            RefreshToolbarItems();
         }
 
         private void RebuildTree()
@@ -2378,6 +2438,8 @@ namespace DocSets
         {
             if (_refreshing) return;
 
+            var pendingPropertyChange = _propertiesPanel.GetPendingChangeDescription();
+            if (pendingPropertyChange != null) _viewModel.CaptureUndoState(pendingPropertyChange);
             if (_propertiesPanel.ApplyToCurrentItem())
             {
                 _ = _viewModel.SaveAsync();
@@ -2767,6 +2829,19 @@ namespace DocSets
 
         private void Tree_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Control && e.KeyCode == Keys.Z)
+            {
+                Execute(_viewModel.UndoCommand, null);
+                e.Handled = true;
+                return;
+            }
+            if (e.Control && (e.KeyCode == Keys.Y || (e.Shift && e.KeyCode == Keys.Z)))
+            {
+                Execute(_viewModel.RedoCommand, null);
+                e.Handled = true;
+                return;
+            }
+
             if (_showSetsOverview)
             {
                 var item = GetCurrentItem();

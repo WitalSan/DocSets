@@ -26,6 +26,8 @@ namespace DocSets
         ExpandAll,
         NavigatePrevious,
         NavigateNext,
+        Undo,
+        Redo,
         PinOverlay
     }
 
