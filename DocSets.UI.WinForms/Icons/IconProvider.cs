@@ -21,6 +21,7 @@ namespace DocSets
         Copy,
         Paste,
         Find,
+        Sync,
         Properties,
         CollapseAll,
         ExpandAll,

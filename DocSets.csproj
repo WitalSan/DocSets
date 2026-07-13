@@ -83,6 +83,9 @@
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanel.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsWinFormsControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -159,6 +162,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\Find.png">
       <LogicalName>DocSets.Icons.Find.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\Sync.png">
+      <LogicalName>DocSets.Icons.Sync.png</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\Properties.png">
       <LogicalName>DocSets.Icons.Properties.png</LogicalName>

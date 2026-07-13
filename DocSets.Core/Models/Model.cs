@@ -46,6 +46,12 @@ namespace DocSets
         [JsonProperty("propertiesVisible")]
         public bool PropertiesVisible { get; set; } = true;
 
+        [JsonProperty("propertiesSectionOrder")]
+        public List<string> PropertiesSectionOrder { get; set; } = new List<string>();
+
+        [JsonProperty("expandedPropertiesSections")]
+        public List<string> ExpandedPropertiesSections { get; set; } = new List<string>();
+
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
 

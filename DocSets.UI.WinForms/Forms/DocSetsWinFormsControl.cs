@@ -37,9 +37,14 @@ namespace DocSets
         private OverflowNodeTextBox _nameNode;
         private readonly SplitContainer _contentSplit = new SplitContainer();
         private readonly BookmarkPropertiesPanel _propertiesPanel = new BookmarkPropertiesPanel();
+        private readonly BookmarkPropertiesPanelExperimental _experimentalPropertiesPanel = new BookmarkPropertiesPanelExperimental();
+        private readonly TabControl _propertiesTabs = new TabControl();
         private readonly System.Windows.Forms.Timer _propertiesSaveTimer = new System.Windows.Forms.Timer();
+        private readonly System.Windows.Forms.Timer _experimentalPropertiesSaveTimer = new System.Windows.Forms.Timer();
         private CancellationTokenSource _previewCancellation;
+        private CancellationTokenSource _experimentalPreviewCancellation;
         private readonly ToolStripButton _togglePropertiesButton = new ToolStripButton("Свойства");
+        private bool _disposingProperties;
         private readonly Label _statusLabel = new Label();
         private readonly TextBox _filterTextBox = new TextBox();
         private readonly HashSet<BookmarkColor> _filterColors = new HashSet<BookmarkColor>();
@@ -119,7 +124,11 @@ namespace DocSets
                 _viewModel.TreeChanged -= ViewModel_TreeChanged;
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Dispose();
-                _previewCancellation?.Dispose();
+                _experimentalPropertiesSaveTimer.Stop();
+                _experimentalPropertiesSaveTimer.Dispose();
+                _disposingProperties = true;
+                CancelPreview(ref _previewCancellation);
+                CancelPreview(ref _experimentalPreviewCancellation);
                 _consolasFont.Dispose();
 
                 foreach (var font in boldFonts.Values)
@@ -199,7 +208,15 @@ namespace DocSets
             _contentSplit.Panel1.Controls.Add(_tree);
 
             var propertiesHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(3) };
-            propertiesHost.Controls.Add(_propertiesPanel);
+            _propertiesTabs.Dock = DockStyle.Fill;
+            var classicPropertiesTab = new TabPage("Свойства-1");
+            var experimentalPropertiesTab = new TabPage("Свойства-2");
+            classicPropertiesTab.Controls.Add(_propertiesPanel);
+            // experimentalPropertiesTab.Controls.Add(_experimentalPropertiesPanel);
+            // _propertiesTabs.TabPages.Add(classicPropertiesTab);
+            // _propertiesTabs.TabPages.Add(experimentalPropertiesTab);
+            // propertiesHost.Controls.Add(_propertiesTabs);
+            propertiesHost.Controls.Add(_experimentalPropertiesPanel);
             _contentSplit.Panel2.Controls.Add(propertiesHost);
 
             _statusLabel.Dock = DockStyle.Fill;
@@ -1206,7 +1223,7 @@ namespace DocSets
             var item = new ToolStripMenuItem("Синхронизировать с текущей позицией")
             {
                 Tag = _viewModel.SyncWithCurrentPositionCommand,
-                Image = IconProvider.Get(AppIcon.Find, 16)
+                Image = IconProvider.Get(AppIcon.Sync, 16)
             };
 
             item.Click += async (_, __) =>
@@ -1688,11 +1705,17 @@ namespace DocSets
                 }
 
                 await _viewModel.SyncWithCurrentPositionAsync(current);
-                _propertiesPanel.LoadItem(current);
+                LoadPropertiesPanel(current);
                 RebuildTree();
                 RefreshStatus();
             };
-            _propertiesPanel.PreviewRequested += async (_, __) => await RefreshLivePreviewAsync();
+            _propertiesPanel.PreviewRequested += async (_, __) =>
+            {
+                if (_propertiesVisible && _propertiesTabs.SelectedTab?.Controls.Contains(_propertiesPanel) == true)
+                {
+                    await RefreshLivePreviewAsync();
+                }
+            };
             _propertiesPanel.SymbolLinkClicked += async symbol =>
             {
                 var current = _propertiesPanel.CurrentItem ?? GetCurrentItem();
@@ -1709,6 +1732,104 @@ namespace DocSets
                     RebuildTree();
                     RefreshStatus();
                 }
+            };
+
+            _experimentalPropertiesSaveTimer.Interval = 500;
+            _experimentalPropertiesSaveTimer.Tick += async (_, __) =>
+            {
+                _experimentalPropertiesSaveTimer.Stop();
+                var undoDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
+                if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
+                if (_experimentalPropertiesPanel.ApplyToCurrentItem())
+                {
+                    await _viewModel.SaveAsync();
+                    RebuildTree();
+                    RefreshStatus();
+                }
+            };
+            _experimentalPropertiesPanel.ItemChanged += (_, __) =>
+            {
+                _experimentalPropertiesSaveTimer.Stop();
+                _experimentalPropertiesSaveTimer.Start();
+            };
+            _experimentalPropertiesPanel.ColorChanged += async (_, __) =>
+            {
+                var targets = GetSelectedPropertyTargets(GetCurrentItem());
+                await _viewModel.SetColorAsync(targets, _experimentalPropertiesPanel.SelectedColor);
+                _tree.Invalidate();
+                LoadPropertiesPanel(GetCurrentItem());
+                RefreshStatus();
+            };
+            _experimentalPropertiesPanel.PinChanged += async (_, __) =>
+            {
+                var current = GetCurrentItem();
+                var targets = GetSelectedPropertyTargets(current);
+                if (targets.Count == 0) return;
+
+                await _viewModel.SetPinnedAsync(targets, _experimentalPropertiesPanel.RequestedPinState);
+                RebuildTree();
+                LoadPropertiesPanel(current);
+                RefreshStatus();
+            };
+            _experimentalPropertiesPanel.RefreshCodeRequested += async (_, __) =>
+            {
+                var current = _experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem();
+                if (current == null) return;
+
+                await _viewModel.SyncWithCurrentPositionAsync(current);
+                LoadPropertiesPanel(current);
+                RebuildTree();
+                RefreshStatus();
+            };
+            _experimentalPropertiesPanel.PreviewRequested += async (_, __) =>
+            {
+                if (_propertiesVisible && _experimentalPropertiesPanel.Visible)
+                {
+                    await RefreshExperimentalLivePreviewAsync();
+                }
+            };
+            _experimentalPropertiesPanel.SymbolLinkClicked += async symbol =>
+            {
+                var current = _experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem();
+                await _viewModel.OpenSymbolAsync(current, symbol);
+            };
+            _experimentalPropertiesPanel.Leave += async (_, __) =>
+            {
+                _experimentalPropertiesSaveTimer.Stop();
+                var undoDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
+                if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
+                if (_experimentalPropertiesPanel.ApplyToCurrentItem())
+                {
+                    await _viewModel.SaveAsync();
+                    RebuildTree();
+                    RefreshStatus();
+                }
+            };
+            _propertiesTabs.SelectedIndexChanged += (_, __) =>
+            {
+                _propertiesSaveTimer.Stop();
+                _experimentalPropertiesSaveTimer.Stop();
+
+                var changed = false;
+                var classicDescription = _propertiesPanel.GetPendingChangeDescription();
+                if (classicDescription != null) _viewModel.CaptureUndoState(classicDescription);
+                changed |= _propertiesPanel.ApplyToCurrentItem();
+
+                var experimentalDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
+                if (experimentalDescription != null) _viewModel.CaptureUndoState(experimentalDescription);
+                changed |= _experimentalPropertiesPanel.ApplyToCurrentItem();
+                if (changed)
+                {
+                    _ = _viewModel.SaveAsync();
+                    RebuildTree();
+                    RefreshStatus();
+                }
+
+                LoadPropertiesPanel(GetCurrentItem());
+            };
+            _experimentalPropertiesPanel.LayoutStateChanged += (_, __) =>
+            {
+                if (_localStateRestored) SaveLocalState();
             };
 
             _nodeMenu.Opening += (_, e) =>
@@ -1835,6 +1956,9 @@ namespace DocSets
             _propertiesVisible = local.PropertiesVisible;
             _contentSplit.Panel2Collapsed = !_propertiesVisible;
             _togglePropertiesButton.Checked = _propertiesVisible;
+            _experimentalPropertiesPanel.ApplyLayoutState(
+                local.PropertiesSectionOrder,
+                local.ExpandedPropertiesSections);
 
             var byId = EnumerateItems(_viewModel.Root.Children).Where(x => !string.IsNullOrWhiteSpace(x.Id))
                 .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
@@ -1910,6 +2034,8 @@ namespace DocSets
             local.FilterText = _filterTextBox.Text ?? string.Empty;
             local.FilterColors = _filterColors.ToList();
             local.PropertiesVisible = _propertiesVisible;
+            local.PropertiesSectionOrder = _experimentalPropertiesPanel.SectionOrder.ToList();
+            local.ExpandedPropertiesSections = _experimentalPropertiesPanel.ExpandedSections.ToList();
             local.Views = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in _collapsedItemsByView)
             {
@@ -2452,7 +2578,11 @@ namespace DocSets
 
             var pendingPropertyChange = _propertiesPanel.GetPendingChangeDescription();
             if (pendingPropertyChange != null) _viewModel.CaptureUndoState(pendingPropertyChange);
-            if (_propertiesPanel.ApplyToCurrentItem())
+            var propertiesChanged = _propertiesPanel.ApplyToCurrentItem();
+            var experimentalPendingPropertyChange = _experimentalPropertiesPanel.GetPendingChangeDescription();
+            if (experimentalPendingPropertyChange != null) _viewModel.CaptureUndoState(experimentalPendingPropertyChange);
+            propertiesChanged |= _experimentalPropertiesPanel.ApplyToCurrentItem();
+            if (propertiesChanged)
             {
                 _ = _viewModel.SaveAsync();
             }
@@ -2483,7 +2613,9 @@ namespace DocSets
         private void LoadPropertiesPanel(DocumentItem item)
         {
             _propertiesSaveTimer.Stop();
-            _previewCancellation?.Cancel();
+            _experimentalPropertiesSaveTimer.Stop();
+            CancelPreview(ref _previewCancellation);
+            CancelPreview(ref _experimentalPreviewCancellation);
             var selectedCount = _tree.SelectedNodes.Count;
             var targets = GetSelectedPropertyTargets(item);
             var target = _viewModel.ResolvePin(item) ?? targets.FirstOrDefault();
@@ -2503,15 +2635,22 @@ namespace DocSets
                 anyPinned,
                 commonColor,
                 canPin);
+            _experimentalPropertiesPanel.LoadSelection(
+                target,
+                selectedCount > 1,
+                allPinned,
+                anyPinned,
+                commonColor,
+                canPin);
         }
 
         private async Task RefreshLivePreviewAsync()
         {
+            if (_disposingProperties) return;
             var current = _propertiesPanel.CurrentItem;
-            _previewCancellation?.Cancel();
-            _previewCancellation?.Dispose();
-            _previewCancellation = new CancellationTokenSource();
-            var cancellation = _previewCancellation;
+            CancelPreview(ref _previewCancellation);
+            var cancellation = new CancellationTokenSource();
+            _previewCancellation = cancellation;
             _propertiesPanel.ShowLivePreviewLoading();
 
             try
@@ -2523,6 +2662,58 @@ namespace DocSets
                 }
             }
             catch (OperationCanceledException)
+            {
+            }
+            catch (ObjectDisposedException) when (_disposingProperties)
+            {
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _previewCancellation, null, cancellation);
+                cancellation.Dispose();
+            }
+        }
+
+        private async Task RefreshExperimentalLivePreviewAsync()
+        {
+            if (_disposingProperties) return;
+            var current = _experimentalPropertiesPanel.CurrentItem;
+            CancelPreview(ref _experimentalPreviewCancellation);
+            var cancellation = new CancellationTokenSource();
+            _experimentalPreviewCancellation = cancellation;
+            _experimentalPropertiesPanel.ShowLivePreviewLoading();
+
+            try
+            {
+                var preview = await _viewModel.GetLivePreviewAsync(current, cancellation.Token);
+                if (!cancellation.IsCancellationRequested && ReferenceEquals(current, _experimentalPropertiesPanel.CurrentItem))
+                {
+                    _experimentalPropertiesPanel.ShowLivePreview(preview);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (ObjectDisposedException) when (_disposingProperties)
+            {
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _experimentalPreviewCancellation, null, cancellation);
+                cancellation.Dispose();
+            }
+        }
+
+        private static void CancelPreview(ref CancellationTokenSource source)
+        {
+            var cancellation = Interlocked.Exchange(ref source, null);
+            if (cancellation == null) return;
+
+            try
+            {
+                cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
             {
             }
         }
