@@ -1656,22 +1656,24 @@ namespace DocSets
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Start();
             };
-            _propertiesPanel.PinChanged += (_, __) =>
+            _propertiesPanel.ColorChanged += async (_, __) =>
+            {
+                var targets = GetSelectedPropertyTargets(GetCurrentItem());
+                await _viewModel.SetColorAsync(targets, _propertiesPanel.SelectedColor);
+                _tree.Invalidate();
+                LoadPropertiesPanel(GetCurrentItem());
+                RefreshStatus();
+            };
+            _propertiesPanel.PinChanged += async (_, __) =>
             {
                 var current = GetCurrentItem();
-                var target = _viewModel.ResolvePin(current);
-                if (target == null)
-                {
-                    return;
-                }
+                var targets = GetSelectedPropertyTargets(current);
+                if (targets.Count == 0) return;
 
-                if (_viewModel.IsPinned(target) != _propertiesPanel.PinChecked)
-                {
-                    Execute(_viewModel.TogglePinCommand, target);
-                    RebuildTree();
-                    LoadPropertiesPanel(current);
-                    RefreshStatus();
-                }
+                await _viewModel.SetPinnedAsync(targets, _propertiesPanel.RequestedPinState);
+                RebuildTree();
+                LoadPropertiesPanel(current);
+                RefreshStatus();
             };
             _propertiesPanel.RefreshCodeRequested += async (_, __) =>
             {
@@ -2471,8 +2473,43 @@ namespace DocSets
         private void LoadPropertiesPanel(DocumentItem item)
         {
             _propertiesSaveTimer.Stop();
-            var target = _viewModel.ResolvePin(item);
-            _propertiesPanel.LoadItem(target, target != null && _viewModel.IsPinned(target));
+            var selectedCount = _tree.SelectedNodes.Count;
+            var targets = GetSelectedPropertyTargets(item);
+            var target = _viewModel.ResolvePin(item) ?? targets.FirstOrDefault();
+            var allPinned = targets.Count > 0 && targets.All(_viewModel.IsPinned);
+            var anyPinned = targets.Any(_viewModel.IsPinned);
+            var canPin = targets.Count > 0 && targets.All(_viewModel.CanSetPinned);
+            BookmarkColor? commonColor = null;
+            if (targets.Count > 0 && targets.All(candidate => candidate.Color == targets[0].Color))
+            {
+                commonColor = targets[0].Color;
+            }
+
+            _propertiesPanel.LoadSelection(
+                target,
+                selectedCount > 1,
+                allPinned,
+                anyPinned,
+                commonColor,
+                canPin);
+        }
+
+        private List<DocumentItem> GetSelectedPropertyTargets(DocumentItem fallback)
+        {
+            var selected = _tree.SelectedNodes
+                .Select(node => (node.Tag as BookmarkTreeNode)?.Item)
+                .Where(item => item != null)
+                .ToList();
+            if (selected.Count == 0 && fallback != null)
+            {
+                selected.Add(fallback);
+            }
+
+            return selected
+                .Select(_viewModel.ResolvePin)
+                .Where(item => item != null)
+                .Distinct()
+                .ToList();
         }
 
         private void GoToPinOriginal(DocumentItem pin)

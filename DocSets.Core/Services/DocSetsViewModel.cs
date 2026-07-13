@@ -1776,6 +1776,54 @@ namespace DocSets
             return pinService.IsPinned(item);
         }
 
+        public bool CanSetPinned(DocumentItem item)
+        {
+            return pinService.CanToggle(ResolvePin(item));
+        }
+
+        public async Task SetColorAsync(IEnumerable<DocumentItem> items, BookmarkColor color)
+        {
+            var targets = (items ?? Enumerable.Empty<DocumentItem>())
+                .Select(ResolvePin)
+                .Where(item => item != null)
+                .Distinct()
+                .Where(item => item.Color != color)
+                .ToList();
+            if (targets.Count == 0) return;
+
+            await ExecuteMutationAsync(nameof(SetColorAsync), () =>
+            {
+                foreach (var target in targets)
+                {
+                    target.Color = color;
+                }
+            });
+            InvalidateCommands();
+        }
+
+        public async Task SetPinnedAsync(IEnumerable<DocumentItem> items, bool isPinned)
+        {
+            var targets = (items ?? Enumerable.Empty<DocumentItem>())
+                .Select(ResolvePin)
+                .Where(item => item != null && pinService.CanToggle(item))
+                .Distinct()
+                .Where(item => pinService.IsPinned(item) != isPinned)
+                .ToList();
+            if (targets.Count == 0) return;
+
+            await ExecuteMutationAsync(nameof(SetPinnedAsync), () =>
+            {
+                foreach (var target in targets)
+                {
+                    pinService.Toggle(target);
+                }
+
+                SaveSolutionState();
+                OnPropertyChanged(nameof(CurrentNodes));
+            });
+            InvalidateCommands();
+        }
+
         private bool CanTogglePin(DocumentItem item)
         {
             return pinService.CanToggle(item);

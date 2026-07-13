@@ -28,10 +28,13 @@ namespace DocSets
         private readonly Dictionary<BookmarkColor, Button> colorButtons = new Dictionary<BookmarkColor, Button>();
         private readonly CheckBox pinCheckBox = new CheckBox();
         private bool loading;
+        private bool multipleSelection;
+        private bool loadedAllPinned;
         private DocumentItem item;
         private BookmarkColor selectedColor;
 
         public event EventHandler ItemChanged;
+        public event EventHandler ColorChanged;
         public event EventHandler RefreshCodeRequested;
         public event EventHandler PinChanged;
 
@@ -45,14 +48,28 @@ namespace DocSets
         }
 
         public DocumentItem CurrentItem => item;
-        public bool PinChecked => pinCheckBox.Checked;
+        public bool RequestedPinState => !loadedAllPinned;
+        public BookmarkColor SelectedColor => selectedColor;
 
         public void LoadItem(DocumentItem value, bool isPinned = false)
+        {
+            LoadSelection(value, false, isPinned, isPinned, value?.Color, value != null);
+        }
+
+        public void LoadSelection(
+            DocumentItem value,
+            bool multiple,
+            bool allPinned,
+            bool anyPinned,
+            BookmarkColor? commonColor,
+            bool canPin)
         {
             loading = true;
             try
             {
                 item = value;
+                multipleSelection = multiple;
+                loadedAllPinned = value != null && allPinned;
                 Enabled = value != null;
                 nameTextBox.Text = value?.Name ?? string.Empty;
                 folderCheckBox.Checked = value?.NodeType == NodeType.Folder;
@@ -67,9 +84,22 @@ namespace DocSets
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
                 commentTextBox.Text = value?.Comment ?? string.Empty;
                 UpdateCodePreview(value);
-                selectedColor = value?.Color ?? BookmarkColor.None;
-                pinCheckBox.Checked = value != null && isPinned;
+                selectedColor = commonColor ?? BookmarkColor.None;
+                pinCheckBox.ThreeState = multiple;
+                pinCheckBox.CheckState = value == null
+                    ? CheckState.Unchecked
+                    : allPinned
+                        ? CheckState.Checked
+                        : anyPinned && multiple
+                            ? CheckState.Indeterminate
+                            : CheckState.Unchecked;
+                pinCheckBox.Enabled = value != null && canPin;
+                tabs.Enabled = value != null && !multiple;
                 UpdateColorButtons();
+                if (multiple && !commonColor.HasValue)
+                {
+                    ClearColorSelection();
+                }
                 UpdateEnabledState();
             }
             finally
@@ -81,7 +111,7 @@ namespace DocSets
 
         public string GetPendingChangeDescription()
         {
-            if (loading || item == null) return null;
+            if (loading || item == null || multipleSelection) return null;
 
             var changes = new List<string>();
             if (!string.Equals(item.Name ?? string.Empty, nameTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal)) changes.Add("имя");
@@ -102,7 +132,7 @@ namespace DocSets
 
         public bool ApplyToCurrentItem()
         {
-            if (loading || item == null)
+            if (loading || item == null || multipleSelection)
             {
                 return false;
             }
@@ -349,7 +379,7 @@ namespace DocSets
             {
                 selectedColor = color;
                 UpdateColorButtons();
-                if (!loading) ItemChanged?.Invoke(this, EventArgs.Empty);
+                if (!loading) ColorChanged?.Invoke(this, EventArgs.Empty);
             };
             new ToolTip().SetToolTip(button, tooltip);
             colorButtons[color] = button;
@@ -362,6 +392,15 @@ namespace DocSets
             {
                 pair.Value.FlatAppearance.BorderSize = pair.Key == selectedColor ? 3 : 1;
                 pair.Value.FlatAppearance.BorderColor = pair.Key == selectedColor ? SystemColors.Highlight : SystemColors.ControlDark;
+            }
+        }
+
+        private void ClearColorSelection()
+        {
+            foreach (var button in colorButtons.Values)
+            {
+                button.FlatAppearance.BorderSize = 1;
+                button.FlatAppearance.BorderColor = SystemColors.ControlDark;
             }
         }
 
