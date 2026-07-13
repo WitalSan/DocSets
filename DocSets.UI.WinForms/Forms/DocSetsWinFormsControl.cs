@@ -2288,7 +2288,7 @@ namespace DocSets
                 _refreshing = wasRefreshing;
             }
             RestoreSelectionForView(expansionOwner);
-            LoadPropertiesPanel(_showSetsOverview ? null : _viewModel.SelectedNode);
+            LoadPropertiesPanel(GetCurrentItem());
         }
 
         internal System.Threading.Tasks.Task FindBookmarksFromEditorAsync()
