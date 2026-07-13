@@ -306,6 +306,11 @@ namespace DocSets
                 cancellationToken);
         }
 
+        public Task<bool> OpenSymbolAsync(string symbol, string project)
+        {
+            return roslyn.TryOpenSymbolAsync(symbol, project);
+        }
+
         private async Task<bool> EnsureInitializedAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();

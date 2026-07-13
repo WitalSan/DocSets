@@ -264,9 +264,27 @@ namespace DocSets
             return context;
         }
 
-        public async Task<bool> TryOpenBookmarkBySymbolAsync(DocumentItem item)
+        public Task<bool> TryOpenBookmarkBySymbolAsync(DocumentItem item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.Symbol))
+            {
+                return Task.FromResult(false);
+            }
+
+            return TryOpenStoredSymbolAsync(item.Symbol, item.Project, item.EditorState);
+        }
+
+        public Task<bool> TryOpenSymbolAsync(string symbol, string project)
+        {
+            return TryOpenStoredSymbolAsync(symbol, project, null);
+        }
+
+        private async Task<bool> TryOpenStoredSymbolAsync(
+            string storedSymbol,
+            string projectName,
+            EditorState state)
+        {
+            if (string.IsNullOrWhiteSpace(storedSymbol))
             {
                 return false;
             }
@@ -282,9 +300,9 @@ namespace DocSets
                 }
 
                 var projects = workspace.CurrentSolution.Projects;
-                if (!string.IsNullOrWhiteSpace(item.Project))
+                if (!string.IsNullOrWhiteSpace(projectName))
                 {
-                    projects = projects.Where(p => string.Equals(p.Name, item.Project, StringComparison.OrdinalIgnoreCase));
+                    projects = projects.Where(p => string.Equals(p.Name, projectName, StringComparison.OrdinalIgnoreCase));
                 }
 
                 foreach (var project in projects)
@@ -301,7 +319,11 @@ namespace DocSets
                         var match = root.DescendantNodesAndSelf()
                             .Select(node => GetDeclaredSymbolForNode(node, semanticModel))
                             .Where(symbol => symbol != null)
-                            .FirstOrDefault(symbol => IsSameStoredSymbol(symbol, item.Symbol));
+                            .FirstOrDefault(symbol => IsSameStoredSymbol(symbol, storedSymbol))
+                            ?? root.DescendantNodesAndSelf()
+                                .Select(node => GetDeclaredSymbolForNode(node, semanticModel))
+                                .OfType<INamespaceSymbol>()
+                                .FirstOrDefault(symbol => IsNamespaceWithin(symbol, storedSymbol));
 
                         var location = match?.Locations.FirstOrDefault(x => x.IsInSource);
                         var sourcePath = location?.SourceTree?.FilePath;
@@ -313,7 +335,10 @@ namespace DocSets
                         var lineSpan = location.GetLineSpan();
                         var anchorLine = lineSpan.StartLinePosition.Line + 1;
                         await OpenFileAtAsync(sourcePath, anchorLine, lineSpan.StartLinePosition.Character + 1);
-                        await editorState.RestoreAsync(item.EditorState, anchorLine);
+                        if (state != null)
+                        {
+                            await editorState.RestoreAsync(state, anchorLine);
+                        }
                         return true;
                     }
                 }
@@ -538,6 +563,10 @@ namespace DocSets
                     return semanticModel.GetDeclaredSymbol(eventDeclaration);
                 case VariableDeclaratorSyntax variable when variable.Parent?.Parent is FieldDeclarationSyntax:
                     return semanticModel.GetDeclaredSymbol(variable);
+                case NamespaceDeclarationSyntax namespaceDeclaration:
+                    return semanticModel.GetDeclaredSymbol(namespaceDeclaration);
+                case FileScopedNamespaceDeclarationSyntax fileScopedNamespace:
+                    return semanticModel.GetDeclaredSymbol(fileScopedNamespace);
                 case ClassDeclarationSyntax classDeclaration:
                     return semanticModel.GetDeclaredSymbol(classDeclaration);
                 case StructDeclarationSyntax structDeclaration:
@@ -562,6 +591,17 @@ namespace DocSets
 
             return string.Equals(symbol.ToDisplayString(StoredSymbolFormat), storedSymbol, StringComparison.Ordinal)
                 || string.Equals(symbol.ToDisplayString(LegacyStoredSymbolFormat), storedSymbol, StringComparison.Ordinal);
+        }
+
+        private static bool IsNamespaceWithin(INamespaceSymbol symbol, string storedSymbol)
+        {
+            if (symbol == null || string.IsNullOrWhiteSpace(storedSymbol))
+            {
+                return false;
+            }
+
+            var fullName = symbol.ToDisplayString();
+            return fullName.StartsWith(storedSymbol + ".", StringComparison.Ordinal);
         }
 
         private static string CreateDisplayName(ISymbol symbol)

@@ -1693,6 +1693,11 @@ namespace DocSets
                 RefreshStatus();
             };
             _propertiesPanel.PreviewRequested += async (_, __) => await RefreshLivePreviewAsync();
+            _propertiesPanel.SymbolLinkClicked += async symbol =>
+            {
+                var current = _propertiesPanel.CurrentItem ?? GetCurrentItem();
+                await _viewModel.OpenSymbolAsync(current, symbol);
+            };
             _propertiesPanel.Leave += async (_, __) =>
             {
                 _propertiesSaveTimer.Stop();

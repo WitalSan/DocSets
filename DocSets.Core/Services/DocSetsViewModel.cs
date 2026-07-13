@@ -1786,6 +1786,12 @@ namespace DocSets
             return store.GetLivePreviewAsync(ResolvePin(item), cancellationToken);
         }
 
+        public Task<bool> OpenSymbolAsync(DocumentItem item, string symbol)
+        {
+            item = ResolvePin(item);
+            return store.OpenSymbolAsync(symbol, item?.Project);
+        }
+
         public async Task SetColorAsync(IEnumerable<DocumentItem> items, BookmarkColor color)
         {
             var targets = (items ?? Enumerable.Empty<DocumentItem>())

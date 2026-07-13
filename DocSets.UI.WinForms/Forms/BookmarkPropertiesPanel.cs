@@ -21,7 +21,7 @@ namespace DocSets
         private readonly TextBox commentTextBox = new TextBox();
         private readonly RichTextBox codeTextBox = new RichTextBox();
         private readonly RichTextBox livePreviewTextBox = new RichTextBox();
-        private readonly Label codeSymbolLabel = new Label();
+        private readonly LinkLabel codeSymbolLabel = new LinkLabel();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly TabControl tabs = new TabControl();
@@ -40,6 +40,7 @@ namespace DocSets
         public event EventHandler RefreshCodeRequested;
         public event EventHandler PreviewRequested;
         public event EventHandler PinChanged;
+        public event Action<string> SymbolLinkClicked;
 
         public BookmarkPropertiesPanel()
         {
@@ -97,6 +98,7 @@ namespace DocSets
                             ? CheckState.Indeterminate
                             : CheckState.Unchecked;
                 pinCheckBox.Enabled = value != null && canPin;
+                codeSymbolLabel.Enabled = value != null && !multiple;
                 tabs.Enabled = value != null && !multiple;
                 UpdateColorButtons();
                 if (multiple && !commonColor.HasValue)
@@ -167,10 +169,11 @@ namespace DocSets
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 2,
+                RowCount = 3,
                 Padding = new Padding(3)
             };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             Controls.Add(root);
@@ -184,6 +187,24 @@ namespace DocSets
             colorRow.Controls.Add(pinCheckBox);
             root.Controls.Add(colorRow, 0, 0);
 
+            codeSymbolLabel.AutoSize = true;
+            codeSymbolLabel.Dock = DockStyle.Fill;
+            codeSymbolLabel.Font = new Font("Consolas", 10F, FontStyle.Bold);
+            codeSymbolLabel.LinkColor = Color.FromArgb(86, 156, 214);
+            codeSymbolLabel.ActiveLinkColor = Color.FromArgb(220, 220, 170);
+            codeSymbolLabel.VisitedLinkColor = codeSymbolLabel.LinkColor;
+            codeSymbolLabel.LinkBehavior = LinkBehavior.HoverUnderline;
+            codeSymbolLabel.Padding = new Padding(3, 3, 3, 5);
+            codeSymbolLabel.AutoEllipsis = true;
+            codeSymbolLabel.LinkClicked += (_, e) =>
+            {
+                if (e.Link?.LinkData is string symbol)
+                {
+                    SymbolLinkClicked?.Invoke(symbol);
+                }
+            };
+            root.Controls.Add(codeSymbolLabel, 0, 1);
+
             tabs.Dock = DockStyle.Fill;
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.DrawItem += DrawTab;
@@ -196,7 +217,7 @@ namespace DocSets
             tabs.TabPages.Add(previewTab);
             tabs.TabPages.Add(propertiesTab);
             tabs.SelectedIndexChanged += (_, __) => RequestPreviewIfVisible();
-            root.Controls.Add(tabs, 0, 1);
+            root.Controls.Add(tabs, 0, 2);
 
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Multiline = true;
@@ -205,19 +226,10 @@ namespace DocSets
             commentTextBox.ScrollBars = ScrollBars.Vertical;
             commentTab.Controls.Add(commentTextBox);
 
-            var codeRoot = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
-            codeRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var codeRoot = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
             codeRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             codeRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             codeTab.Controls.Add(codeRoot);
-
-            codeSymbolLabel.AutoSize = true;
-            codeSymbolLabel.Dock = DockStyle.Fill;
-            codeSymbolLabel.Font = new Font("Consolas", 10F, FontStyle.Bold);
-            codeSymbolLabel.ForeColor = Color.FromArgb(86, 156, 214);
-            codeSymbolLabel.Padding = new Padding(3, 5, 3, 3);
-            codeSymbolLabel.AutoEllipsis = true;
-            codeRoot.Controls.Add(codeSymbolLabel, 0, 0);
 
             var codeButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 2, 0, 2) };
             copyCodeButton.Text = "Копировать";
@@ -234,7 +246,7 @@ namespace DocSets
             refreshCodeButton.Click += (_, __) => RefreshCodeRequested?.Invoke(this, EventArgs.Empty);
             codeButtons.Controls.Add(copyCodeButton);
             codeButtons.Controls.Add(refreshCodeButton);
-            codeRoot.Controls.Add(codeButtons, 0, 1);
+            codeRoot.Controls.Add(codeButtons, 0, 0);
 
             codeTextBox.Dock = DockStyle.Fill;
             codeTextBox.ReadOnly = true;
@@ -243,7 +255,7 @@ namespace DocSets
             codeTextBox.HideSelection = false;
             codeTextBox.ScrollBars = RichTextBoxScrollBars.Both;
             codeTextBox.Font = new Font("Consolas", 9F);
-            codeRoot.Controls.Add(codeTextBox, 0, 2);
+            codeRoot.Controls.Add(codeTextBox, 0, 1);
 
             livePreviewTextBox.Dock = DockStyle.Fill;
             livePreviewTextBox.ReadOnly = true;
@@ -333,7 +345,7 @@ namespace DocSets
                 ? state.SelectedText ?? string.Empty
                 : state?.CodePreview ?? state?.SelectedText ?? string.Empty;
             var path = value?.Path ?? string.Empty;
-            codeSymbolLabel.Text = FormatCodeSymbol(value);
+            UpdateCodeSymbolLinks(value);
             codeSymbolLabel.Visible = value != null;
             CodePreviewHighlighter.Apply(codeTextBox, code, path);
             copyCodeButton.Enabled = !string.IsNullOrEmpty(code);
@@ -358,6 +370,28 @@ namespace DocSets
             }
 
             return (value.Symbol ?? string.Empty);
+        }
+
+        private void UpdateCodeSymbolLinks(DocumentItem value)
+        {
+            var text = FormatCodeSymbol(value);
+            codeSymbolLabel.Links.Clear();
+            if (value == null || value.Type == BookmarkType.File || string.IsNullOrWhiteSpace(value.Symbol))
+            {
+                codeSymbolLabel.Text = text;
+                return;
+            }
+
+            var parts = value.Symbol.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
+            codeSymbolLabel.Text = string.Join(".", parts);
+            var displayOffset = 0;
+            var symbolParts = new List<string>();
+            foreach (var part in parts)
+            {
+                symbolParts.Add(part);
+                codeSymbolLabel.Links.Add(displayOffset, part.Length, string.Join(".", symbolParts));
+                displayOffset += part.Length + 1;
+            }
         }
 
         private Control CreateDetailsLayout()
