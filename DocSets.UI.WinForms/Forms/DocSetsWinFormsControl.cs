@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Menu;
 using WpfCommand = System.Windows.Input.ICommand;
@@ -35,7 +37,8 @@ namespace DocSets
         private OverflowNodeTextBox _nameNode;
         private readonly SplitContainer _contentSplit = new SplitContainer();
         private readonly BookmarkPropertiesPanel _propertiesPanel = new BookmarkPropertiesPanel();
-        private readonly Timer _propertiesSaveTimer = new Timer();
+        private readonly System.Windows.Forms.Timer _propertiesSaveTimer = new System.Windows.Forms.Timer();
+        private CancellationTokenSource _previewCancellation;
         private readonly ToolStripButton _togglePropertiesButton = new ToolStripButton("Свойства");
         private readonly Label _statusLabel = new Label();
         private readonly TextBox _filterTextBox = new TextBox();
@@ -116,6 +119,7 @@ namespace DocSets
                 _viewModel.TreeChanged -= ViewModel_TreeChanged;
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Dispose();
+                _previewCancellation?.Dispose();
                 _consolasFont.Dispose();
 
                 foreach (var font in boldFonts.Values)
@@ -1688,6 +1692,7 @@ namespace DocSets
                 RebuildTree();
                 RefreshStatus();
             };
+            _propertiesPanel.PreviewRequested += async (_, __) => await RefreshLivePreviewAsync();
             _propertiesPanel.Leave += async (_, __) =>
             {
                 _propertiesSaveTimer.Stop();
@@ -2473,6 +2478,7 @@ namespace DocSets
         private void LoadPropertiesPanel(DocumentItem item)
         {
             _propertiesSaveTimer.Stop();
+            _previewCancellation?.Cancel();
             var selectedCount = _tree.SelectedNodes.Count;
             var targets = GetSelectedPropertyTargets(item);
             var target = _viewModel.ResolvePin(item) ?? targets.FirstOrDefault();
@@ -2492,6 +2498,28 @@ namespace DocSets
                 anyPinned,
                 commonColor,
                 canPin);
+        }
+
+        private async Task RefreshLivePreviewAsync()
+        {
+            var current = _propertiesPanel.CurrentItem;
+            _previewCancellation?.Cancel();
+            _previewCancellation?.Dispose();
+            _previewCancellation = new CancellationTokenSource();
+            var cancellation = _previewCancellation;
+            _propertiesPanel.ShowLivePreviewLoading();
+
+            try
+            {
+                var preview = await _viewModel.GetLivePreviewAsync(current, cancellation.Token);
+                if (!cancellation.IsCancellationRequested && ReferenceEquals(current, _propertiesPanel.CurrentItem))
+                {
+                    _propertiesPanel.ShowLivePreview(preview);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
 
         private List<DocumentItem> GetSelectedPropertyTargets(DocumentItem fallback)

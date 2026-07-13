@@ -287,6 +287,25 @@ namespace DocSets
             await roslyn.RestoreEditorStateAsync(item, Math.Max(1, item.Line));
         }
 
+        public async Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
+        {
+            if (item == null || item.NodeType == NodeType.Folder || string.IsNullOrWhiteSpace(item.Path))
+            {
+                return string.Empty;
+            }
+
+            if (!await EnsureInitializedAsync())
+            {
+                return string.Empty;
+            }
+
+            return await roslyn.GetLivePreviewAsync(
+                ToFullPath(item.Path),
+                Math.Max(1, item.Line),
+                Math.Max(1, item.Column),
+                cancellationToken);
+        }
+
         private async Task<bool> EnsureInitializedAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();

@@ -8,6 +8,7 @@ using Microsoft.VisualStudio.Shell;
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DocSets
@@ -338,6 +339,50 @@ namespace DocSets
             return editorState.RestoreAsync(item?.EditorState, anchorLine);
         }
 
+        public async Task<string> GetLivePreviewAsync(
+            string fullPath,
+            int line,
+            int column,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var workspace = await GetWorkspaceAsync();
+                var document = FindDocument(workspace, fullPath);
+                if (document != null)
+                {
+                    var text = await document.GetTextAsync(cancellationToken);
+                    var declarationStartLine = Math.Max(1, line);
+                    var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
+                    var root = await document.GetSyntaxRootAsync(cancellationToken);
+                    if (semanticModel != null && root != null)
+                    {
+                        var position = ToTextPosition(text, line, column);
+                        var symbol = GetNearestDeclaredSymbol(root, semanticModel, position);
+                        var syntaxReference = symbol?.DeclaringSyntaxReferences.FirstOrDefault();
+                        if (syntaxReference != null)
+                        {
+                            var declaration = await syntaxReference.GetSyntaxAsync(cancellationToken);
+                            declarationStartLine = declaration.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                        }
+                    }
+
+                    var previewStartLine = GetAttachedCommentStartLine(text, declarationStartLine);
+                    return GetLineRangeText(text, previewStartLine, declarationStartLine + 9);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+            }
+
+            return await ReadFilePreviewAsync(fullPath, line, cancellationToken);
+        }
+
         private async Task<VisualStudioWorkspace> GetWorkspaceAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
@@ -368,6 +413,92 @@ namespace DocSets
             var line = text.Lines[lineIndex];
             var columnIndex = Math.Max(0, Math.Min(Math.Max(0, line.Span.Length), oneBasedColumn - 1));
             return line.Start + columnIndex;
+        }
+
+        private static string GetLineRangeText(SourceText text, int oneBasedStartLine, int oneBasedEndLine)
+        {
+            if (text == null || text.Lines.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var startLine = Math.Max(0, Math.Min(text.Lines.Count - 1, oneBasedStartLine - 1));
+            var endLine = Math.Max(startLine, Math.Min(text.Lines.Count - 1, oneBasedEndLine - 1));
+            var start = text.Lines[startLine].Start;
+            var end = text.Lines[endLine].End;
+            return text.ToString(TextSpan.FromBounds(start, end));
+        }
+
+        private static Task<string> ReadFilePreviewAsync(
+            string fullPath,
+            int oneBasedLine,
+            CancellationToken cancellationToken)
+        {
+            return Task.Run(() =>
+            {
+                if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+                {
+                    return string.Empty;
+                }
+
+                var targetIndex = Math.Max(0, oneBasedLine - 1);
+                var endIndex = targetIndex + 9;
+                var lines = new System.Collections.Generic.List<string>();
+                using (var reader = File.OpenText(fullPath))
+                {
+                    while (!reader.EndOfStream && lines.Count <= endIndex)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        lines.Add(reader.ReadLine() ?? string.Empty);
+                    }
+                }
+
+                if (lines.Count == 0 || targetIndex >= lines.Count)
+                {
+                    return string.Empty;
+                }
+
+                var startIndex = GetAttachedCommentStartIndex(lines, targetIndex);
+                var count = Math.Min(lines.Count - startIndex, endIndex - startIndex + 1);
+                return string.Join(Environment.NewLine, lines.Skip(startIndex).Take(count));
+            }, cancellationToken);
+        }
+
+        private static int GetAttachedCommentStartIndex(
+            System.Collections.Generic.IReadOnlyList<string> lines,
+            int declarationIndex)
+        {
+            if (lines == null || declarationIndex <= 0 || declarationIndex > lines.Count - 1)
+            {
+                return declarationIndex;
+            }
+
+            var lineIndex = declarationIndex - 1;
+            var lineText = lines[lineIndex].Trim();
+            if (lineText.StartsWith("//", StringComparison.Ordinal))
+            {
+                while (lineIndex > 0 && lines[lineIndex - 1].Trim().StartsWith("//", StringComparison.Ordinal))
+                {
+                    lineIndex--;
+                }
+
+                return lineIndex;
+            }
+
+            if (lineText.EndsWith("*/", StringComparison.Ordinal))
+            {
+                while (lineIndex >= 0)
+                {
+                    if (lines[lineIndex].IndexOf("/*", StringComparison.Ordinal) >= 0)
+                    {
+                        return lineIndex;
+                    }
+
+                    lineIndex--;
+                }
+            }
+
+            return declarationIndex;
         }
 
         private static ISymbol GetNearestDeclaredSymbol(SyntaxNode root, SemanticModel semanticModel, int position)

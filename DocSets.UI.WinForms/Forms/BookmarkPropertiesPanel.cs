@@ -20,10 +20,12 @@ namespace DocSets
         private readonly NumericUpDown columnBox = new NumericUpDown();
         private readonly TextBox commentTextBox = new TextBox();
         private readonly RichTextBox codeTextBox = new RichTextBox();
+        private readonly RichTextBox livePreviewTextBox = new RichTextBox();
         private readonly Label codeSymbolLabel = new Label();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly TabControl tabs = new TabControl();
+        private readonly TabPage previewTab = new TabPage("Preview");
         private readonly Panel detailsHost = new Panel();
         private readonly Dictionary<BookmarkColor, Button> colorButtons = new Dictionary<BookmarkColor, Button>();
         private readonly CheckBox pinCheckBox = new CheckBox();
@@ -36,6 +38,7 @@ namespace DocSets
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
         public event EventHandler RefreshCodeRequested;
+        public event EventHandler PreviewRequested;
         public event EventHandler PinChanged;
 
         public BookmarkPropertiesPanel()
@@ -106,6 +109,8 @@ namespace DocSets
             {
                 loading = false;
             }
+
+            RequestPreviewIfVisible();
         }
 
 
@@ -188,7 +193,9 @@ namespace DocSets
             var propertiesTab = new TabPage("Свойства");
             tabs.TabPages.Add(commentTab);
             tabs.TabPages.Add(codeTab);
+            tabs.TabPages.Add(previewTab);
             tabs.TabPages.Add(propertiesTab);
+            tabs.SelectedIndexChanged += (_, __) => RequestPreviewIfVisible();
             root.Controls.Add(tabs, 0, 1);
 
             commentTextBox.Dock = DockStyle.Fill;
@@ -237,6 +244,15 @@ namespace DocSets
             codeTextBox.ScrollBars = RichTextBoxScrollBars.Both;
             codeTextBox.Font = new Font("Consolas", 9F);
             codeRoot.Controls.Add(codeTextBox, 0, 2);
+
+            livePreviewTextBox.Dock = DockStyle.Fill;
+            livePreviewTextBox.ReadOnly = true;
+            livePreviewTextBox.WordWrap = false;
+            livePreviewTextBox.DetectUrls = false;
+            livePreviewTextBox.HideSelection = false;
+            livePreviewTextBox.ScrollBars = RichTextBoxScrollBars.Both;
+            livePreviewTextBox.Font = new Font("Consolas", 9F);
+            previewTab.Controls.Add(livePreviewTextBox);
 
             detailsHost.Dock = DockStyle.Fill;
             detailsHost.AutoScroll = true;
@@ -288,6 +304,26 @@ namespace DocSets
         public void RefreshCodePreview()
         {
             UpdateCodePreview(item);
+        }
+
+        public void ShowLivePreviewLoading()
+        {
+            livePreviewTextBox.Clear();
+            livePreviewTextBox.Text = "Загрузка...";
+        }
+
+        public void ShowLivePreview(string preview)
+        {
+            var text = string.IsNullOrEmpty(preview) ? "Превью недоступно." : preview;
+            CodePreviewHighlighter.Apply(livePreviewTextBox, text, item?.Path ?? string.Empty);
+        }
+
+        private void RequestPreviewIfVisible()
+        {
+            if (!loading && !multipleSelection && item != null && ReferenceEquals(tabs.SelectedTab, previewTab))
+            {
+                PreviewRequested?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         private void UpdateCodePreview(DocumentItem value)

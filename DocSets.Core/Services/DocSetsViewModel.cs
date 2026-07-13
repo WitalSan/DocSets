@@ -1781,6 +1781,11 @@ namespace DocSets
             return pinService.CanToggle(ResolvePin(item));
         }
 
+        public Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
+        {
+            return store.GetLivePreviewAsync(ResolvePin(item), cancellationToken);
+        }
+
         public async Task SetColorAsync(IEnumerable<DocumentItem> items, BookmarkColor color)
         {
             var targets = (items ?? Enumerable.Empty<DocumentItem>())
