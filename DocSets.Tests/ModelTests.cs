@@ -188,12 +188,14 @@ namespace DocSets.Tests
                 RecentCurrentSolutionOnly = true,
                 PropertiesSectionOrder = new List<string> { "properties", "preview", "code" },
                 ExpandedPropertiesSections = new List<string> { "preview", "code" },
+                PropertiesContentTab = "comment",
                 FilterColors = new List<BookmarkColor> { BookmarkColor.Red, BookmarkColor.Blue }
             };
             var restored = JsonConvert.DeserializeObject<SolutionLocalState>(JsonConvert.SerializeObject(state));
             Assert.True(restored.RecentCurrentSolutionOnly);
             Assert.SequenceEqual(state.PropertiesSectionOrder, restored.PropertiesSectionOrder);
             Assert.SequenceEqual(state.ExpandedPropertiesSections, restored.ExpandedPropertiesSections);
+            Assert.Equal("comment", restored.PropertiesContentTab);
             Assert.SequenceEqual(state.FilterColors, restored.FilterColors);
         }
 

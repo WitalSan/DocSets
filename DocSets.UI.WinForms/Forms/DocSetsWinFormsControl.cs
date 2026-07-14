@@ -1734,7 +1734,7 @@ namespace DocSets
             };
             _tree.Collapsing += Tree_Collapsing;
             WireTreeActivationBehavior();
-            _tree.ItemDrag += (_, __) => _tree.DoDragDropSelectedNodes(DragDropEffects.Move | DragDropEffects.Copy);
+            _tree.ItemDrag += (_, __) => BeginTreeDrag();
             _tree.DragOver += Tree_DragOver;
             _tree.DragDrop += Tree_DragDrop;
             _tree.KeyDown += Tree_KeyDown;
@@ -1824,20 +1824,39 @@ namespace DocSets
             _experimentalPropertiesSaveTimer.Tick += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
+                var commentOnly = _experimentalPropertiesPanel.OnlyCommentChangePending;
                 var undoDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
                 if (_experimentalPropertiesPanel.ApplyToCurrentItem())
                 {
                     _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
                     await _viewModel.SaveAsync();
-                    RebuildTree();
+                    if (commentOnly) _tree.Invalidate();
+                    else RebuildTree();
                     RefreshStatus();
                 }
+                _experimentalPropertiesSaveTimer.Interval = 500;
             };
             _experimentalPropertiesPanel.ItemChanged += (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
+                if (_experimentalPropertiesPanel.MarkdownEditPending) return;
+                _experimentalPropertiesSaveTimer.Interval = 500;
                 _experimentalPropertiesSaveTimer.Start();
+            };
+            _experimentalPropertiesPanel.MarkdownEditingCompleted += async (_, __) =>
+            {
+                _experimentalPropertiesSaveTimer.Stop();
+                var commentOnly = _experimentalPropertiesPanel.OnlyCommentChangePending;
+                var description = _experimentalPropertiesPanel.GetPendingChangeDescription();
+                if (description != null) _viewModel.CaptureUndoState(description);
+                if (_experimentalPropertiesPanel.ApplyToCurrentItem())
+                {
+                    _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
+                    await _viewModel.SaveAsync();
+                    if (commentOnly) _tree.Invalidate(); else RebuildTree();
+                    RefreshStatus();
+                }
             };
             _experimentalPropertiesPanel.ColorChanged += async (_, __) =>
             {
@@ -1879,6 +1898,47 @@ namespace DocSets
             {
                 var current = _experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem();
                 await _viewModel.OpenSymbolAsync(current, symbol);
+            };
+            _experimentalPropertiesPanel.DocumentLinkActivated += async link =>
+            {
+                if (link == null) return;
+                var opened = false;
+                switch (link.Kind)
+                {
+                    case DocumentLinkKind.Symbol:
+                        opened = await _viewModel.OpenSymbolAsync(_experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem(), link.Target, link.Project);
+                        break;
+                    case DocumentLinkKind.File:
+                        opened = await _viewModel.OpenFileLinkAsync(link.Target);
+                        break;
+                    case DocumentLinkKind.Bookmark:
+                        opened = await _viewModel.OpenBookmarkByIdAsync(link.Target);
+                        break;
+                    case DocumentLinkKind.Url:
+                        if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri) &&
+                            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                        {
+                            VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri); opened = true;
+                        }
+                        break;
+                }
+                if (!opened) _statusLabel.Text = "Ссылка не найдена: " + link.Target;
+            };
+            _experimentalPropertiesPanel.ExternalSymbolDropRequested += async (text, position) =>
+            {
+                var symbol = await _viewModel.GetActiveSymbolReferenceAsync(text);
+                if (symbol == null || string.IsNullOrWhiteSpace(symbol.Symbol))
+                {
+                    _statusLabel.Text = "Не удалось определить символ: " + text;
+                    return;
+                }
+                _experimentalPropertiesPanel.InsertResolvedExternalSymbol(new DocumentLink
+                {
+                    Kind = DocumentLinkKind.Symbol,
+                    Caption = string.IsNullOrWhiteSpace(text) ? symbol.Name : text,
+                    Target = symbol.Symbol,
+                    Project = symbol.Project
+                }, position);
             };
             _experimentalPropertiesPanel.Leave += async (_, __) =>
             {
@@ -2055,6 +2115,7 @@ namespace DocSets
             _experimentalPropertiesPanel.ApplyLayoutState(
                 local.PropertiesSectionOrder,
                 local.ExpandedPropertiesSections);
+            _experimentalPropertiesPanel.ApplySelectedContentTab(local.PropertiesContentTab);
 
             var byId = EnumerateItems(_viewModel.Root.Children).Where(x => !string.IsNullOrWhiteSpace(x.Id))
                 .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
@@ -2117,8 +2178,20 @@ namespace DocSets
 
         public void SaveLocalSettings()
         {
+            CommitPendingMarkdownEdit();
             CaptureRenderedViewState();
             SaveLocalState();
+        }
+
+        private void CommitPendingMarkdownEdit()
+        {
+            if (!_experimentalPropertiesPanel.MarkdownEditPending) return;
+            _experimentalPropertiesSaveTimer.Stop();
+            var description = _experimentalPropertiesPanel.GetPendingChangeDescription();
+            if (description != null) _viewModel.CaptureUndoState(description);
+            if (!_experimentalPropertiesPanel.ApplyToCurrentItem()) return;
+            _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
+            ThreadHelper.JoinableTaskFactory.Run(async () => await _viewModel.SaveAsync());
         }
 
         private void SaveLocalState()
@@ -2134,6 +2207,7 @@ namespace DocSets
             local.PropertiesVisible = _propertiesVisible;
             local.PropertiesSectionOrder = _experimentalPropertiesPanel.SectionOrder.ToList();
             local.ExpandedPropertiesSections = _experimentalPropertiesPanel.ExpandedSections.ToList();
+            local.PropertiesContentTab = _experimentalPropertiesPanel.SelectedContentTab;
             local.Views = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in _collapsedItemsByView)
             {
@@ -3159,6 +3233,25 @@ namespace DocSets
             RebuildTree();
             RefreshGroupsStrip();
             RefreshStatus();
+        }
+
+        private void BeginTreeDrag()
+        {
+            if (_tree.SelectedNodes.Count == 0) return;
+            var nodes = _tree.SelectedNodes.ToArray();
+            DataObject data;
+            if (nodes.Length == 1)
+            {
+                var raw = (nodes[0].Tag as BookmarkTreeNode)?.Item;
+                var target = _viewModel.ResolvePin(raw) ?? raw;
+                data = target == null ? new DataObject() : DocumentLinkService.CreateDataObject(new DocumentLink
+                {
+                    Kind = DocumentLinkKind.Bookmark, Caption = target.Name, Target = target.Id
+                });
+            }
+            else data = new DataObject();
+            data.SetData(typeof(TreeNodeAdv[]), nodes);
+            _tree.DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
         }
 
         private void Tree_DragOver(object sender, DragEventArgs e)

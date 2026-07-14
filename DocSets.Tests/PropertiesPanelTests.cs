@@ -125,6 +125,35 @@ namespace DocSets.Tests
             }
         }
 
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void MarkdownCommentIsSecondViewOfExistingComment()
+        {
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                var item = Bookmark(); panel.LoadItem(item);
+                var markdown = Field<MarkdownCommentControl>(panel, "markdownComment");
+                Assert.Equal("old comment", markdown.CommentText);
+                Assert.False(markdown.IsEditing);
+                Field<RichTextBox>(markdown, "editor").Text = "**new** [[A.B.Run]]";
+                Assert.Equal("old comment", item.Comment);
+                Assert.True(panel.ApplyToCurrentItem());
+                Assert.Equal("**new** [[A.B.Run]]", item.Comment);
+                Field<TextBox>(panel, "commentTextBox").Text = "classic edit";
+                panel.ApplySelectedContentTab("comment");
+                Assert.Equal("classic edit", markdown.CommentText);
+            }
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ContentTabSelectionCanBeRestored()
+        {
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                panel.ApplySelectedContentTab("comment"); Assert.Equal("comment", panel.SelectedContentTab);
+                panel.ApplySelectedContentTab("properties"); Assert.Equal("properties", panel.SelectedContentTab);
+            }
+        }
+
         private static T Field<T>(object instance, string name) where T : class
         {
             return (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(instance);

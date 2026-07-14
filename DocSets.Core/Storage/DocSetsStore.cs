@@ -253,6 +253,11 @@ namespace DocSets
             return context;
         }
 
+        public Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
+        {
+            return roslyn.GetActiveSymbolReferenceAsync(draggedText);
+        }
+
         public async Task OpenBookmarkAsync(DocumentItem item)
         {
             if (item == null)

@@ -309,6 +309,46 @@ namespace DocSets
             return context;
         }
 
+        public async Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var dte = await package.GetServiceAsync(typeof(DTE)) as DTE;
+            var activeDocument = dte?.ActiveDocument;
+            var selection = activeDocument?.Selection as TextSelection;
+            if (activeDocument == null || selection == null || string.IsNullOrWhiteSpace(activeDocument.FullName)) return null;
+
+            try
+            {
+                var workspace = await GetWorkspaceAsync();
+                var document = FindDocument(workspace, activeDocument.FullName);
+                if (document == null) return null;
+                var text = await document.GetTextAsync();
+                var root = await document.GetSyntaxRootAsync();
+                var semanticModel = await document.GetSemanticModelAsync();
+                if (root == null || semanticModel == null) return null;
+
+                var point = selection.IsEmpty ? selection.ActivePoint : selection.TopPoint;
+                var position = ToTextPosition(text, Math.Max(1, point.Line), Math.Max(1, point.LineCharOffset));
+                var node = root.FindToken(position).Parent;
+                ISymbol symbol = null;
+                for (var current = node; current != null && symbol == null; current = current.Parent)
+                {
+                    var info = semanticModel.GetSymbolInfo(current);
+                    symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault();
+                    if (symbol == null) symbol = semanticModel.GetDeclaredSymbol(current);
+                }
+                if (symbol == null) return null;
+                if (symbol is IAliasSymbol alias) symbol = alias.Target;
+                return new ActiveSymbolReference
+                {
+                    Name = string.IsNullOrWhiteSpace(draggedText) ? symbol.Name : draggedText.Trim(),
+                    Symbol = symbol.ToDisplayString(StoredSymbolFormat),
+                    Project = document.Project.Name ?? ""
+                };
+            }
+            catch { return null; }
+        }
+
         public Task<bool> TryOpenBookmarkBySymbolAsync(DocumentItem item)
         {
             if (item == null || string.IsNullOrWhiteSpace(item.Symbol))

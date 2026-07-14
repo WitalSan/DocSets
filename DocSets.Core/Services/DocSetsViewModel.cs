@@ -1917,6 +1917,37 @@ namespace DocSets
             return store.OpenSymbolAsync(symbol, item?.Project);
         }
 
+        public Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
+        {
+            return store.GetActiveSymbolReferenceAsync(draggedText);
+        }
+
+        public Task<bool> OpenSymbolAsync(DocumentItem item, string symbol, string project)
+        {
+            item = ResolvePin(item);
+            return store.OpenSymbolAsync(symbol, string.IsNullOrWhiteSpace(project) ? item?.Project : project);
+        }
+
+        public async Task<bool> OpenBookmarkByIdAsync(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return false;
+            var target = treeService.Flatten(state.Root.Children, includeCollapsed: true)
+                .FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (target == null) return false;
+            await OpenBookmarkAsync(target);
+            return true;
+        }
+
+        public async Task<bool> OpenFileLinkAsync(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            await store.OpenBookmarkAsync(new DocumentItem
+            {
+                Type = BookmarkType.File, NodeType = NodeType.Item, Path = path, Line = 1, Column = 1
+            });
+            return true;
+        }
+
         public async Task SetColorAsync(IEnumerable<DocumentItem> items, BookmarkColor color)
         {
             var targets = (items ?? Enumerable.Empty<DocumentItem>())

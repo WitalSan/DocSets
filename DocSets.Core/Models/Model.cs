@@ -58,6 +58,9 @@ namespace DocSets
         [JsonProperty("expandedPropertiesSections")]
         public List<string> ExpandedPropertiesSections { get; set; } = new List<string>();
 
+        [JsonProperty("propertiesContentTab")]
+        public string PropertiesContentTab { get; set; } = "properties";
+
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
 
@@ -138,6 +141,13 @@ namespace DocSets
         public string Icon { get; set; } = "";
 
         public TagDefinition Clone() => (TagDefinition)MemberwiseClone();
+    }
+
+    public sealed class ActiveSymbolReference
+    {
+        public string Name { get; set; } = "";
+        public string Symbol { get; set; } = "";
+        public string Project { get; set; } = "";
     }
 
     public sealed class DocumentSetsState : NotifyObject

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace DocSets
@@ -26,6 +27,8 @@ namespace DocSets
         private readonly Button refreshCodeButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly BreadcrumbToolTipController breadcrumbToolTips;
+        private readonly TabControl contentTabs = new TabControl();
+        private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
         private ExperimentalAccordionHost accordion;
         private ExperimentalAccordionSection commentSection;
         private ExperimentalAccordionSection codeSection;
@@ -39,6 +42,9 @@ namespace DocSets
         private bool loadedAllPinned;
         private DocumentItem item;
         private BookmarkColor selectedColor;
+        private Point breadcrumbDragStart;
+        private DocumentLink breadcrumbDragLink;
+        private bool markdownCommentDirty;
 
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
@@ -47,6 +53,9 @@ namespace DocSets
         public event EventHandler PinChanged;
         public event EventHandler LayoutStateChanged;
         public event Action<string> SymbolLinkClicked;
+        public event Action<DocumentLink> DocumentLinkActivated;
+        public event Action<string, int> ExternalSymbolDropRequested;
+        public event EventHandler MarkdownEditingCompleted;
 
         public BookmarkPropertiesPanelExperimental()
         {
@@ -55,19 +64,53 @@ namespace DocSets
             BuildLayout();
             WireChanges(detailsHost);
             commentTextBox.TextChanged += Changed;
+            commentTextBox.TextChanged += (_, __) =>
+            {
+                if (!loading) markdownCommentDirty = false;
+            };
+            markdownComment.CommentChanged += (_, __) =>
+            {
+                if (loading) return;
+                markdownCommentDirty = true;
+                Changed(markdownComment, EventArgs.Empty);
+            };
+            markdownComment.LinkActivated += link => DocumentLinkActivated?.Invoke(link);
+            markdownComment.ExternalSymbolDropRequested += (text, position) => ExternalSymbolDropRequested?.Invoke(text, position);
+            markdownComment.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
             LoadItem(null);
         }
 
         public DocumentItem CurrentItem => item;
         public bool RequestedPinState => !loadedAllPinned;
         public BookmarkColor SelectedColor => selectedColor;
+        public bool MarkdownEditPending => markdownCommentDirty;
+        public bool OnlyCommentChangePending
+        {
+            get
+            {
+                if (loading || item == null || multipleSelection || string.Equals(item.Comment ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) return false;
+                var type = fileButton.Checked ? BookmarkType.File : symbolButton.Checked ? BookmarkType.Symbol : BookmarkType.Empty;
+                return string.Equals(item.Name ?? string.Empty, nameTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal) &&
+                    item.NodeType == (folderCheckBox.Checked ? NodeType.Folder : NodeType.Item) && item.Type == type &&
+                    string.Equals(item.Path ?? string.Empty, type == BookmarkType.Empty ? string.Empty : pathTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal) &&
+                    string.Equals(item.Symbol ?? string.Empty, type == BookmarkType.Symbol ? symbolTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
+                    string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
+                    item.Line == (int)lineBox.Value && item.Column == (int)columnBox.Value && item.Color == selectedColor;
+            }
+        }
 
         public IList<string> SectionOrder => accordion?.SectionOrder ?? new List<string>();
         public IList<string> ExpandedSections => accordion?.ExpandedSections ?? new List<string>();
+        public string SelectedContentTab => contentTabs.SelectedIndex == 1 ? "comment" : "properties";
 
         public void ApplyLayoutState(IEnumerable<string> sectionOrder, IEnumerable<string> expandedSections)
         {
             accordion?.ApplyState(sectionOrder, expandedSections);
+        }
+
+        public void ApplySelectedContentTab(string value)
+        {
+            contentTabs.SelectedIndex = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         }
 
         public void LoadItem(DocumentItem value, bool isPinned = false)
@@ -83,6 +126,7 @@ namespace DocSets
             BookmarkColor? commonColor,
             bool canPin)
         {
+            var preserveMarkdownEdit = ReferenceEquals(item, value) && markdownCommentDirty;
             loading = true;
             try
             {
@@ -102,6 +146,11 @@ namespace DocSets
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
                 commentTextBox.Text = value?.Comment ?? string.Empty;
+                if (!preserveMarkdownEdit)
+                {
+                    markdownComment.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
+                    markdownCommentDirty = false;
+                }
                 UpdateCodePreview(value);
                 selectedColor = commonColor ?? BookmarkColor.None;
                 pinCheckBox.ThreeState = multiple;
@@ -114,6 +163,7 @@ namespace DocSets
                             : CheckState.Unchecked;
                 pinCheckBox.Enabled = value != null && canPin;
                 codeSymbolLabel.Enabled = value != null && !multiple;
+                markdownComment.Enabled = value != null && !multiple;
                 SetSectionContentEnabled(value != null && !multiple);
                 UpdateColorButtons();
                 if (multiple && !commonColor.HasValue)
@@ -145,7 +195,7 @@ namespace DocSets
             if (!string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal)) changes.Add("проект");
             if (item.Line != (int)lineBox.Value) changes.Add("строка");
             if (item.Column != (int)columnBox.Value) changes.Add("колонка");
-            if (!string.Equals(item.Comment ?? string.Empty, commentTextBox.Text ?? string.Empty, StringComparison.Ordinal)) changes.Add("комментарий");
+            if (!string.Equals(item.Comment ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) changes.Add("комментарий");
             if (item.Color != selectedColor) changes.Add("цвет");
 
             if (changes.Count == 0) return null;
@@ -173,7 +223,15 @@ namespace DocSets
             changed |= Set(ref item, item.Project, project, (x, v) => x.Project = v);
             if (item.Line != (int)lineBox.Value) { item.Line = (int)lineBox.Value; changed = true; }
             if (item.Column != (int)columnBox.Value) { item.Column = (int)columnBox.Value; changed = true; }
-            changed |= Set(ref item, item.Comment, commentTextBox.Text ?? string.Empty, (x, v) => x.Comment = v);
+            var comment = CurrentCommentText;
+            changed |= Set(ref item, item.Comment, comment, (x, v) => x.Comment = v);
+            if (markdownCommentDirty)
+            {
+                loading = true;
+                try { commentTextBox.Text = comment; }
+                finally { loading = false; }
+                markdownCommentDirty = false;
+            }
             if (item.Color != selectedColor) { item.Color = selectedColor; changed = true; }
             return changed;
         }
@@ -218,11 +276,26 @@ namespace DocSets
                     SymbolLinkClicked?.Invoke(symbol);
                 }
             };
+            codeSymbolLabel.MouseDown += BreadcrumbMouseDown;
+            codeSymbolLabel.MouseMove += BreadcrumbMouseMove;
             root.Controls.Add(codeSymbolLabel, 0, 1);
 
             accordion = new ExperimentalAccordionHost { Dock = DockStyle.Fill };
             accordion.StateChanged += (_, __) => LayoutStateChanged?.Invoke(this, EventArgs.Empty);
-            root.Controls.Add(accordion, 0, 2);
+            contentTabs.Dock = DockStyle.Fill;
+            var propertiesTab = new TabPage("Свойства");
+            var commentMarkdownTab = new TabPage("Комментарий β");
+            propertiesTab.Controls.Add(accordion);
+            commentMarkdownTab.Controls.Add(markdownComment);
+            contentTabs.TabPages.Add(propertiesTab);
+            contentTabs.TabPages.Add(commentMarkdownTab);
+            contentTabs.SelectedIndexChanged += (_, __) =>
+            {
+                if (contentTabs.SelectedIndex == 0 && markdownCommentDirty) markdownComment.ShowPreview();
+                if (contentTabs.SelectedIndex == 1 && !markdownCommentDirty) markdownComment.LoadComment(commentTextBox.Text, resetToPreview: true);
+                LayoutStateChanged?.Invoke(this, EventArgs.Empty);
+            };
+            root.Controls.Add(contentTabs, 0, 2);
 
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Multiline = true;
@@ -286,6 +359,52 @@ namespace DocSets
             accordion.AddSection(commentSection);
             accordion.AddSection(codeSection);
             accordion.AddSection(previewSection);
+        }
+
+        private string CurrentCommentText => markdownCommentDirty ? markdownComment.CommentText : commentTextBox.Text ?? string.Empty;
+
+        public void InsertResolvedExternalSymbol(DocumentLink link, int position)
+        {
+            markdownComment.InsertResolvedLink(link, position);
+        }
+
+        private void BreadcrumbMouseDown(object sender, MouseEventArgs e)
+        {
+            breadcrumbDragStart = e.Location;
+            var symbol = FindBreadcrumbLink(e.Location)?.LinkData as string;
+            if (!string.IsNullOrWhiteSpace(symbol))
+            {
+                breadcrumbDragLink = new DocumentLink { Kind = DocumentLinkKind.Symbol,
+                    Caption = symbol.Split('.').LastOrDefault() ?? symbol, Target = symbol, Project = item?.Project };
+            }
+            else if (item?.Type == BookmarkType.File && !string.IsNullOrWhiteSpace(item.Path))
+            {
+                breadcrumbDragLink = new DocumentLink { Kind = DocumentLinkKind.File,
+                    Caption = Path.GetFileName(item.Path), Target = item.Path };
+            }
+            else breadcrumbDragLink = null;
+        }
+
+        private void BreadcrumbMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || breadcrumbDragLink == null) return;
+            if (Math.Abs(e.X - breadcrumbDragStart.X) < SystemInformation.DragSize.Width / 2 &&
+                Math.Abs(e.Y - breadcrumbDragStart.Y) < SystemInformation.DragSize.Height / 2) return;
+            var link = breadcrumbDragLink; breadcrumbDragLink = null;
+            codeSymbolLabel.DoDragDrop(DocumentLinkService.CreateDataObject(link), DragDropEffects.Copy);
+        }
+
+        private LinkLabel.Link FindBreadcrumbLink(Point point)
+        {
+            foreach (LinkLabel.Link link in codeSymbolLabel.Links)
+            {
+                var before = link.Start == 0 ? string.Empty : codeSymbolLabel.Text.Substring(0, link.Start);
+                var value = codeSymbolLabel.Text.Substring(link.Start, link.Length);
+                var x = codeSymbolLabel.Padding.Left + TextRenderer.MeasureText(before, codeSymbolLabel.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+                var width = TextRenderer.MeasureText(value, codeSymbolLabel.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+                if (point.X >= x && point.X <= x + width) return link;
+            }
+            return null;
         }
 
 

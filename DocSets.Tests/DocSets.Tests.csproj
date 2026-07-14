@@ -33,6 +33,7 @@
     <Compile Include="..\DocSets.UI.WinForms\Icons\BookmarkColorService.cs" Link="Source\BookmarkColorService.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" Link="Source\CodePreviewHighlighter.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" Link="Source\BreadcrumbToolTip.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Forms\DocumentLinks.cs" Link="Source\DocumentLinks.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs" Link="Source\BookmarkPropertiesPanelExperimental.cs" />
   </ItemGroup>
   <ItemGroup>

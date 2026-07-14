@@ -2,3 +2,4 @@
 **/bin
 **/obj
 /.dotnet_cli
+**/.dotnet-home
