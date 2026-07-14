@@ -325,16 +325,8 @@ namespace DocSets
             _noColorFilterMenuItem.Click += (_, __) => ClearColorFilter();
             _filterColorsButton.DropDownItems.Add(_noColorFilterMenuItem);
             _filterColorsButton.DropDownItems.Add(new ToolStripSeparator());
-
-            AddFilterColorMenuItem("Без цветовой метки", BookmarkColor.None);
-            AddFilterColorMenuItem("Красный", BookmarkColor.Red);
-            AddFilterColorMenuItem("Оранжевый", BookmarkColor.Orange);
-            AddFilterColorMenuItem("Жёлтый", BookmarkColor.Yellow);
-            AddFilterColorMenuItem("Зелёный", BookmarkColor.Green);
-            AddFilterColorMenuItem("Бирюзовый", BookmarkColor.Cyan);
-            AddFilterColorMenuItem("Синий", BookmarkColor.Blue);
-            AddFilterColorMenuItem("Фиолетовый", BookmarkColor.Purple);
-            AddFilterColorMenuItem("Серый", BookmarkColor.Gray);
+            foreach (var definition in BookmarkColorService.All)
+                AddFilterColorMenuItem(definition.Name, definition.Value);
         }
 
         private void AddFilterColorMenuItem(string text, BookmarkColor color)
@@ -427,7 +419,7 @@ namespace DocSets
                         Width = IconProvider.IconSize,
                         Height = IconProvider.IconSize,
                         Margin = new Padding(2, 0, 0, 0),
-                        BackColor = color == BookmarkColor.None ? Color.White : GetBookmarkColor(color),
+                        BackColor = BookmarkColorService.GetColor(color),
                         BorderStyle = BorderStyle.FixedSingle,
                         Text = color == BookmarkColor.None ? "×" : string.Empty,
                         TextAlign = ContentAlignment.MiddleCenter
@@ -490,21 +482,7 @@ namespace DocSets
             oldImage?.Dispose();
         }
 
-        private static string GetBookmarkColorName(BookmarkColor color)
-        {
-            switch (color)
-            {
-                case BookmarkColor.Red: return "Красный";
-                case BookmarkColor.Orange: return "Оранжевый";
-                case BookmarkColor.Yellow: return "Жёлтый";
-                case BookmarkColor.Green: return "Зелёный";
-                case BookmarkColor.Cyan: return "Бирюзовый";
-                case BookmarkColor.Blue: return "Синий";
-                case BookmarkColor.Purple: return "Фиолетовый";
-                case BookmarkColor.Gray: return "Серый";
-                default: return "Без цветовой метки";
-            }
-        }
+        private static string GetBookmarkColorName(BookmarkColor color) => BookmarkColorService.GetName(color);
 
         private bool MatchesFilter(DocumentItem item)
         {
@@ -1372,15 +1350,8 @@ namespace DocSets
         private void AddColorMenu()
         {
             var colorMenu = new ToolStripMenuItem("Цвет");
-            AddColorMenuItem(colorMenu, "Без цвета", BookmarkColor.None);
-            AddColorMenuItem(colorMenu, "Красный", BookmarkColor.Red);
-            AddColorMenuItem(colorMenu, "Оранжевый", BookmarkColor.Orange);
-            AddColorMenuItem(colorMenu, "Жёлтый", BookmarkColor.Yellow);
-            AddColorMenuItem(colorMenu, "Зелёный", BookmarkColor.Green);
-            AddColorMenuItem(colorMenu, "Бирюзовый", BookmarkColor.Cyan);
-            AddColorMenuItem(colorMenu, "Синий", BookmarkColor.Blue);
-            AddColorMenuItem(colorMenu, "Фиолетовый", BookmarkColor.Purple);
-            AddColorMenuItem(colorMenu, "Серый", BookmarkColor.Gray);
+            foreach (var definition in BookmarkColorService.All)
+                AddColorMenuItem(colorMenu, definition.Name, definition.Value);
             _nodeMenu.Items.Add(colorMenu);
         }
 
@@ -1440,21 +1411,7 @@ namespace DocSets
             return bitmap;
         }
 
-        private static Color GetBookmarkColor(BookmarkColor color)
-        {
-            switch (color)
-            {
-                case BookmarkColor.Red: return Color.FromArgb(237, 28, 54);
-                case BookmarkColor.Orange: return Color.FromArgb(255, 140, 0);
-                case BookmarkColor.Yellow: return Color.FromArgb(255, 229, 0);
-                case BookmarkColor.Green: return Color.FromArgb(31, 201, 37);
-                case BookmarkColor.Cyan: return Color.FromArgb(0, 188, 212);
-                case BookmarkColor.Blue: return Color.FromArgb(22, 139, 205);
-                case BookmarkColor.Purple: return Color.FromArgb(156, 39, 176);
-                case BookmarkColor.Gray: return Color.FromArgb(128, 128, 128);
-                default: return Color.White;
-            }
-        }
+        private static Color GetBookmarkColor(BookmarkColor color) => BookmarkColorService.GetColor(color);
 
         private void AddPropertiesMenu()
         {

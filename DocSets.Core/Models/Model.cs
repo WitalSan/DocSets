@@ -603,17 +603,30 @@ namespace DocSets
         Set = 2
     }
 
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class BookmarkColorInfoAttribute : Attribute
+    {
+        public BookmarkColorInfoAttribute(string name, int red, int green, int blue)
+        {
+            Name = name; Red = red; Green = green; Blue = blue;
+        }
+        public string Name { get; }
+        public int Red { get; }
+        public int Green { get; }
+        public int Blue { get; }
+    }
+
     public enum BookmarkColor
     {
-        None = 0,
-        Red = 1,
-        Green = 2,
-        Yellow = 3,
-        Blue = 4,
-        Orange = 5,
-        Cyan = 6,
-        Purple = 7,
-        Gray = 8
+        [BookmarkColorInfo("Без цвета", 255, 255, 255)] None = 0,
+        [BookmarkColorInfo("Красный", 237, 28, 54)] Red = 1,
+        [BookmarkColorInfo("Зелёный", 31, 201, 37)] Green = 2,
+        [BookmarkColorInfo("Жёлтый", 255, 229, 0)] Yellow = 3,
+        [BookmarkColorInfo("Синий", 22, 139, 205)] Blue = 4,
+        [BookmarkColorInfo("Оранжевый", 255, 140, 0)] Orange = 5,
+        [BookmarkColorInfo("Бирюзовый", 0, 188, 212)] Cyan = 6,
+        [BookmarkColorInfo("Фиолетовый", 156, 39, 176)] Purple = 7,
+        [BookmarkColorInfo("Серый", 128, 128, 128)] Gray = 8
     }
 
     public enum BookmarkType

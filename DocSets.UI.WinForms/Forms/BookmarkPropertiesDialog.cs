@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -460,15 +460,8 @@ namespace DocSets
         private FlowLayoutPanel CreateColorPalette()
         {
             var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-            AddColorButton(panel, BookmarkColor.None, Color.White, "Без цвета");
-            AddColorButton(panel, BookmarkColor.Red, Color.FromArgb(237, 28, 54), "Красный");
-            AddColorButton(panel, BookmarkColor.Orange, Color.FromArgb(255, 140, 0), "Оранжевый");
-            AddColorButton(panel, BookmarkColor.Yellow, Color.FromArgb(255, 229, 0), "Жёлтый");
-            AddColorButton(panel, BookmarkColor.Green, Color.FromArgb(31, 201, 37), "Зелёный");
-            AddColorButton(panel, BookmarkColor.Cyan, Color.FromArgb(0, 188, 212), "Бирюзовый");
-            AddColorButton(panel, BookmarkColor.Blue, Color.FromArgb(22, 139, 205), "Синий");
-            AddColorButton(panel, BookmarkColor.Purple, Color.FromArgb(156, 39, 176), "Фиолетовый");
-            AddColorButton(panel, BookmarkColor.Gray, Color.FromArgb(128, 128, 128), "Серый");
+            foreach (var definition in BookmarkColorService.All)
+                AddColorButton(panel, definition.Value, definition.DrawingColor, definition.Name);
             return panel;
         }
 

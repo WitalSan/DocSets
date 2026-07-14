@@ -235,5 +235,19 @@ namespace DocSets.Tests
             Line = 10,
             Column = 2
         };
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void EveryBookmarkColorHasDisplayMetadata()
+        {
+            foreach (BookmarkColor color in Enum.GetValues(typeof(BookmarkColor)))
+            {
+                var field = typeof(BookmarkColor).GetField(color.ToString());
+                var attribute = (BookmarkColorInfoAttribute)Attribute.GetCustomAttribute(field, typeof(BookmarkColorInfoAttribute));
+                Assert.NotNull(attribute);
+                Assert.False(string.IsNullOrWhiteSpace(attribute.Name));
+                Assert.True(attribute.Red >= 0 && attribute.Red <= 255);
+                Assert.True(attribute.Green >= 0 && attribute.Green <= 255);
+                Assert.True(attribute.Blue >= 0 && attribute.Blue <= 255);
+            }
+        }
     }
 }

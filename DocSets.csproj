@@ -60,6 +60,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="DocSets.UI.WinForms\Icons\IconProvider.cs" />
+    <Compile Include="DocSets.UI.WinForms\Icons\BookmarkColorService.cs" />
     <Compile Include="DocSets.UI.WinForms\Icons\TagIconProvider.cs" />
     <Compile Include="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
       <SubType>Component</SubType>
