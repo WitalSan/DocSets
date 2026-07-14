@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <RootNamespace>DocSets.Tests</RootNamespace>
+    <AssemblyName>DocSets.Tests</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework">
+      <HintPath>lib\Microsoft.VisualStudio.QualityTools.UnitTestFramework.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Source\Model.cs" />
+    <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />
+    <Compile Include="..\DocSets.Core\Services\NavigationHistoryService.cs" Link="Source\NavigationHistoryService.cs" />
+    <Compile Include="..\DocSets.Core\Services\PinService.cs" Link="Source\PinService.cs" />
+    <Compile Include="..\DocSets.Core\Services\RecentBookmarksService.cs" Link="Source\RecentBookmarksService.cs" />
+    <Compile Include="..\DocSets.Core\Services\UndoRedoService.cs" Link="Source\UndoRedoService.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Icons\IconProvider.cs" Link="Source\IconProvider.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" Link="Source\CodePreviewHighlighter.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs" Link="Source\BookmarkPropertiesPanelExperimental.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\-Icons-\Copy.png" Link="Resources\Copy.png">
+      <LogicalName>DocSets.Icons.Copy.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\-Icons-\Sync.png" Link="Resources\Sync.png">
+      <LogicalName>DocSets.Icons.Sync.png</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>

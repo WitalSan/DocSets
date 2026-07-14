@@ -5,6 +5,13 @@ using System.Linq;
 
 namespace DocSets
 {
+    internal enum DropPosition
+    {
+        Before,
+        Inside,
+        After
+    }
+
     /// <summary>
     /// Pure tree algorithms for DocumentItem. This service does not own selection,
     /// persistence, dialogs, or Visual Studio integration.

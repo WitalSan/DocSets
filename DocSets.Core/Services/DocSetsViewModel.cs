@@ -2211,11 +2211,4 @@ namespace DocSets
         }
 
     }
-
-    internal enum DropPosition
-    {
-        Before,
-        Inside,
-        After
-    }
 }
