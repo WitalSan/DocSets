@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -42,6 +42,9 @@ namespace DocSets
 
         [JsonProperty("filterColors")]
         public List<BookmarkColor> FilterColors { get; set; } = new List<BookmarkColor>();
+
+        [JsonProperty("filterTagIds")]
+        public List<string> FilterTagIds { get; set; } = new List<string>();
 
         [JsonProperty("recentCurrentSolutionOnly")]
         public bool RecentCurrentSolutionOnly { get; set; }
@@ -120,6 +123,23 @@ namespace DocSets
         public List<string> SelectedIds { get; set; } = new List<string>();
     }
 
+    public sealed class TagDefinition
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; } = "";
+
+        [JsonProperty("name")]
+        public string Name { get; set; } = "";
+
+        [JsonProperty("color", NullValueHandling = NullValueHandling.Ignore)]
+        public string Color { get; set; } = "";
+
+        [JsonProperty("icon", NullValueHandling = NullValueHandling.Ignore)]
+        public string Icon { get; set; } = "";
+
+        public TagDefinition Clone() => (TagDefinition)MemberwiseClone();
+    }
+
     public sealed class DocumentSetsState : NotifyObject
     {
         private string activeSet = "";
@@ -131,6 +151,14 @@ namespace DocSets
             Type = BookmarkType.Empty
         };
         private DocumentSetsUiSettings ui = new DocumentSetsUiSettings();
+        private List<TagDefinition> tags = new List<TagDefinition>();
+
+        [JsonProperty("tags")]
+        public List<TagDefinition> Tags
+        {
+            get => tags;
+            set => tags = value ?? new List<TagDefinition>();
+        }
 
         [JsonProperty("activeSet")]
         public string ActiveSet
@@ -322,6 +350,7 @@ namespace DocSets
                 CreatedAtUtc = item.CreatedAtUtc,
                 ModifiedAtUtc = item.ModifiedAtUtc,
                 ModifiedInSolution = item.ModifiedInSolution ?? "",
+                TagIds = item.TagIds?.Count > 0 ? item.TagIds.ToList() : null,
                 EditorState = item.EditorState?.Clone()
             });
 
@@ -385,6 +414,7 @@ namespace DocSets
                 CreatedAtUtc = source.CreatedAtUtc,
                 ModifiedAtUtc = source.ModifiedAtUtc,
                 ModifiedInSolution = source.ModifiedInSolution ?? "",
+                TagIds = source.TagIds?.ToList() ?? new List<string>(),
                 EditorState = source.EditorState?.Clone(),
                 Children = new ObservableCollection<DocumentItem>()
             };
@@ -520,6 +550,9 @@ namespace DocSets
         [JsonProperty("modifiedInSolution", NullValueHandling = NullValueHandling.Ignore)]
         public string ModifiedInSolution { get; set; }
 
+        [JsonProperty("tagIds", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> TagIds { get; set; }
+
         [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
         public EditorState EditorState { get; set; }
     }
@@ -631,6 +664,7 @@ namespace DocSets
         private int column = 1;
         private NodeType nodeType;
         private EditorState editorState;
+        private List<string> tagIds = new List<string>();
         private bool isExpanded;
         private bool isMultiSelected;
         private bool isLocalOnly;
@@ -819,6 +853,13 @@ namespace DocSets
         {
             get => column;
             set => SetProperty(ref column, value < 1 ? 1 : value);
+        }
+
+        [JsonProperty("tagIds", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> TagIds
+        {
+            get => tagIds;
+            set => SetProperty(ref tagIds, value == null ? new List<string>() : value.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
         }
 
         [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
@@ -1025,6 +1066,7 @@ namespace DocSets
                 CreatedAtUtc = CreatedAtUtc,
                 ModifiedAtUtc = ModifiedAtUtc,
                 ModifiedInSolution = ModifiedInSolution,
+                TagIds = TagIds.ToList(),
                 EditorState = EditorState?.Clone(),
                 IsExpanded = IsExpanded,
                 Children = new ObservableCollection<DocumentItem>()

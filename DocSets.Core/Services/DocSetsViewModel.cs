@@ -1,4 +1,4 @@
-﻿using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Newtonsoft.Json;
 using System;
@@ -30,6 +30,7 @@ namespace DocSets
         private readonly RecentBookmarksService recentBookmarksService;
         private readonly PinService pinService;
         private readonly UndoRedoService undoRedoService;
+        private readonly TagService tagService;
         private readonly Func<Window> ownerAccessor;
         private DocumentSetsState state = new DocumentSetsState();
         private DocumentItem selectedSet;
@@ -63,6 +64,7 @@ namespace DocSets
             recentBookmarksService = new RecentBookmarksService();
             pinService = new PinService();
             undoRedoService = new UndoRedoService();
+            tagService = new TagService();
 
             AddSetCommand = new RelayCommand(AddSet, () => IsLoaded);
             RenameSetCommand = new RelayCommand(RenameSet, () => IsLoaded && SelectedSet != null);
@@ -101,6 +103,7 @@ namespace DocSets
         public DocumentItem RecentRoot => recentBookmarksService.Root;
         public DocumentItem PinRoot => pinService.Root;
         public string CurrentSolutionName => store.CurrentSolutionName;
+        public IReadOnlyList<TagDefinition> Tags => state.Tags;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
 
@@ -386,6 +389,7 @@ namespace DocSets
                 IsLoaded = false;
                 state.Root.TreeChanged -= Root_TreeChanged;
                 state = new DocumentSetsState();
+                tagService.EnsureStandardTags(state);
                 state.Root.TreeChanged += Root_TreeChanged;
                 selectedSet = null;
                 selectedNode = null;
@@ -402,6 +406,7 @@ namespace DocSets
 
             state.Root.TreeChanged -= Root_TreeChanged;
             state = loadedState;
+            tagService.EnsureStandardTags(state);
             state.Root.TreeChanged += Root_TreeChanged;
             if (state.Ui == null) state.Ui = new DocumentSetsUiSettings();
             if (solutionState.Ui == null || (solutionState.Ui.Columns.Count == 0 && state.Ui.Columns.Count > 0))
@@ -1385,7 +1390,7 @@ namespace DocSets
             }
         }
 
-        private static string SerializeClipboardNodes(IEnumerable<DocumentItem> nodes)
+        private string SerializeClipboardNodes(IEnumerable<DocumentItem> nodes)
         {
             var clipboardNodes = new List<ClipboardNode>();
             var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1395,18 +1400,24 @@ namespace DocSets
                 AppendClipboardNode(node, string.Empty, clipboardNodes, usedIds);
             }
 
-            return JsonConvert.SerializeObject(clipboardNodes, Formatting.Indented);
+            var usedTagIds = new HashSet<string>(clipboardNodes.SelectMany(x => x.TagIds ?? new List<string>()), StringComparer.OrdinalIgnoreCase);
+            var envelope = new ClipboardEnvelope
+            {
+                Items = clipboardNodes,
+                TagDefinitions = state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList()
+            };
+            return JsonConvert.SerializeObject(envelope, Formatting.Indented);
         }
 
-        private static List<DocumentItem> DeserializeClipboardNodes(string json)
+        private List<DocumentItem> DeserializeClipboardNodes(string json)
         {
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return new List<DocumentItem>();
-            }
-
-            var clipboardNodes = JsonConvert.DeserializeObject<List<ClipboardNode>>(json);
-            return BuildClipboardTree(clipboardNodes);
+            if (string.IsNullOrWhiteSpace(json)) return new List<DocumentItem>();
+            var trimmed = json.TrimStart();
+            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                return BuildClipboardTree(JsonConvert.DeserializeObject<List<ClipboardNode>>(json));
+            var envelope = JsonConvert.DeserializeObject<ClipboardEnvelope>(json) ?? new ClipboardEnvelope();
+            tagService.MergeDefinitions(state, envelope.TagDefinitions);
+            return BuildClipboardTree(envelope.Items);
         }
 
         private static void AppendClipboardNode(DocumentItem item, string parentId, ICollection<ClipboardNode> result, ISet<string> usedIds)
@@ -1431,6 +1442,7 @@ namespace DocSets
                 Column = item.Column,
                 Comment = item.Comment ?? string.Empty,
                 Color = item.Color,
+                TagIds = item.TagIds?.ToList() ?? new List<string>(),
                 EditorState = item.EditorState?.Clone()
             });
 
@@ -1481,6 +1493,7 @@ namespace DocSets
                 Column = source.Column < 1 ? 1 : source.Column,
                 Comment = source.Comment ?? string.Empty,
                 Color = source.Color,
+                TagIds = source.TagIds?.ToList() ?? new List<string>(),
                 EditorState = source.EditorState?.Clone(),
                 Children = new ObservableCollection<DocumentItem>()
             };
@@ -1502,7 +1515,7 @@ namespace DocSets
             return id;
         }
 
-        private static bool TryParseClipboardJson(string text, out List<DocumentItem> nodes)
+        private bool TryParseClipboardJson(string text, out List<DocumentItem> nodes)
         {
             nodes = new List<DocumentItem>();
             if (string.IsNullOrWhiteSpace(text)) return false;
@@ -1669,6 +1682,13 @@ namespace DocSets
             public DocumentItem Item { get; }
         }
 
+        private sealed class ClipboardEnvelope
+        {
+            [JsonProperty("items")]
+            public List<ClipboardNode> Items { get; set; } = new List<ClipboardNode>();
+            [JsonProperty("tagDefinitions", NullValueHandling = NullValueHandling.Ignore)]
+            public List<TagDefinition> TagDefinitions { get; set; } = new List<TagDefinition>();
+        }
         private sealed class ClipboardNode
         {
             [JsonProperty("id")]
@@ -1721,6 +1741,9 @@ namespace DocSets
             [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
             [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
             public BookmarkColor Color { get; set; }
+
+            [JsonProperty("tagIds", NullValueHandling = NullValueHandling.Ignore)]
+            public List<string> TagIds { get; set; } = new List<string>();
 
             [JsonProperty("editorState", NullValueHandling = NullValueHandling.Ignore)]
             public EditorState EditorState { get; set; }
@@ -1985,6 +2008,31 @@ namespace DocSets
             solutionState.Views = newViews;
         }
 
+        public Task ToggleTagAsync(string tagId)
+        {
+            var targets = SelectedNodes.Select(x => ResolvePin(x) ?? x).Where(x => x != null).Distinct().ToList();
+            return ExecuteMutationAsync("Tags", () => tagService.Toggle(targets, tagId));
+        }
+
+        public async Task<TagDefinition> AddTagAsync(string name, string color = "", string icon = "")
+        {
+            TagDefinition created = null;
+            await ExecuteMutationAsync("Add tag", () =>
+            {
+                created = tagService.Add(state, name, color, icon);
+                OnPropertyChanged(nameof(Tags));
+            });
+            return created;
+        }
+
+        public Task DeleteTagAsync(string tagId)
+        {
+            return ExecuteMutationAsync("Delete tag", () =>
+            {
+                tagService.Delete(state, tagId);
+                OnPropertyChanged(nameof(Tags));
+            });
+        }
         public IReadOnlyList<string> UndoOperations => undoRedoService.UndoOperations;
         public IReadOnlyList<string> RedoOperations => undoRedoService.RedoOperations;
 

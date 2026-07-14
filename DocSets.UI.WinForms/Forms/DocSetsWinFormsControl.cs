@@ -1,4 +1,4 @@
-﻿using Aga.Controls.Tree;
+using Aga.Controls.Tree;
 using Aga.Controls.Tree.NodeControls;
 using Microsoft.VisualStudio.Shell;
 using System;
@@ -48,6 +48,8 @@ namespace DocSets
         private readonly Label _statusLabel = new Label();
         private readonly TextBox _filterTextBox = new TextBox();
         private readonly HashSet<BookmarkColor> _filterColors = new HashSet<BookmarkColor>();
+        private readonly HashSet<string> _filterTagIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly ToolStripDropDownButton _filterTagsButton = new ToolStripDropDownButton("Теги: без фильтра");
         private readonly Dictionary<BookmarkColor, ToolStripMenuItem> _filterColorMenuItems = new Dictionary<BookmarkColor, ToolStripMenuItem>();
         private readonly FlowLayoutPanel _selectedFilterColorsPanel = new FlowLayoutPanel();
         private readonly ToolStripDropDownButton _filterColorsButton = new ToolStripDropDownButton();
@@ -58,6 +60,7 @@ namespace DocSets
         private readonly ContextMenuStrip _nodeMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip _headerMenu = new ContextMenuStrip();
         private readonly ContextMenuStrip _groupMenu = new ContextMenuStrip();
+        private readonly ToolStripMenuItem _tagsMenu = new ToolStripMenuItem("Tags");
         private ToolStripMenuItem _addSolutionFolderMenuItem;
         private ToolStripMenuItem _addProjectFolderMenuItem;
         private ToolStripMenuItem _addFileFolderMenuItem;
@@ -88,6 +91,8 @@ namespace DocSets
         {
             this._viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
             BookmarkTreeNode.PinResolver = _viewModel.ResolvePin;
+            BookmarkTreeNode.TagTextResolver = GetTagText;
+            BookmarkTreeNode.TagImageResolver = GetTagImage;
             BookmarkTreeNode.PinChecker = _viewModel.IsPinned;
             Dock = DockStyle.Fill;
             BuildLayout();
@@ -283,6 +288,11 @@ namespace DocSets
             colorStrip.Items.Add(_filterColorsButton);
             BuildFilterColorMenu();
             row.Controls.Add(colorStrip);
+            var tagStrip = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, AutoSize = true, CanOverflow = false, RenderMode = ToolStripRenderMode.System, Padding = new Padding(0), Margin = new Padding(5, 0, 0, 0) };
+            _filterTagsButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _filterTagsButton.DropDownOpening += (_, __) => BuildFilterTagMenu();
+            tagStrip.Items.Add(_filterTagsButton);
+            row.Controls.Add(tagStrip);
 
             _selectedFilterColorsPanel.AutoSize = true;
             _selectedFilterColorsPanel.WrapContents = false;
@@ -290,7 +300,7 @@ namespace DocSets
             _selectedFilterColorsPanel.Padding = new Padding(0);
             row.Controls.Add(_selectedFilterColorsPanel);
 
-            _recentCurrentSolutionOnly.Text = "Текущее solution";
+            _recentCurrentSolutionOnly.Text = "Текущий solution";
             _recentCurrentSolutionOnly.AutoSize = true;
             _recentCurrentSolutionOnly.Margin = new Padding(10, 4, 0, 0);
             _recentCurrentSolutionOnly.Visible = false;
@@ -374,6 +384,8 @@ namespace DocSets
             try
             {
                 _filterColors.Clear();
+                _filterTagIds.Clear();
+                _filterTagsButton.Text = "Теги: без фильтра";
                 _filterTextBox.Text = string.Empty;
             }
             finally
@@ -510,13 +522,15 @@ namespace DocSets
                 (resolved.ModifiedInSolution ?? string.Empty).IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0)
                 return false;
 
-            return _filterColors.Count == 0 || _filterColors.Contains(resolved.Color);
+            return (_filterColors.Count == 0 || _filterColors.Contains(resolved.Color)) &&
+                   (_filterTagIds.Count == 0 || resolved.TagIds.Any(id => _filterTagIds.Contains(id)));
         }
 
         private static IEnumerable<ColumnSpec> GetDefaultColumnSpecs()
         {
             yield return new ColumnSpec("name", "Название", 340);
             yield return new ColumnSpec("comment", "Комментарий", 240);
+            yield return new ColumnSpec("tags", "Теги", 160);
             yield return new ColumnSpec("project", "Проект", 160);
             yield return new ColumnSpec("file", "Файл", 280);
             yield return new ColumnSpec("line", "Строка", 70);
@@ -817,6 +831,18 @@ namespace DocSets
             }
         }
 
+        private Image GetTagImage(DocumentItem item)
+        {
+            if (item?.TagIds == null || item.TagIds.Count == 0) return null;
+            var icons = item.TagIds.Select(id => _viewModel.Tags.FirstOrDefault(x => string.Equals(x?.Id, id, StringComparison.OrdinalIgnoreCase))?.Icon ?? "");
+            return TagIconProvider.GetStrip(icons, IconProvider.IconSize, 4);
+        }
+        private string GetTagText(DocumentItem item)
+        {
+            if (item?.TagIds == null || item.TagIds.Count == 0) return string.Empty;
+            var names = item.TagIds.Select(id => _viewModel.Tags.FirstOrDefault(x => string.Equals(x?.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id);
+            return string.Join(", ", names);
+        }
         private string GetColumnText(DocumentItem item, string key)
         {
             var target = _viewModel.ResolvePin(item) ?? item;
@@ -831,6 +857,7 @@ namespace DocSets
                 case "file": return target?.Path ?? string.Empty;
                 case "line": return target == null || target.NodeType == NodeType.Folder ? string.Empty : target.Line.ToString();
                 case "comment": return target?.CommentFirstLine ?? string.Empty;
+                case "tags": return GetTagText(target);
                 case "project": return target?.Project ?? string.Empty;
                 case "symbol": return target?.Symbol ?? string.Empty;
                 case "solution": return target?.ModifiedInSolution ?? string.Empty;
@@ -1114,6 +1141,7 @@ namespace DocSets
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = _columnsByKey["file"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Line), ParentColumn = _columnsByKey["line"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = _columnsByKey["comment"] });
+            _tree.NodeControls.Add(new NodeIcon { DataPropertyName = nameof(BookmarkTreeNode.TagImage), ParentColumn = _columnsByKey["tags"], LeftMargin = 4, ScaleMode = ImageScaleMode.Clip });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Project), ParentColumn = _columnsByKey["project"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Symbol), ParentColumn = _columnsByKey["symbol"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Solution), ParentColumn = _columnsByKey["solution"] });
@@ -1155,6 +1183,7 @@ namespace DocSets
             AddNodeMenu("Del", _viewModel.DeleteNodeCommand);
             _nodeMenu.Items.Add(new ToolStripSeparator());
             AddColorMenu();
+            AddTagMenu();
             AddPropertiesMenu();
 
             BuildGroupMenu();
@@ -1272,6 +1301,74 @@ namespace DocSets
             _nodeMenu.Items.Add(item);
         }
 
+        private void AddTagMenu()
+        {
+            _tagsMenu.DropDownItems.Add(new ToolStripMenuItem("Загрузка...") { Enabled = false });
+            _tagsMenu.DropDownOpening += (_, __) => BuildTagMenu();
+            _nodeMenu.Items.Add(_tagsMenu);
+        }
+
+        private void BuildTagMenu()
+        {
+            _tagsMenu.DropDownItems.Clear();
+            var selected = _viewModel.SelectedNodes?.Where(x => x != null && !x.IsLocalOnly).ToList() ?? new List<DocumentItem>();
+            foreach (var tag in _viewModel.Tags.Where(x => x != null))
+            {
+                var all = selected.Count > 0 && selected.All(x => x.TagIds.Any(id => string.Equals(id, tag.Id, StringComparison.OrdinalIgnoreCase)));
+                var some = selected.Any(x => x.TagIds.Any(id => string.Equals(id, tag.Id, StringComparison.OrdinalIgnoreCase)));
+                var item = new ToolStripMenuItem(tag.Name) { Checked = all, CheckState = all ? CheckState.Checked : some ? CheckState.Indeterminate : CheckState.Unchecked, Tag = tag };
+                item.Click += async (_, __) => { await _viewModel.ToggleTagAsync(tag.Id); RebuildTree(); };
+                _tagsMenu.DropDownItems.Add(item);
+            }
+            _tagsMenu.DropDownItems.Add(new ToolStripSeparator());
+            var add = new ToolStripMenuItem("Add new tag...");
+            add.Click += async (_, __) =>
+            {
+                var name = PromptDialog.Ask(System.Windows.Application.Current?.MainWindow, "Новый тег", "Название:");
+                if (string.IsNullOrWhiteSpace(name)) return;
+                try { var tag = await _viewModel.AddTagAsync(name); await _viewModel.ToggleTagAsync(tag.Id); RebuildTree(); }
+                catch (Exception ex) { MessageBox.Show(ex.GetBaseException().Message, "Теги", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            };
+            _tagsMenu.DropDownItems.Add(add);
+            var manage = new ToolStripMenuItem("Manage tags...");
+            manage.Click += (_, __) => { using (var dialog = new TagManagerDialog(_viewModel)) dialog.ShowDialog(this); RebuildTree(); };
+            _tagsMenu.DropDownItems.Add(manage);
+        }
+
+        private void BuildFilterTagMenu()
+        {
+            _filterTagsButton.DropDown.ImageScalingSize = new Size(IconProvider.IconSize, IconProvider.IconSize);
+            _filterTagsButton.DropDownItems.Clear();
+            var clear = new ToolStripMenuItem("Без фильтра") { Checked = _filterTagIds.Count == 0 };
+            clear.Click += (_, __) => { _filterTagIds.Clear(); BuildFilterTagMenu(); RebuildTree(); SaveLocalState(); };
+            _filterTagsButton.DropDownItems.Add(clear);
+            _filterTagsButton.DropDownItems.Add(new ToolStripSeparator());
+            foreach (var tag in _viewModel.Tags.Where(x => x != null))
+            {
+                var item = new ToolStripMenuItem(tag.Name) { Tag = tag, Image = CreateTagFilterImage(tag, _filterTagIds.Contains(tag.Id)), ImageScaling = ToolStripItemImageScaling.None };
+                item.Click += (_, __) => { if (!_filterTagIds.Add(tag.Id)) _filterTagIds.Remove(tag.Id); _filterTagsButton.Text = _filterTagIds.Count == 0 ? "Теги: без фильтра" : "Теги: " + _filterTagIds.Count; RebuildTree(); SaveLocalState(); };
+                _filterTagsButton.DropDownItems.Add(item);
+            }
+        }
+        private Image CreateTagFilterImage(TagDefinition tag, bool isChecked)
+        {
+            var scale = Math.Max(1f, DeviceDpi / 96f);
+            var iconSize = Math.Max(16, (int)Math.Round(18 * scale));
+            var checkSize = Math.Max(13, (int)Math.Round(15 * scale));
+            var gap = Math.Max(3, (int)Math.Round(4 * scale));
+            var height = Math.Max(iconSize, checkSize);
+            var checkAreaWidth = checkSize + (int)Math.Round(4 * scale);
+            var bitmap = new Bitmap(checkAreaWidth + gap + iconSize, height);
+            bitmap.SetResolution(DeviceDpi, DeviceDpi);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                var checkBounds = new Rectangle(0, (height - checkSize) / 2, checkSize, checkSize);
+                ControlPaint.DrawCheckBox(graphics, checkBounds, isChecked ? ButtonState.Checked : ButtonState.Normal);
+                graphics.DrawImage(TagIconProvider.Get(tag?.Icon, iconSize), checkAreaWidth + gap, (height - iconSize) / 2, iconSize, iconSize);
+            }
+            return bitmap;
+        }
         private void AddColorMenu()
         {
             var colorMenu = new ToolStripMenuItem("Цвет");
@@ -1991,6 +2088,9 @@ namespace DocSets
             _filterTextBox.Text = local.FilterText ?? string.Empty;
             _filterColors.Clear();
             foreach (var color in local.FilterColors ?? new List<BookmarkColor>()) _filterColors.Add(color);
+            _filterTagIds.Clear();
+            foreach (var tagId in local.FilterTagIds ?? new List<string>()) _filterTagIds.Add(tagId);
+            _filterTagsButton.Text = _filterTagIds.Count == 0 ? "Теги: без фильтра" : "Теги: " + _filterTagIds.Count;
             _recentCurrentSolutionOnly.Checked = local.RecentCurrentSolutionOnly;
             _propertiesVisible = local.PropertiesVisible;
             _contentSplit.Panel2Collapsed = !_propertiesVisible;
@@ -2072,6 +2172,7 @@ namespace DocSets
             local.ActivationMode = _treeActivationMode.ToString();
             local.FilterText = _filterTextBox.Text ?? string.Empty;
             local.FilterColors = _filterColors.ToList();
+            local.FilterTagIds = _filterTagIds.ToList();
             local.RecentCurrentSolutionOnly = _recentCurrentSolutionOnly.Checked;
             local.PropertiesVisible = _propertiesVisible;
             local.PropertiesSectionOrder = _experimentalPropertiesPanel.SectionOrder.ToList();

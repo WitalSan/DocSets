@@ -1,4 +1,4 @@
-﻿using Aga.Controls.Tree;
+using Aga.Controls.Tree;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -11,6 +11,8 @@ namespace DocSets
     {
         public static System.Func<DocumentItem, DocumentItem> PinResolver { get; set; }
         public static System.Func<DocumentItem, bool> PinChecker { get; set; }
+        public static System.Func<DocumentItem, string> TagTextResolver { get; set; }
+        public static System.Func<DocumentItem, Image> TagImageResolver { get; set; }
 
         private DocumentItem ResolvedItem => Item != null && (Item.IsPinItem || Item.IsRecentItem) ? PinResolver?.Invoke(Item) : Item;
 
@@ -76,6 +78,8 @@ namespace DocSets
         public string Solution => ResolvedItem?.ModifiedInSolution ?? string.Empty;
         public string Modified => FormatDate(ResolvedItem?.ModifiedAtUtc);
         public string Created => FormatDate(ResolvedItem?.CreatedAtUtc);
+        public string Tags => TagTextResolver?.Invoke(ResolvedItem) ?? string.Empty;
+        public Image TagImage => TagImageResolver?.Invoke(ResolvedItem);
         public string ColorMarker => ResolvedItem == null || ResolvedItem.Color == BookmarkColor.None ? string.Empty : "■";
 
         private static string FormatDate(DateTimeOffset? value)
