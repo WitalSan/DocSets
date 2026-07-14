@@ -1,4 +1,4 @@
-﻿using Microsoft.VisualStudio.ComponentModelHost;
+using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
@@ -52,12 +52,9 @@ namespace DocSets
                 state.SelectionEndLineOffset = endLine.LineNumber + 1 - Math.Max(1, anchorLine);
                 state.SelectionEndColumn = span.End.Position - endLine.Start.Position + 1;
                 state.SelectedText = span.GetText();
-                state.CodePreview = state.SelectedText;
             }
-            else
-            {
-                state.CodePreview = GetLineRangeText(snapshot, previewStartLine, previewEndLine);
-            }
+
+            state.CodePreview = GetLineRangeText(snapshot, previewStartLine, previewEndLine);
 
             var firstVisible = view.TextViewLines?.FirstVisibleLine;
             if (firstVisible != null)

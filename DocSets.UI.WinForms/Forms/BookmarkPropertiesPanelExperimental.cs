@@ -25,6 +25,7 @@ namespace DocSets
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
+        private readonly BreadcrumbToolTipController breadcrumbToolTips;
         private ExperimentalAccordionHost accordion;
         private ExperimentalAccordionSection commentSection;
         private ExperimentalAccordionSection codeSection;
@@ -49,6 +50,7 @@ namespace DocSets
 
         public BookmarkPropertiesPanelExperimental()
         {
+            breadcrumbToolTips = new BreadcrumbToolTipController(codeSymbolLabel, toolTip);
             Dock = DockStyle.Fill;
             BuildLayout();
             WireChanges(detailsHost);
@@ -350,6 +352,7 @@ namespace DocSets
         {
             var text = FormatCodeSymbol(value);
             codeSymbolLabel.Links.Clear();
+            breadcrumbToolTips.Clear();
             if (value == null || value.Type == BookmarkType.File || string.IsNullOrWhiteSpace(value.Symbol))
             {
                 codeSymbolLabel.Text = text;
@@ -363,7 +366,9 @@ namespace DocSets
             foreach (var part in parts)
             {
                 symbolParts.Add(part);
-                codeSymbolLabel.Links.Add(displayOffset, part.Length, string.Join(".", symbolParts));
+                var symbolPath = string.Join(".", symbolParts);
+                codeSymbolLabel.Links.Add(displayOffset, part.Length, symbolPath);
+                breadcrumbToolTips.Set(symbolPath, BreadcrumbToolTipBuilder.Build(value, symbolPath));
                 displayOffset += part.Length + 1;
             }
         }

@@ -59,48 +59,22 @@
     <LangVersion>9</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="DocSets.UI.WinForms\Icons\IconProvider.cs" />
-    <Compile Include="DocSets.UI.WinForms\Icons\BookmarkColorService.cs" />
-    <Compile Include="DocSets.UI.WinForms\Icons\TagIconProvider.cs" />
-    <Compile Include="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
+    <!-- Source trees are included recursively, like SDK-style projects. -->
+    <Compile Include="DocSets.Core\**\*.cs" Exclude="DocSets.Core\**\bin\**;DocSets.Core\**\obj\**;DocSets.Core\**\.vs\**" />
+    <Compile Include="DocSets.UI.WinForms\**\*.cs" Exclude="DocSets.UI.WinForms\**\bin\**;DocSets.UI.WinForms\**\obj\**;DocSets.UI.WinForms\**\.vs\**" />
+    <Compile Include="DocSets.Vsix\**\*.cs" Exclude="DocSets.Vsix\**\bin\**;DocSets.Vsix\**\obj\**;DocSets.Vsix\**\.vs\**" />
+    <Compile Include="Properties\**\*.cs" Exclude="Properties\**\bin\**;Properties\**\obj\**;Properties\**\.vs\**" />
+
+    <!-- Design-time hints do not participate in source inclusion. -->
+    <Compile Update="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
-    <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
-    <Compile Include="DocSets.Vsix\Package\DocSetsPackage.cs" />
-    <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
-    <Compile Include="DocSets.Core\Storage\DocSetsStore.cs" />
-    <Compile Include="DocSets.Core\Services\DocSetsViewModel.cs" />
-    <Compile Include="DocSets.Core\Services\DocumentTreeService.cs" />
-    <Compile Include="DocSets.Core\Services\NavigationHistoryService.cs" />
-    <Compile Include="DocSets.Core\Services\PinService.cs" />
-    <Compile Include="DocSets.Core\Services\RecentBookmarksService.cs" />
-    <Compile Include="DocSets.Core\Services\UndoRedoService.cs" />
-    <Compile Include="DocSets.Core\Services\TagService.cs" />
-    <Compile Include="DocSets.Core\Services\FileBookmarkTrackingService.cs" />
-    <Compile Include="DocSets.Core\Services\EditorStateService.cs" />
-    <Compile Include="DocSets.Core\Services\RelayCommand.cs" />
-    <Compile Include="DocSets.Core\Models\Model.cs" />
-    <Compile Include="DocSets.Core\Roslyn\RoslynBookmarkResolver.cs" />
-    <Compile Include="DocSets.UI.WinForms\TreeViewAdv\BookmarkTreeNode.cs" />
-    <Compile Include="DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" />
-    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanel.cs">
+    <Compile Update="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanel.cs;DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs;DocSets.UI.WinForms\Forms\DocSetsWinFormsControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsWinFormsControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesDialog.cs">
+    <Compile Update="DocSets.UI.WinForms\Forms\BookmarkPropertiesDialog.cs;DocSets.UI.WinForms\Forms\TagManagerDialog.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\PromptDialog.cs" />
-    <Compile Include="DocSets.UI.WinForms\Forms\TagManagerDialog.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="source.extension.vsixmanifest">

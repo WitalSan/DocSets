@@ -6,8 +6,10 @@ using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.LanguageServices;
 using Microsoft.VisualStudio.Shell;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,6 +34,13 @@ namespace DocSets
             typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypes,
             memberOptions: SymbolDisplayMemberOptions.IncludeContainingType,
             parameterOptions: SymbolDisplayParameterOptions.None,
+            genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+            miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
+
+        private static readonly SymbolDisplayFormat SnapshotSignatureFormat = new SymbolDisplayFormat(
+            typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly,
+            memberOptions: SymbolDisplayMemberOptions.IncludeType | SymbolDisplayMemberOptions.IncludeParameters,
+            parameterOptions: SymbolDisplayParameterOptions.IncludeType | SymbolDisplayParameterOptions.IncludeName | SymbolDisplayParameterOptions.IncludeParamsRefOut | SymbolDisplayParameterOptions.IncludeDefaultValue,
             genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
             miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
 
@@ -133,6 +142,7 @@ namespace DocSets
                 }
 
                 item.EditorState = await editorState.CaptureAsync(symbolAnchorLine, previewStartLine, previewEndLine);
+                item.EditorState.SymbolSnapshots = await CreateSymbolSnapshotsAsync(symbol);
             }
             catch
             {
@@ -145,6 +155,43 @@ namespace DocSets
             }
 
             return item;
+        }
+
+        private static async Task<List<SymbolSnapshot>> CreateSymbolSnapshotsAsync(ISymbol symbol)
+        {
+            var chain = new List<ISymbol>();
+            for (var current = symbol; current != null; current = current.ContainingSymbol)
+            {
+                var ns = current as INamespaceSymbol;
+                if (current.Kind != SymbolKind.Assembly && current.Kind != SymbolKind.NetModule && ns?.IsGlobalNamespace != true) chain.Add(current);
+            }
+            chain.Reverse();
+            var result = new List<SymbolSnapshot>();
+            foreach (var current in chain)
+            {
+                result.Add(new SymbolSnapshot { Symbol = current.ToDisplayString(StoredSymbolFormat), Name = current.Name,
+                    Kind = current.Kind.ToString(), Signature = current.ToDisplayString(SnapshotSignatureFormat),
+                    Comment = await ExtractAttachedCommentAsync(current) });
+            }
+            return result;
+        }
+
+        private static async Task<string> ExtractAttachedCommentAsync(ISymbol symbol)
+        {
+            var reference = symbol.DeclaringSyntaxReferences.FirstOrDefault();
+            if (reference == null) return null;
+            var declaration = await reference.GetSyntaxAsync();
+            var text = declaration.SyntaxTree.GetText();
+            var declarationLine = declaration.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+            var commentLine = GetAttachedCommentStartLine(text, declarationLine);
+            if (commentLine >= declarationLine) return null;
+            var value = string.Join(Environment.NewLine, Enumerable.Range(commentLine - 1, declarationLine - commentLine).Select(i => text.Lines[i].ToString()));
+            value = Regex.Replace(value, @"^\s*/\*+|\*/\s*$", "", RegexOptions.Multiline);
+            value = Regex.Replace(value, @"(?m)^\s*(?:///+|\*)\s?", "");
+            value = Regex.Replace(value, @"<[^>]+>", "").Replace("&lt;", "<").Replace("&gt;", ">").Replace("&amp;", "&");
+            var lines = value.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).Select(x => x.Trim()).Where(x => x.Length > 0);
+            value = string.Join(Environment.NewLine, lines);
+            return value.Length == 0 ? null : value;
         }
 
 

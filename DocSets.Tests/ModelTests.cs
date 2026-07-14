@@ -24,7 +24,8 @@ namespace DocSets.Tests
             bookmark.CreatedAtUtc = created;
             bookmark.ModifiedAtUtc = modified;
             bookmark.ModifiedInSolution = "SolutionA";
-            bookmark.EditorState = new EditorState { CaretLineOffset = 3, CodePreview = "void M()" };
+            bookmark.EditorState = new EditorState { CaretLineOffset = 3, CodePreview = "void M()",
+                SymbolSnapshots = new List<SymbolSnapshot> { new SymbolSnapshot { Symbol = "A.B.Method", Signature = "void Method()", Comment = "Docs" } } };
             folder.Children.Add(bookmark);
             set.Children.Add(folder);
             state.Sets.Add(set);
@@ -42,6 +43,7 @@ namespace DocSets.Tests
             Assert.Equal(modified, restoredBookmark.ModifiedAtUtc.Value);
             Assert.Equal("SolutionA", restoredBookmark.ModifiedInSolution);
             Assert.Equal("void M()", restoredBookmark.EditorState.CodePreview);
+            Assert.Equal("Docs", restoredBookmark.EditorState.SymbolSnapshots[0].Comment);
             Assert.Same(restored.Sets[0].Children[0], restoredBookmark.Parent);
         }
 

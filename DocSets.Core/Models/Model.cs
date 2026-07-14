@@ -589,9 +589,38 @@ namespace DocSets
         [JsonProperty("codePreview", NullValueHandling = NullValueHandling.Ignore)]
         public string CodePreview { get; set; }
 
+        [JsonProperty("symbolSnapshots", NullValueHandling = NullValueHandling.Ignore)]
+        public List<SymbolSnapshot> SymbolSnapshots { get; set; } = new List<SymbolSnapshot>();
+
         public EditorState Clone()
         {
-            return (EditorState)MemberwiseClone();
+            var clone = (EditorState)MemberwiseClone();
+            clone.SymbolSnapshots = SymbolSnapshots?.Select(x => x?.Clone()).Where(x => x != null).ToList()
+                ?? new List<SymbolSnapshot>();
+            return clone;
+        }
+    }
+
+    public sealed class SymbolSnapshot
+    {
+        [JsonProperty("symbol")]
+        public string Symbol { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("kind")]
+        public string Kind { get; set; }
+
+        [JsonProperty("signature", NullValueHandling = NullValueHandling.Ignore)]
+        public string Signature { get; set; }
+
+        [JsonProperty("comment", NullValueHandling = NullValueHandling.Ignore)]
+        public string Comment { get; set; }
+
+        public SymbolSnapshot Clone()
+        {
+            return (SymbolSnapshot)MemberwiseClone();
         }
     }
 
