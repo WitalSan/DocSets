@@ -125,7 +125,7 @@ namespace DocSets
                 var symbolLocation = symbol.Locations.FirstOrDefault(x => x.IsInSource);
                 var symbolAnchorLine = symbolLocation?.GetLineSpan().StartLinePosition.Line + 1 ?? line;
                 var previewStartLine = symbolAnchorLine;
-                var previewEndLine = symbolAnchorLine + 5;
+                var previewEndLine = symbolAnchorLine + 19;
 
                 var syntaxReference = symbol.DeclaringSyntaxReferences.FirstOrDefault();
                 if (syntaxReference != null)
@@ -136,9 +136,7 @@ namespace DocSets
                     var declarationEndLine = declarationSpan.EndLinePosition.Line + 1;
 
                     previewStartLine = GetAttachedCommentStartLine(text, declarationStartLine);
-                    previewEndLine = declarationEndLine - declarationStartLine + 1 <= 6
-                        ? declarationEndLine
-                        : declarationStartLine + 5;
+                    previewEndLine = Math.Min(declarationEndLine, previewStartLine + 19);
                 }
 
                 item.EditorState = await editorState.CaptureAsync(symbolAnchorLine, previewStartLine, previewEndLine);
@@ -426,6 +424,7 @@ namespace DocSets
                 {
                     var text = await document.GetTextAsync(cancellationToken);
                     var declarationStartLine = Math.Max(1, line);
+                    var declarationEndLine = declarationStartLine + 19;
                     var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
                     var root = await document.GetSyntaxRootAsync(cancellationToken);
                     if (semanticModel != null && root != null)
@@ -436,12 +435,15 @@ namespace DocSets
                         if (syntaxReference != null)
                         {
                             var declaration = await syntaxReference.GetSyntaxAsync(cancellationToken);
-                            declarationStartLine = declaration.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+                            var declarationSpan = declaration.GetLocation().GetLineSpan();
+                            declarationStartLine = declarationSpan.StartLinePosition.Line + 1;
+                            declarationEndLine = declarationSpan.EndLinePosition.Line + 1;
                         }
                     }
 
                     var previewStartLine = GetAttachedCommentStartLine(text, declarationStartLine);
-                    return GetLineRangeText(text, previewStartLine, declarationStartLine + 9);
+                    var previewEndLine = Math.Min(declarationEndLine, previewStartLine + 19);
+                    return GetLineRangeText(text, previewStartLine, previewEndLine);
                 }
             }
             catch (OperationCanceledException)
@@ -514,7 +516,7 @@ namespace DocSets
                 }
 
                 var targetIndex = Math.Max(0, oneBasedLine - 1);
-                var endIndex = targetIndex + 9;
+                var endIndex = targetIndex + 19;
                 var lines = new System.Collections.Generic.List<string>();
                 using (var reader = File.OpenText(fullPath))
                 {
