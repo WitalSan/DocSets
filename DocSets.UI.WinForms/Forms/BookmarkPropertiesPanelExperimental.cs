@@ -29,6 +29,7 @@ namespace DocSets
         private readonly BreadcrumbToolTipController breadcrumbToolTips;
         private readonly TabControl contentTabs = new TabControl();
         private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
+        private readonly MarkdownCommentControl markdownComment2 = new MarkdownCommentControl(experimentalDragDrop: true);
         private ExperimentalAccordionHost accordion;
         private ExperimentalAccordionSection commentSection;
         private ExperimentalAccordionSection codeSection;
@@ -45,6 +46,9 @@ namespace DocSets
         private Point breadcrumbDragStart;
         private DocumentLink breadcrumbDragLink;
         private bool markdownCommentDirty;
+        private MarkdownCommentControl dirtyMarkdownComment;
+        private MarkdownCommentControl focusMarkdownComment;
+        private MarkdownCommentControl pendingExternalDropComment;
 
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
@@ -67,21 +71,36 @@ namespace DocSets
             commentTextBox.TextChanged += Changed;
             commentTextBox.TextChanged += (_, __) =>
             {
-                if (!loading) markdownCommentDirty = false;
+                if (!loading) { markdownCommentDirty = false; dirtyMarkdownComment = null; }
             };
-            markdownComment.CommentChanged += (_, __) =>
-            {
-                if (loading) return;
-                markdownCommentDirty = true;
-                Changed(markdownComment, EventArgs.Empty);
-            };
-            markdownComment.LinkActivated += link => DocumentLinkActivated?.Invoke(link);
-            markdownComment.ExternalSymbolDropRequested += (text, position) => ExternalSymbolDropRequested?.Invoke(text, position);
-            markdownComment.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
-            markdownComment.DropFocusRequested += (_, __) => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
+            WireMarkdownComment(markdownComment);
+            WireMarkdownComment(markdownComment2);
             LoadItem(null);
         }
 
+        private void WireMarkdownComment(MarkdownCommentControl control)
+        {
+            control.CommentChanged += (_, __) =>
+            {
+                if (loading) return;
+                markdownCommentDirty = true;
+                dirtyMarkdownComment = control;
+                Changed(control, EventArgs.Empty);
+            };
+            control.LinkActivated += link => DocumentLinkActivated?.Invoke(link);
+            control.ExternalSymbolDropRequested += (text, position) =>
+            {
+                pendingExternalDropComment = control;
+                focusMarkdownComment = control;
+                ExternalSymbolDropRequested?.Invoke(text, position);
+            };
+            control.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
+            control.DropFocusRequested += (_, __) =>
+            {
+                focusMarkdownComment = control;
+                MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
+            };
+        }
         public DocumentItem CurrentItem => item;
         public bool RequestedPinState => !loadedAllPinned;
         public BookmarkColor SelectedColor => selectedColor;
@@ -103,7 +122,7 @@ namespace DocSets
 
         public IList<string> SectionOrder => accordion?.SectionOrder ?? new List<string>();
         public IList<string> ExpandedSections => accordion?.ExpandedSections ?? new List<string>();
-        public string SelectedContentTab => contentTabs.SelectedIndex == 1 ? "comment" : "properties";
+        public string SelectedContentTab => contentTabs.SelectedIndex == 1 ? "comment" : contentTabs.SelectedIndex == 2 ? "comment2" : "properties";
 
         public void ApplyLayoutState(IEnumerable<string> sectionOrder, IEnumerable<string> expandedSections)
         {
@@ -112,7 +131,7 @@ namespace DocSets
 
         public void ApplySelectedContentTab(string value)
         {
-            contentTabs.SelectedIndex = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            contentTabs.SelectedIndex = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ? 1 : string.Equals(value, "comment2", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
         }
 
         public void LoadItem(DocumentItem value, bool isPinned = false)
@@ -151,7 +170,9 @@ namespace DocSets
                 if (!preserveMarkdownEdit)
                 {
                     markdownComment.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
+                    markdownComment2.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
                     markdownCommentDirty = false;
+                    dirtyMarkdownComment = null;
                 }
                 UpdateCodePreview(value);
                 selectedColor = commonColor ?? BookmarkColor.None;
@@ -166,6 +187,7 @@ namespace DocSets
                 pinCheckBox.Enabled = value != null && canPin;
                 codeSymbolLabel.Enabled = value != null && !multiple;
                 markdownComment.Enabled = value != null && !multiple;
+                markdownComment2.Enabled = value != null && !multiple;
                 SetSectionContentEnabled(value != null && !multiple);
                 UpdateColorButtons();
                 if (multiple && !commonColor.HasValue)
@@ -233,6 +255,7 @@ namespace DocSets
                 try { commentTextBox.Text = comment; }
                 finally { loading = false; }
                 markdownCommentDirty = false;
+                dirtyMarkdownComment = null;
             }
             if (item.Color != selectedColor) { item.Color = selectedColor; changed = true; }
             return changed;
@@ -287,14 +310,22 @@ namespace DocSets
             contentTabs.Dock = DockStyle.Fill;
             var propertiesTab = new TabPage("Свойства");
             var commentMarkdownTab = new TabPage("Комментарий β");
+            var commentMarkdownTab2 = new TabPage("Комментарий-2");
             propertiesTab.Controls.Add(accordion);
             commentMarkdownTab.Controls.Add(markdownComment);
+            commentMarkdownTab2.Controls.Add(markdownComment2);
             contentTabs.TabPages.Add(propertiesTab);
             contentTabs.TabPages.Add(commentMarkdownTab);
+            contentTabs.TabPages.Add(commentMarkdownTab2);
             contentTabs.SelectedIndexChanged += (_, __) =>
             {
-                if (contentTabs.SelectedIndex == 0 && markdownCommentDirty) markdownComment.ShowPreview();
-                if (contentTabs.SelectedIndex == 1 && !markdownCommentDirty) markdownComment.LoadComment(commentTextBox.Text, resetToPreview: true);
+                var target = contentTabs.SelectedIndex == 1 ? markdownComment : contentTabs.SelectedIndex == 2 ? markdownComment2 : null;
+                if (contentTabs.SelectedIndex == 0 && markdownCommentDirty) dirtyMarkdownComment?.ShowPreview();
+                if (target != null && !ReferenceEquals(target, dirtyMarkdownComment))
+                {
+                    target.LoadComment(CurrentCommentText, resetToPreview: true);
+                }
+                if (target != null) focusMarkdownComment = target;
                 LayoutStateChanged?.Invoke(this, EventArgs.Empty);
             };
             root.Controls.Add(contentTabs, 0, 2);
@@ -375,14 +406,20 @@ namespace DocSets
             accordion?.PerformLayout();
             PerformLayout();
         }
-        private string CurrentCommentText => markdownCommentDirty ? markdownComment.CommentText : commentTextBox.Text ?? string.Empty;
+        private string CurrentCommentText => markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : commentTextBox.Text ?? string.Empty;
 
-        public void FocusMarkdownEditor() => markdownComment.FocusEditorFromHost();
+        private MarkdownCommentControl SelectedMarkdownComment =>
+            contentTabs.SelectedIndex == 2 ? markdownComment2 : markdownComment;
+
+        public void FocusMarkdownEditor() => (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
         public void RequestMarkdownEditorFocus() => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
 
         public void InsertResolvedExternalSymbol(DocumentLink link, int position)
         {
-            markdownComment.InsertResolvedLink(link, position);
+            var target = pendingExternalDropComment ?? SelectedMarkdownComment;
+            pendingExternalDropComment = null;
+            focusMarkdownComment = target;
+            target.InsertResolvedLink(link, position);
         }
 
         private void BreadcrumbMouseDown(object sender, MouseEventArgs e)

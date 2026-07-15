@@ -145,6 +145,33 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void SecondCommentTabIsIsolatedExperimentalSurface()
+        {
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                var item = Bookmark();
+                panel.LoadItem(item);
+                var tabs = Field<TabControl>(panel, "contentTabs");
+                var current = Field<MarkdownCommentControl>(panel, "markdownComment");
+                var experimental = Field<MarkdownCommentControl>(panel, "markdownComment2");
+
+                Assert.Equal(3, tabs.TabPages.Count);
+                Assert.Equal("Комментарий-2", tabs.TabPages[2].Text);
+                Assert.False(current.ExperimentalDragDrop);
+                Assert.True(experimental.ExperimentalDragDrop);
+                var experimentalEditor = Field<RichTextBox>(experimental, "editor");
+                Assert.Equal(11, experimentalEditor.Lines.Length);
+
+                panel.ApplySelectedContentTab("comment2");
+                Assert.Equal("comment2", panel.SelectedContentTab);
+                Assert.Equal("old comment", experimental.CommentText);
+                experimentalEditor.Text = "changed" + Environment.NewLine + Environment.NewLine;
+                Assert.Equal("changed", experimental.CommentText);
+                Assert.True(panel.ApplyToCurrentItem());
+                Assert.Equal("changed", item.Comment);
+            }
+        }
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ContentTabsStayAvailableWithoutSelectedItem()
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())

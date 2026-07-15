@@ -238,6 +238,16 @@ namespace DocSets
     }
     internal sealed class MarkdownCommentControl : UserControl
     {
+        private sealed class DragWheelMessageFilter : IMessageFilter
+        {
+            private const int WmMouseWheel = 0x020A;
+            private readonly MarkdownCommentControl owner;
+
+            public DragWheelMessageFilter(MarkdownCommentControl owner) => this.owner = owner;
+
+            public bool PreFilterMessage(ref Message message) =>
+                message.Msg == WmMouseWheel && owner.HandleDragMouseWheel(message.WParam);
+        }
         private readonly ToolStrip toolbar = new ToolStrip();
         private readonly ToolStripButton previewButton = new ToolStripButton("Просмотр");
         private readonly ToolStripButton editButton = new ToolStripButton("Редактирование");
@@ -252,11 +262,15 @@ namespace DocSets
         private readonly DragCaretIndicator dragCaret = new DragCaretIndicator { Visible = false, BackColor = SystemColors.WindowText };
         private readonly System.Windows.Forms.Timer dragCaretTimer = new System.Windows.Forms.Timer { Interval = 50 };
         private RichTextBox dragCaretTarget;
+        private DragWheelMessageFilter dragWheelFilter;
+        private bool dragWheelFilterInstalled;
+        private int lastDragScrollTick;
         private readonly List<MarkdownLinkSpan> links = new List<MarkdownLinkSpan>();
         private int[] previewToEditorPositions = new[] { 0 };
         private MarkdownLinkSpan contextLink;
         private bool loading;
         private readonly System.Windows.Forms.Timer highlightTimer = new System.Windows.Forms.Timer { Interval = 140 };
+        private readonly bool experimentalDragDrop;
         private Font editorRegularFont;
         private Font editorBoldFont;
         private Font editorItalicFont;
@@ -265,14 +279,17 @@ namespace DocSets
         private const int WmSetRedraw = 0x000B;
         private const int EmGetFirstVisibleLine = 0x00CE;
         private const int EmLineScroll = 0x00B6;
+        private const int ExperimentalTrailingLineCount = 10;
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
         public event EventHandler DropFocusRequested;
         public event Action<DocumentLink> LinkActivated;
         public event Action<string, int> ExternalSymbolDropRequested;
 
-        public MarkdownCommentControl()
+        public MarkdownCommentControl(bool experimentalDragDrop = false)
         {
+            this.experimentalDragDrop = experimentalDragDrop;
+            if (experimentalDragDrop) dragWheelFilter = new DragWheelMessageFilter(this);
             Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
             toolbar.Font = Font;
             preview.Font = Font;
@@ -292,8 +309,8 @@ namespace DocSets
             preview.Dock = DockStyle.Fill; preview.ReadOnly = true; preview.BorderStyle = BorderStyle.None; preview.BackColor = SystemColors.Window;
             preview.DetectUrls = false; preview.ScrollBars = RichTextBoxScrollBars.Vertical; preview.AllowDrop = true;
             preview.MouseMove += PreviewMouseMove; preview.MouseUp += PreviewMouseUp;
-            preview.VScroll += (_, __) => HideDragCaret(); preview.HScroll += (_, __) => HideDragCaret();
-            preview.DragEnter += EditorDragEnter; preview.DragOver += PreviewDragOver; preview.DragLeave += (_, __) => HideDragCaret(); preview.DragDrop += PreviewDragDrop;
+            preview.VScroll += (_, __) => { if (!experimentalDragDrop) HideDragCaret(); }; preview.HScroll += (_, __) => { if (!experimentalDragDrop) HideDragCaret(); };
+            preview.DragEnter += EditorDragEnter; preview.DragOver += PreviewDragOver; preview.DragLeave += (_, __) => { if (!experimentalDragDrop) HideDragCaret(); }; preview.DragDrop += PreviewDragDrop;
             preview.KeyDown += PreviewEditorKeyDown;
             preview.KeyPress += PreviewKeyPress;
             var linkMenu = new ContextMenuStrip();
@@ -313,20 +330,31 @@ namespace DocSets
             dragCaretTimer.Tick += (_, __) => ValidateDragCaret();
             editor.TextChanged += EditorTextChanged;
             editor.KeyDown += EditorKeyDown;
-            editor.VScroll += (_, __) => HideDragCaret(); editor.HScroll += (_, __) => HideDragCaret();
-            editor.DragEnter += EditorDragEnter; editor.DragOver += EditorDragOver; editor.DragLeave += (_, __) => HideDragCaret(); editor.DragDrop += EditorDragDrop; body.Controls.Add(editor);
+            editor.VScroll += (_, __) => { if (!experimentalDragDrop) HideDragCaret(); }; editor.HScroll += (_, __) => { if (!experimentalDragDrop) HideDragCaret(); };
+            editor.DragEnter += EditorDragEnter; editor.DragOver += EditorDragOver; editor.DragLeave += (_, __) => { if (!experimentalDragDrop) HideDragCaret(); }; editor.DragDrop += EditorDragDrop; body.Controls.Add(editor);
             body.Controls.Add(dragCaret); dragCaret.BringToFront();
             ShowPreview();
         }
 
-        public string CommentText => editor.Text ?? string.Empty;
+        public string CommentText => experimentalDragDrop ? TrimTrailingEmptyLines(editor.Text) : editor.Text ?? string.Empty;
+        private static string TrimTrailingEmptyLines(string value)
+        {
+            var text = value ?? string.Empty;
+            return Regex.Replace(text, @"(?:\r?\n[ \t]*)+$", string.Empty);
+        }
+
+        private static string CreateExperimentalTail() =>
+            string.Concat(System.Linq.Enumerable.Repeat(Environment.NewLine, ExperimentalTrailingLineCount));
         public bool IsEditing => editor.Visible;
+        internal bool ExperimentalDragDrop => experimentalDragDrop;
         public void LoadComment(string value, bool resetToPreview = false)
         {
             loading = true;
             try
             {
-                editor.Text = value ?? string.Empty; ApplyEditorFormatting(); RenderPreview();
+                var comment = experimentalDragDrop ? TrimTrailingEmptyLines(value) : value ?? string.Empty;
+                editor.Text = experimentalDragDrop ? comment + CreateExperimentalTail() : comment;
+                ApplyEditorFormatting(); RenderPreview();
                 if (resetToPreview) { editor.Visible = false; preview.Visible = true; previewButton.Checked = true; editButton.Checked = false; }
             }
             finally { loading = false; }
@@ -454,7 +482,12 @@ namespace DocSets
             e.SuppressKeyPress = true;
             e.Handled = true;
         }
-        private void EditorDragEnter(object sender, DragEventArgs e) => e.Effect = DocumentLinkService.TryGetLink(e.Data, out _) || HasExternalText(e.Data) ? DragDropEffects.Copy : DragDropEffects.None;
+private void EditorDragEnter(object sender, DragEventArgs e)
+        {
+            e.Effect = DocumentLinkService.TryGetLink(e.Data, out _) || HasExternalText(e.Data) ? DragDropEffects.Copy : DragDropEffects.None;
+            if (experimentalDragDrop && e.Effect != DragDropEffects.None && sender is RichTextBox target)
+                BeginExperimentalDrag(target);
+        }
         private void EditorDragOver(object sender, DragEventArgs e)
         {
             EditorDragEnter(sender, e);
@@ -471,7 +504,12 @@ namespace DocSets
 
         private void ShowDragCaret(RichTextBox target, DragEventArgs e, bool movePastEndToNewLine)
         {
-            var point = target.PointToClient(new Point(e.X, e.Y));
+            ShowDragCaretAt(target, target.PointToClient(new Point(e.X, e.Y)), movePastEndToNewLine);
+        }
+
+        private void ShowDragCaretAt(RichTextBox target, Point point, bool movePastEndToNewLine)
+        {
+            if (experimentalDragDrop) movePastEndToNewLine = false;
             var lineHeight = Math.Max(1, target.Font.Height);
             var textLength = target.TextLength;
             var endPoint = target.GetPositionFromCharIndex(textLength);
@@ -503,6 +541,34 @@ namespace DocSets
             dragCaretTimer.Start();
         }
 
+        private void BeginExperimentalDrag(RichTextBox target)
+        {
+            dragCaretTarget = target;
+            if (dragWheelFilterInstalled || dragWheelFilter == null) return;
+            Application.AddMessageFilter(dragWheelFilter);
+            dragWheelFilterInstalled = true;
+        }
+
+        private bool HandleDragMouseWheel(IntPtr wParam)
+        {
+            if (!experimentalDragDrop || !dragCaret.Visible || dragCaretTarget == null) return false;
+            var point = dragCaretTarget.PointToClient(Cursor.Position);
+            var margin = DpiService.Scale(this, 24);
+            var activeArea = Rectangle.Inflate(dragCaretTarget.ClientRectangle, margin, margin);
+            if (!activeArea.Contains(point)) return false;
+            var delta = unchecked((short)(((long)wParam >> 16) & 0xffff));
+            if (delta == 0) return false;
+            ScrollDragTarget(delta > 0 ? -1 : 1);
+            return true;
+        }
+
+        private void ScrollDragTarget(int lineDelta)
+        {
+            if (dragCaretTarget == null || dragCaretTarget.IsDisposed || !dragCaretTarget.IsHandleCreated) return;
+            SendMessage(dragCaretTarget.Handle, EmLineScroll, IntPtr.Zero, new IntPtr(lineDelta));
+            ShowDragCaretAt(dragCaretTarget, dragCaretTarget.PointToClient(Cursor.Position), false);
+        }
+
         private void ValidateDragCaret()
         {
             if (!dragCaret.Visible || dragCaretTarget == null || dragCaretTarget.IsDisposed)
@@ -512,14 +578,34 @@ namespace DocSets
             }
 
             var leftButtonDown = (Control.MouseButtons & MouseButtons.Left) == MouseButtons.Left;
-            var pointerInsideTarget = dragCaretTarget.ClientRectangle.Contains(dragCaretTarget.PointToClient(Cursor.Position));
-            if (!leftButtonDown || !pointerInsideTarget)
+            var point = dragCaretTarget.PointToClient(Cursor.Position);
+            var margin = experimentalDragDrop ? DpiService.Scale(this, 24) : 0;
+            var activeArea = Rectangle.Inflate(dragCaretTarget.ClientRectangle, margin, margin);
+            if (!leftButtonDown || !activeArea.Contains(point))
+            {
                 HideDragCaret();
+                return;
+            }
+
+            if (!experimentalDragDrop) return;
+            var scrollZone = Math.Min(Math.Max(DpiService.Scale(this, 48), dragCaretTarget.Font.Height * 2), Math.Max(1, dragCaretTarget.ClientSize.Height / 3));
+            var direction = point.Y <= scrollZone ? -1 : point.Y >= dragCaretTarget.ClientSize.Height - scrollZone ? 1 : 0;
+            var now = Environment.TickCount;
+            if (direction != 0 && unchecked(now - lastDragScrollTick) >= 90)
+            {
+                lastDragScrollTick = now;
+                ScrollDragTarget(direction);
+            }
         }
 
         private void HideDragCaret()
         {
             dragCaretTimer.Stop();
+            if (dragWheelFilterInstalled && dragWheelFilter != null)
+            {
+                Application.RemoveMessageFilter(dragWheelFilter);
+                dragWheelFilterInstalled = false;
+            }
             dragCaretTarget = null;
             dragCaret.Visible = false;
         }
@@ -585,6 +671,7 @@ namespace DocSets
             movedPastEnd = textLength > 0 &&
                 (point.Y >= endPoint.Y + lineHeight / 2 ||
                  (point.Y >= endPoint.Y && point.Y < endPoint.Y + lineHeight && point.X >= endPoint.X));
+            if (experimentalDragDrop) movedPastEnd = false;
             if (!movedPastEnd)
                 return textLength == 0 ? 0 : editor.GetCharIndexFromPosition(point);
 
@@ -604,6 +691,7 @@ namespace DocSets
             var afterEnd = previewLength > 0 &&
                 (point.Y >= endPoint.Y + lineHeight / 2 ||
                  (point.Y >= endPoint.Y && point.Y < endPoint.Y + lineHeight && point.X >= endPoint.X));
+            if (experimentalDragDrop) afterEnd = false;
             var editorPosition = afterEnd ? editor.TextLength : PreviewToEditorPosition(previewPosition);
             ShowEditor();
             editor.SelectionStart = Math.Max(0, Math.Min(editor.TextLength, editorPosition));
@@ -761,6 +849,7 @@ namespace DocSets
         {
             if (disposing)
             {
+                HideDragCaret();
                 highlightTimer.Dispose();
                 dragCaretTimer.Dispose();
                 editorRegularFont?.Dispose();
