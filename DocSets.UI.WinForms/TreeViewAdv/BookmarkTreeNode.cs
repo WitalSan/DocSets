@@ -13,6 +13,7 @@ namespace DocSets
         public static System.Func<DocumentItem, bool> PinChecker { get; set; }
         public static System.Func<DocumentItem, string> TagTextResolver { get; set; }
         public static System.Func<DocumentItem, Image> TagImageResolver { get; set; }
+        public static System.Func<int> IconSizeResolver { get; set; }
 
         private DocumentItem ResolvedItem => Item != null && (Item.IsPinItem || Item.IsRecentItem) ? PinResolver?.Invoke(Item) : Item;
 
@@ -102,14 +103,14 @@ namespace DocSets
         private static Image GetImage(DocumentItem item)
         {
             var resolved = item != null && (item.IsPinItem || item.IsRecentItem) ? PinResolver?.Invoke(item) : item;
-            return IconProvider.Get(GetBaseIcon(resolved), IconProvider.IconSize);
+            return IconProvider.Get(GetBaseIcon(resolved), IconSizeResolver?.Invoke() ?? 16);
         }
 
         private static Image GetPinnedImage(DocumentItem item)
         {
             var resolved = item != null && (item.IsPinItem || item.IsRecentItem) ? PinResolver?.Invoke(item) : item;
             var isPinned = item != null && (item.IsPinItem || (resolved != null && PinChecker?.Invoke(resolved) == true));
-            return isPinned ? IconProvider.Get(AppIcon.PinOverlay, IconProvider.PinIconSize) : null;
+            return isPinned ? IconProvider.Get(AppIcon.PinOverlay, IconSizeResolver?.Invoke() ?? 16) : null;
         }
 
         private static AppIcon GetBaseIcon(DocumentItem item)

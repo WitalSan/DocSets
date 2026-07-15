@@ -23,7 +23,7 @@ namespace DocSets
                 var pen = new Pen(Color.FromArgb(70, 70, 70), Math.Max(2f, size / 12f));
                 var accent = Color.FromArgb(55, 125, 210);
                 if (name == "check") { pen.Color = Color.SeaGreen; g.DrawLines(pen, new[] { P(size,.18,.55), P(size,.42,.78), P(size,.84,.24) }); }
-                else if (name == "warning") { using (var b = new SolidBrush(Color.Goldenrod)) g.FillPolygon(b, new[] { P(size,.5,.08), P(size,.94,.88), P(size,.06,.88) }); g.DrawString("!", new Font("Segoe UI", size*.55f, FontStyle.Bold, GraphicsUnit.Pixel), Brushes.White, size*.37f, size*.28f); }
+                else if (name == "warning") { using (var b = new SolidBrush(Color.Goldenrod)) g.FillPolygon(b, new[] { P(size,.5,.08), P(size,.94,.88), P(size,.06,.88) }); using (var font = new Font("Segoe UI", size*.55f, FontStyle.Bold, GraphicsUnit.Pixel)) g.DrawString("!", font, Brushes.White, size*.37f, size*.28f); }
                 else if (name == "bug") { using (var b = new SolidBrush(Color.IndianRed)) g.FillEllipse(b, size*.22f,size*.20f,size*.56f,size*.68f); for(int i=0;i<3;i++){ var y=size*(.34f+i*.16f); g.DrawLine(pen,size*.08f,y,size*.25f,y); g.DrawLine(pen,size*.75f,y,size*.92f,y); } }
                 else if (name == "review") { using (var b = new SolidBrush(accent)) g.FillEllipse(b,size*.08f,size*.25f,size*.84f,size*.5f); g.FillEllipse(Brushes.White,size*.31f,size*.31f,size*.38f,size*.38f); g.FillEllipse(Brushes.DimGray,size*.43f,size*.43f,size*.14f,size*.14f); }
                 else if (name == "star") { using (var b = new SolidBrush(Color.Goldenrod)) g.FillPolygon(b, Star(size)); }

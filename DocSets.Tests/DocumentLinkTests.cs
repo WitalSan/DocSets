@@ -71,6 +71,38 @@ namespace DocSets.Tests
             Assert.Equal(markdown.IndexOf("last", System.StringComparison.Ordinal), rendered.PreviewToSource[rendered.Text.IndexOf("last", System.StringComparison.Ordinal)]);
         }
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void InsertedLinkGetsLeadingSpaceAndRemainsSelected()
+        {
+            using (var control = new MarkdownCommentControl())
+            {
+                control.LoadComment("before");
+                control.ShowEditor();
+                var editor = (System.Windows.Forms.RichTextBox)typeof(MarkdownCommentControl)
+                    .GetField("editor", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .GetValue(control);
+                editor.SelectionStart = editor.TextLength;
+                control.InsertLink(new DocumentLink { Kind = DocumentLinkKind.Symbol, Caption = "Run", Target = "A.B.Run" });
+                Assert.Equal("before [Run](symbol:A.B.Run)", control.CommentText);
+                Assert.Equal("[Run](symbol:A.B.Run)", editor.SelectedText);
+            }
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void LinkAtBeginningOfLineDoesNotGetLeadingSpace()
+        {
+            using (var control = new MarkdownCommentControl())
+            {
+                control.LoadComment("before\n");
+                control.ShowEditor();
+                var editor = (System.Windows.Forms.RichTextBox)typeof(MarkdownCommentControl)
+                    .GetField("editor", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .GetValue(control);
+                editor.SelectionStart = editor.TextLength;
+                control.InsertLink(new DocumentLink { Kind = DocumentLinkKind.Symbol, Caption = "Run", Target = "A.B.Run" });
+                Assert.Equal("before\n[Run](symbol:A.B.Run)", control.CommentText);
+            }
+        }
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void DroppedUrlBecomesExternalLink()
         {
             var data = new System.Windows.Forms.DataObject();

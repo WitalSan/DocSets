@@ -445,6 +445,7 @@ namespace DocSets
     {
         private List<ColumnLayout> columns = new List<ColumnLayout>();
         private int propertiesPanelHeight = 150;
+        private int layoutDpi = 96;
 
         [JsonProperty("columns")]
         public List<ColumnLayout> Columns
@@ -453,6 +454,12 @@ namespace DocSets
             set => SetProperty(ref columns, value ?? new List<ColumnLayout>());
         }
 
+        [JsonProperty("layoutDpi")]
+        public int LayoutDpi
+        {
+            get => layoutDpi;
+            set => SetProperty(ref layoutDpi, value < 96 ? 96 : value);
+        }
         [JsonProperty("propertiesPanelHeight")]
         public int PropertiesPanelHeight
         {

@@ -221,6 +221,21 @@ namespace DocSets
         private static string EscapeCaption(string value) => (value ?? string.Empty).Replace("[", "\\[").Replace("]", "\\]");
     }
 
+    internal sealed class DragCaretIndicator : Panel
+    {
+        private const int WmNcHitTest = 0x0084;
+        private static readonly IntPtr HtTransparent = new IntPtr(-1);
+
+        protected override void WndProc(ref Message message)
+        {
+            if (message.Msg == WmNcHitTest)
+            {
+                message.Result = HtTransparent;
+                return;
+            }
+            base.WndProc(ref message);
+        }
+    }
     internal sealed class MarkdownCommentControl : UserControl
     {
         private readonly ToolStrip toolbar = new ToolStrip();
@@ -234,6 +249,9 @@ namespace DocSets
         private readonly Panel body = new Panel();
         private readonly RichTextBox preview = new RichTextBox();
         private readonly RichTextBox editor = new RichTextBox();
+        private readonly DragCaretIndicator dragCaret = new DragCaretIndicator { Visible = false, BackColor = SystemColors.WindowText };
+        private readonly System.Windows.Forms.Timer dragCaretTimer = new System.Windows.Forms.Timer { Interval = 50 };
+        private RichTextBox dragCaretTarget;
         private readonly List<MarkdownLinkSpan> links = new List<MarkdownLinkSpan>();
         private int[] previewToEditorPositions = new[] { 0 };
         private MarkdownLinkSpan contextLink;
@@ -249,17 +267,22 @@ namespace DocSets
         private const int EmLineScroll = 0x00B6;
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
+        public event EventHandler DropFocusRequested;
         public event Action<DocumentLink> LinkActivated;
         public event Action<string, int> ExternalSymbolDropRequested;
 
         public MarkdownCommentControl()
         {
+            Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
+            toolbar.Font = Font;
+            preview.Font = Font;
+            editor.Font = Font;
             Dock = DockStyle.Fill; toolbar.GripStyle = ToolStripGripStyle.Hidden;
             previewButton.CheckOnClick = editButton.CheckOnClick = true; toolbar.Items.Add(previewButton); toolbar.Items.Add(editButton);
             toolbar.Items.Add(new ToolStripSeparator()); toolbar.Items.Add(boldButton); toolbar.Items.Add(italicButton); toolbar.Items.Add(codeButton); toolbar.Items.Add(symbolButton); toolbar.Items.Add(linkButton);
             previewButton.Click += (_, __) => ShowPreview(true); editButton.Click += (_, __) => ShowEditor();
             boldButton.Font = new Font(toolbar.Font, FontStyle.Bold); italicButton.Font = new Font(toolbar.Font, FontStyle.Italic);
-            boldButton.ToolTipText = "Полужирный (Ctrl+B)"; italicButton.ToolTipText = "Курсив (Ctrl+I)";
+            boldButton.ToolTipText = "Полужирный (Ctrl+Alt+B)"; italicButton.ToolTipText = "Курсив (Ctrl+I)";
             codeButton.ToolTipText = "Встроенный код"; symbolButton.ToolTipText = "Ссылка на символ (Ctrl+K)";
             linkButton.ToolTipText = "Внешняя ссылка";
             boldButton.Click += (_, __) => WrapSelection("**", "**"); italicButton.Click += (_, __) => WrapSelection("_", "_");
@@ -269,8 +292,9 @@ namespace DocSets
             preview.Dock = DockStyle.Fill; preview.ReadOnly = true; preview.BorderStyle = BorderStyle.None; preview.BackColor = SystemColors.Window;
             preview.DetectUrls = false; preview.ScrollBars = RichTextBoxScrollBars.Vertical; preview.AllowDrop = true;
             preview.MouseMove += PreviewMouseMove; preview.MouseUp += PreviewMouseUp;
-            preview.DragEnter += EditorDragEnter; preview.DragOver += EditorDragEnter; preview.DragDrop += PreviewDragDrop;
-            preview.KeyDown += PreviewKeyDown;
+            preview.VScroll += (_, __) => HideDragCaret(); preview.HScroll += (_, __) => HideDragCaret();
+            preview.DragEnter += EditorDragEnter; preview.DragOver += PreviewDragOver; preview.DragLeave += (_, __) => HideDragCaret(); preview.DragDrop += PreviewDragDrop;
+            preview.KeyDown += PreviewEditorKeyDown;
             preview.KeyPress += PreviewKeyPress;
             var linkMenu = new ContextMenuStrip();
             linkMenu.Items.Add("Копировать ссылку", null, (_, __) => { if (contextLink != null) Clipboard.SetText(DocumentLinkService.ToMarkdown(contextLink.Link)); });
@@ -286,9 +310,12 @@ namespace DocSets
             editorCodeFont = new Font("Consolas", editor.Font.Size, FontStyle.Regular);
             editorLinkFont = new Font(editor.Font, FontStyle.Underline);
             highlightTimer.Tick += (_, __) => { highlightTimer.Stop(); ApplyEditorFormatting(); };
+            dragCaretTimer.Tick += (_, __) => ValidateDragCaret();
             editor.TextChanged += EditorTextChanged;
             editor.KeyDown += EditorKeyDown;
-            editor.DragEnter += EditorDragEnter; editor.DragOver += EditorDragEnter; editor.DragDrop += EditorDragDrop; body.Controls.Add(editor);
+            editor.VScroll += (_, __) => HideDragCaret(); editor.HScroll += (_, __) => HideDragCaret();
+            editor.DragEnter += EditorDragEnter; editor.DragOver += EditorDragOver; editor.DragLeave += (_, __) => HideDragCaret(); editor.DragDrop += EditorDragDrop; body.Controls.Add(editor);
+            body.Controls.Add(dragCaret); dragCaret.BringToFront();
             ShowPreview();
         }
 
@@ -319,14 +346,23 @@ namespace DocSets
         public void ShowEditor() { preview.Visible = false; editor.Visible = true; previewButton.Checked = false; editButton.Checked = true; editor.Focus(); }
         public void InsertLink(DocumentLink link)
         {
-            if (link == null) return; ShowEditor();
+            if (link == null) return;
+            ShowEditor();
             if (!string.IsNullOrWhiteSpace(editor.SelectedText)) link.Caption = editor.SelectedText;
-            var markdown = DocumentLinkService.ToMarkdown(link); if (markdown.Length != 0) editor.SelectedText = markdown;
+            var markdown = DocumentLinkService.ToMarkdown(link);
+            if (markdown.Length == 0) return;
+            var insertionStart = editor.SelectionStart;
+            var needsLeadingSpace = insertionStart > 0 && !IsLineBreak(editor.Text[insertionStart - 1]) && !char.IsWhiteSpace(editor.Text[insertionStart - 1]);
+            var prefix = needsLeadingSpace ? " " : string.Empty;
+            editor.SelectedText = prefix + markdown;
+            editor.SelectionStart = insertionStart + prefix.Length;
+            editor.SelectionLength = markdown.Length;
         }
 
         public void InsertResolvedLink(DocumentLink link, int position)
         {
             ShowEditor(); editor.SelectionStart = Math.Max(0, Math.Min(editor.TextLength, position)); editor.SelectionLength = 0; InsertLink(link);
+            FocusEditorAfterDrop();
         }
 
         private void RenderPreview(int caretPosition = 0)
@@ -335,10 +371,10 @@ namespace DocSets
             foreach (var span in rendered.Styles)
             {
                 preview.Select(span.Start, span.Length);
-                if (span.Style == MarkdownStyle.Code) { preview.SelectionFont = new Font("Consolas", preview.Font.Size); preview.SelectionBackColor = Color.FromArgb(238, 238, 238); }
-                else preview.SelectionFont = new Font(preview.Font, span.Style == MarkdownStyle.Bold ? FontStyle.Bold : FontStyle.Italic);
+                if (span.Style == MarkdownStyle.Code) { preview.SelectionFont = editorCodeFont; preview.SelectionBackColor = Color.FromArgb(238, 238, 238); }
+                else preview.SelectionFont = span.Style == MarkdownStyle.Bold ? editorBoldFont : editorItalicFont;
             }
-            foreach (var span in links) { preview.Select(span.Start, span.Length); preview.SelectionColor = Color.FromArgb(0, 102, 204); preview.SelectionFont = new Font(preview.Font, FontStyle.Underline); }
+            foreach (var span in links) { preview.Select(span.Start, span.Length); preview.SelectionColor = Color.FromArgb(0, 102, 204); preview.SelectionFont = editorLinkFont; }
             preview.Select(EditorToPreviewPosition(caretPosition), 0);
         }
         private int PreviewToEditorPosition(int previewPosition)
@@ -408,7 +444,7 @@ namespace DocSets
             ShowEditor(); editor.SelectionStart = position; editor.SelectionLength = 0; editor.SelectedText = e.KeyChar.ToString();
             e.Handled = true;
         }
-        private void PreviewKeyDown(object sender, KeyEventArgs e)
+        private void PreviewEditorKeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode != Keys.Enter && e.KeyCode != Keys.F2) return;
             var position = PreviewToEditorPosition(preview.SelectionStart);
@@ -419,27 +455,170 @@ namespace DocSets
             e.Handled = true;
         }
         private void EditorDragEnter(object sender, DragEventArgs e) => e.Effect = DocumentLinkService.TryGetLink(e.Data, out _) || HasExternalText(e.Data) ? DragDropEffects.Copy : DragDropEffects.None;
+        private void EditorDragOver(object sender, DragEventArgs e)
+        {
+            EditorDragEnter(sender, e);
+            if (e.Effect != DragDropEffects.None) ShowDragCaret(editor, e, true);
+            else HideDragCaret();
+        }
+
+        private void PreviewDragOver(object sender, DragEventArgs e)
+        {
+            EditorDragEnter(sender, e);
+            if (e.Effect != DragDropEffects.None) ShowDragCaret(preview, e, true);
+            else HideDragCaret();
+        }
+
+        private void ShowDragCaret(RichTextBox target, DragEventArgs e, bool movePastEndToNewLine)
+        {
+            var point = target.PointToClient(new Point(e.X, e.Y));
+            var lineHeight = Math.Max(1, target.Font.Height);
+            var textLength = target.TextLength;
+            var endPoint = target.GetPositionFromCharIndex(textLength);
+            Point caretPoint;
+            var afterEnd = textLength > 0 &&
+                (point.Y >= endPoint.Y + lineHeight / 2 ||
+                 (point.Y >= endPoint.Y && point.Y < endPoint.Y + lineHeight && point.X >= endPoint.X));
+            if (afterEnd && movePastEndToNewLine)
+            {
+                var rowsBelowEnd = Math.Max(1, (int)Math.Round((point.Y - endPoint.Y) / (double)lineHeight));
+                caretPoint = new Point(1, endPoint.Y + rowsBelowEnd * lineHeight);
+            }
+            else if (afterEnd)
+            {
+                caretPoint = endPoint;
+            }
+            else
+            {
+                var index = textLength == 0 ? 0 : target.GetCharIndexFromPosition(point);
+                caretPoint = target.GetPositionFromCharIndex(index);
+            }
+            var bodyPoint = body.PointToClient(target.PointToScreen(caretPoint));
+            bodyPoint.X = Math.Max(0, Math.Min(Math.Max(0, body.ClientSize.Width - DpiService.Scale(this, 2)), bodyPoint.X));
+            bodyPoint.Y = Math.Max(0, Math.Min(Math.Max(0, body.ClientSize.Height - lineHeight), bodyPoint.Y));
+            dragCaret.SetBounds(bodyPoint.X, bodyPoint.Y, DpiService.Scale(this, 2), lineHeight);
+            dragCaretTarget = target;
+            dragCaret.Visible = true;
+            dragCaret.BringToFront();
+            dragCaretTimer.Start();
+        }
+
+        private void ValidateDragCaret()
+        {
+            if (!dragCaret.Visible || dragCaretTarget == null || dragCaretTarget.IsDisposed)
+            {
+                HideDragCaret();
+                return;
+            }
+
+            var leftButtonDown = (Control.MouseButtons & MouseButtons.Left) == MouseButtons.Left;
+            var pointerInsideTarget = dragCaretTarget.ClientRectangle.Contains(dragCaretTarget.PointToClient(Cursor.Position));
+            if (!leftButtonDown || !pointerInsideTarget)
+                HideDragCaret();
+        }
+
+        private void HideDragCaret()
+        {
+            dragCaretTimer.Stop();
+            dragCaretTarget = null;
+            dragCaret.Visible = false;
+        }
         private void EditorDragDrop(object sender, DragEventArgs e)
         {
-            var index = editor.GetCharIndexFromPosition(editor.PointToClient(new Point(e.X, e.Y)));
+            HideDragCaret();
+            var dropPoint = editor.PointToClient(new Point(e.X, e.Y));
+            var index = PrepareEditorDropPosition(dropPoint, out var movedPastEnd);
             if (!DocumentLinkService.TryGetLink(e.Data, out var link))
             {
-                var text = GetExternalText(e.Data); if (!string.IsNullOrWhiteSpace(text)) ExternalSymbolDropRequested?.Invoke(text.Trim(), index); return;
+                var text = GetExternalText(e.Data);
+                if (!string.IsNullOrWhiteSpace(text)) ExternalSymbolDropRequested?.Invoke(text.Trim(), index);
+                return;
             }
             var insideSelection = editor.SelectionLength > 0 && index >= editor.SelectionStart && index <= editor.SelectionStart + editor.SelectionLength;
-            if (!insideSelection) { editor.SelectionStart = index; editor.SelectionLength = 0; }
+            if (movedPastEnd || !insideSelection) { editor.SelectionStart = index; editor.SelectionLength = 0; }
             InsertLink(link);
+            FocusEditorAfterDrop();
         }
         private void PreviewDragDrop(object sender, DragEventArgs e)
         {
-            editor.SelectionStart = editor.TextLength; editor.SelectionLength = 0;
+            HideDragCaret();
+            var dropPoint = preview.PointToClient(new Point(e.X, e.Y));
+            var insertionPosition = PreparePreviewDropPosition(dropPoint);
             if (!DocumentLinkService.TryGetLink(e.Data, out var link))
             {
-                var text = GetExternalText(e.Data); if (!string.IsNullOrWhiteSpace(text)) ExternalSymbolDropRequested?.Invoke(text.Trim(), editor.TextLength); return;
+                var text = GetExternalText(e.Data);
+                if (!string.IsNullOrWhiteSpace(text)) ExternalSymbolDropRequested?.Invoke(text.Trim(), insertionPosition);
+                return;
             }
-            if (editor.TextLength > 0 && !editor.Text.EndsWith(Environment.NewLine, StringComparison.Ordinal)) editor.SelectedText = Environment.NewLine;
+            editor.SelectionStart = insertionPosition;
+            editor.SelectionLength = 0;
             InsertLink(link);
+            FocusEditorAfterDrop();
         }
+
+        public void FocusEditorFromHost()
+        {
+            if (IsDisposed || Disposing) return;
+            editor.Select();
+            editor.Focus();
+            if (IsHandleCreated)
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    if (IsDisposed || Disposing || !editor.Visible || !editor.Enabled) return;
+                    editor.Select();
+                    editor.Focus();
+                }));
+            }
+        }
+
+        private void FocusEditorAfterDrop()
+        {
+            FocusEditorFromHost();
+            DropFocusRequested?.Invoke(this, EventArgs.Empty);
+        }
+        private int PrepareEditorDropPosition(Point point, out bool movedPastEnd)
+        {
+            var textLength = editor.TextLength;
+            var endPoint = editor.GetPositionFromCharIndex(textLength);
+            var lineHeight = Math.Max(1, editor.Font.Height);
+            movedPastEnd = textLength > 0 &&
+                (point.Y >= endPoint.Y + lineHeight / 2 ||
+                 (point.Y >= endPoint.Y && point.Y < endPoint.Y + lineHeight && point.X >= endPoint.X));
+            if (!movedPastEnd)
+                return textLength == 0 ? 0 : editor.GetCharIndexFromPosition(point);
+
+            editor.SelectionStart = textLength;
+            editor.SelectionLength = 0;
+            var rowsBelowEnd = Math.Max(0, (int)Math.Round((point.Y - endPoint.Y) / (double)lineHeight));
+            var lineBreakCount = Math.Max(1, rowsBelowEnd);
+            editor.SelectedText = string.Concat(System.Linq.Enumerable.Repeat(Environment.NewLine, lineBreakCount));
+            return editor.SelectionStart;
+        }
+        private int PreparePreviewDropPosition(Point point)
+        {
+            var previewLength = preview.TextLength;
+            var previewPosition = previewLength == 0 ? 0 : preview.GetCharIndexFromPosition(point);
+            var endPoint = preview.GetPositionFromCharIndex(previewLength);
+            var lineHeight = Math.Max(1, preview.Font.Height);
+            var afterEnd = previewLength > 0 &&
+                (point.Y >= endPoint.Y + lineHeight / 2 ||
+                 (point.Y >= endPoint.Y && point.Y < endPoint.Y + lineHeight && point.X >= endPoint.X));
+            var editorPosition = afterEnd ? editor.TextLength : PreviewToEditorPosition(previewPosition);
+            ShowEditor();
+            editor.SelectionStart = Math.Max(0, Math.Min(editor.TextLength, editorPosition));
+            editor.SelectionLength = 0;
+            if (afterEnd)
+            {
+                var rowsBelowEnd = Math.Max(0, (int)Math.Round((point.Y - endPoint.Y) / (double)lineHeight));
+                var lineBreakCount = Math.Max(1, rowsBelowEnd);
+                editor.SelectedText = string.Concat(System.Linq.Enumerable.Repeat(Environment.NewLine, lineBreakCount));
+                editorPosition = editor.SelectionStart;
+            }
+            return editorPosition;
+        }
+
+        private static bool IsLineBreak(char value) => value == '\r' || value == '\n';
         private static bool HasExternalText(IDataObject data) => !string.IsNullOrWhiteSpace(GetExternalText(data));
         private static string GetExternalText(IDataObject data)
         {
@@ -467,7 +646,7 @@ namespace DocSets
         {
             using (var dialog = new Form { Text = "Внешняя ссылка", StartPosition = FormStartPosition.CenterParent,
                 FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false,
-                ClientSize = new Size(520, 92), AutoScaleMode = AutoScaleMode.Font })
+                ClientSize = new Size(520, 92), AutoScaleMode = AutoScaleMode.Dpi, AutoScaleDimensions = new SizeF(96, 96), Font = SystemFonts.MessageBoxFont })
             using (var input = new TextBox { Left = 10, Top = 12, Width = 500 })
             using (var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Left = 354, Top = 50, Width = 75 })
             using (var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, Left = 435, Top = 50, Width = 75 })
@@ -583,6 +762,7 @@ namespace DocSets
             if (disposing)
             {
                 highlightTimer.Dispose();
+                dragCaretTimer.Dispose();
                 editorRegularFont?.Dispose();
                 editorBoldFont?.Dispose();
                 editorItalicFont?.Dispose();
@@ -594,7 +774,7 @@ namespace DocSets
 
         private void EditorKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Control && e.KeyCode == Keys.B) { WrapSelection("**", "**"); e.SuppressKeyPress = true; }
+            if (e.Control && e.Alt && e.KeyCode == Keys.B) { WrapSelection("**", "**"); e.SuppressKeyPress = true; }
             else if (e.Control && e.KeyCode == Keys.I) { WrapSelection("_", "_"); e.SuppressKeyPress = true; }
             else if (e.Control && e.KeyCode == Keys.K) { WrapSelection("[[", "]]", "Symbol"); e.SuppressKeyPress = true; }
             else if (e.Control && e.KeyCode == Keys.Enter) { ShowPreview(true); e.SuppressKeyPress = true; }

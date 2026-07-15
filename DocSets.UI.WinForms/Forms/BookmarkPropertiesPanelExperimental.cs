@@ -56,6 +56,7 @@ namespace DocSets
         public event Action<DocumentLink> DocumentLinkActivated;
         public event Action<string, int> ExternalSymbolDropRequested;
         public event EventHandler MarkdownEditingCompleted;
+        public event EventHandler MarkdownDropFocusRequested;
 
         public BookmarkPropertiesPanelExperimental()
         {
@@ -77,6 +78,7 @@ namespace DocSets
             markdownComment.LinkActivated += link => DocumentLinkActivated?.Invoke(link);
             markdownComment.ExternalSymbolDropRequested += (text, position) => ExternalSymbolDropRequested?.Invoke(text, position);
             markdownComment.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
+            markdownComment.DropFocusRequested += (_, __) => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
             LoadItem(null);
         }
 
@@ -133,7 +135,7 @@ namespace DocSets
                 item = value;
                 multipleSelection = multiple;
                 loadedAllPinned = value != null && allPinned;
-                Enabled = value != null;
+                Enabled = true;
                 nameTextBox.Text = value?.Name ?? string.Empty;
                 folderCheckBox.Checked = value?.NodeType == NodeType.Folder;
                 var type = value?.Type ?? BookmarkType.Empty;
@@ -298,6 +300,7 @@ namespace DocSets
             root.Controls.Add(contentTabs, 0, 2);
 
             commentTextBox.Dock = DockStyle.Fill;
+            commentTextBox.Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
             commentTextBox.Multiline = true;
             commentTextBox.AcceptsReturn = true;
             commentTextBox.AcceptsTab = true;
@@ -311,8 +314,8 @@ namespace DocSets
 
             var codeButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 2, 0, 2) };
             copyCodeButton.Text = string.Empty;
-            copyCodeButton.Image = IconProvider.Get(AppIcon.Copy, 18);
-            copyCodeButton.Size = new Size(30, 28);
+            copyCodeButton.Image = IconProvider.Get(AppIcon.Copy, this, 18);
+            copyCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             toolTip.SetToolTip(copyCodeButton, "Копировать код");
             copyCodeButton.Click += (_, __) =>
             {
@@ -322,8 +325,8 @@ namespace DocSets
                 }
             };
             refreshCodeButton.Text = string.Empty;
-            refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, 18);
-            refreshCodeButton.Size = new Size(30, 28);
+            refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, this, 18);
+            refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             toolTip.SetToolTip(refreshCodeButton, "Синхронизировать с текущей позицией");
             refreshCodeButton.Click += (_, __) => RefreshCodeRequested?.Invoke(this, EventArgs.Empty);
             codeButtons.Controls.Add(copyCodeButton);
@@ -361,7 +364,21 @@ namespace DocSets
             accordion.AddSection(previewSection);
         }
 
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            copyCodeButton.Image = IconProvider.Get(AppIcon.Copy, this, 18);
+            copyCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
+            refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, this, 18);
+            refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
+            foreach (var button in new[] { emptyButton, symbolButton, fileButton }) button.Size = DpiService.Scale(this, new Size(74, 28));
+            accordion?.PerformLayout();
+            PerformLayout();
+        }
         private string CurrentCommentText => markdownCommentDirty ? markdownComment.CommentText : commentTextBox.Text ?? string.Empty;
+
+        public void FocusMarkdownEditor() => markdownComment.FocusEditorFromHost();
+        public void RequestMarkdownEditorFocus() => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
 
         public void InsertResolvedExternalSymbol(DocumentLink link, int position)
         {
@@ -602,9 +619,9 @@ namespace DocSets
             if (!loading) ItemChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        private static void SetupChoice(RadioButton button, string text)
+        private void SetupChoice(RadioButton button, string text)
         {
-            button.Text = text; button.Appearance = Appearance.Button; button.TextAlign = ContentAlignment.MiddleCenter; button.AutoSize = false; button.Width = 74; button.Height = 28; button.Margin = new Padding(0, 0, 4, 0);
+            button.Text = text; button.Appearance = Appearance.Button; button.TextAlign = ContentAlignment.MiddleCenter; button.AutoSize = false; button.Width = DpiService.Scale(this, 74); button.Height = DpiService.Scale(this, 28); button.Margin = new Padding(0, 0, 4, 0);
         }
 
         private static void AddLabel(TableLayoutPanel root, string text, int column, int row)
@@ -623,8 +640,10 @@ namespace DocSets
 
     internal sealed class ExperimentalAccordionSection : Control
     {
-        private const int HeaderHeight = 30;
-        private const int DragHandleWidth = 34;
+        private const int LogicalHeaderHeight = 30;
+        private int HeaderHeight => DpiService.Scale(this, LogicalHeaderHeight);
+        private const int LogicalDragHandleWidth = 34;
+        private int DragHandleWidth => DpiService.Scale(this, LogicalDragHandleWidth);
         private readonly Button headerButton;
         private readonly Panel dragHandle;
         private readonly Panel bodyPanel;
@@ -659,13 +678,16 @@ namespace DocSets
             dragHandle.Paint += (_, e) =>
             {
                 var centerX = dragHandle.ClientSize.Width / 2;
-                var top = Math.Max(5, (dragHandle.ClientSize.Height - 16) / 2);
-                var bottom = Math.Min(dragHandle.ClientSize.Height - 5, top + 16);
-                using (var pen = new Pen(SystemColors.ControlDarkDark, 2))
+                var inset = DpiService.Scale(this, 5);
+                var glyphHeight = DpiService.Scale(this, 16);
+                var offset = DpiService.Scale(this, 6);
+                var top = Math.Max(inset, (dragHandle.ClientSize.Height - glyphHeight) / 2);
+                var bottom = Math.Min(dragHandle.ClientSize.Height - inset, top + glyphHeight);
+                using (var pen = new Pen(SystemColors.ControlDarkDark, DpiService.Scale(this, 2f)))
                 {
-                    e.Graphics.DrawLine(pen, centerX - 6, top, centerX - 6, bottom);
+                    e.Graphics.DrawLine(pen, centerX - offset, top, centerX - offset, bottom);
                     e.Graphics.DrawLine(pen, centerX, top, centerX, bottom);
-                    e.Graphics.DrawLine(pen, centerX + 6, top, centerX + 6, bottom);
+                    e.Graphics.DrawLine(pen, centerX + offset, top, centerX + offset, bottom);
                 }
             };
             dragHandle.MouseDown += (_, e) =>
@@ -723,7 +745,7 @@ namespace DocSets
             set => bodyPanel.Enabled = value;
         }
 
-        public int CurrentHeight => HeaderHeight + (expanded ? contentHeight : 0);
+        public int CurrentHeight => HeaderHeight + (expanded ? DpiService.Scale(this, contentHeight) : 0);
 
         protected override void OnLayout(LayoutEventArgs levent)
         {
@@ -731,7 +753,7 @@ namespace DocSets
             var handleWidth = Math.Min(DragHandleWidth, Math.Max(0, ClientSize.Width));
             headerButton.SetBounds(0, 0, Math.Max(0, ClientSize.Width - handleWidth), HeaderHeight);
             dragHandle.SetBounds(Math.Max(0, ClientSize.Width - handleWidth), 0, handleWidth, HeaderHeight);
-            bodyPanel.SetBounds(0, HeaderHeight, Math.Max(0, ClientSize.Width), contentHeight);
+            bodyPanel.SetBounds(0, HeaderHeight, Math.Max(0, ClientSize.Width), DpiService.Scale(this, contentHeight));
         }
 
         private void UpdateExpandedState()

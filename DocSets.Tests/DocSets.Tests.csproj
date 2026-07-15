@@ -29,6 +29,7 @@
     <Compile Include="..\DocSets.Core\Services\RecentBookmarksService.cs" Link="Source\RecentBookmarksService.cs" />
     <Compile Include="..\DocSets.Core\Services\UndoRedoService.cs" Link="Source\UndoRedoService.cs" />
     <Compile Include="..\DocSets.Core\Services\TagService.cs" Link="Source\TagService.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Icons\DpiService.cs" Link="Source\DpiService.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\IconProvider.cs" Link="Source\IconProvider.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\BookmarkColorService.cs" Link="Source\BookmarkColorService.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" Link="Source\CodePreviewHighlighter.cs" />

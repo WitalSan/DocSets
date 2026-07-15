@@ -1,6 +1,7 @@
-﻿using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell;
 using System;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Forms.Integration;
 using System.Windows.Threading;
 
@@ -21,6 +22,8 @@ namespace DocSets
         {
             viewModel = new DocSetsViewModel(package, () => Window.GetWindow(this));
             winFormsControl = new DocSetsWinFormsControl(viewModel);
+            winFormsControl.CommentEditorFocusRequested += OnCommentEditorFocusRequested;
+            Focusable = true;
             Child = winFormsControl;
 
             solutionLoadRetryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -61,6 +64,24 @@ namespace DocSets
             };
         }
 
+        private void OnCommentEditorFocusRequested(object sender, EventArgs e)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+            {
+                if (!IsVisible || winFormsControl.IsDisposed) return;
+                Focus();
+                Keyboard.Focus(this);
+                winFormsControl.Select();
+                winFormsControl.FocusCommentEditor();
+                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+                {
+                    if (!IsVisible || winFormsControl.IsDisposed) return;
+                    Focus();
+                    Keyboard.Focus(this);
+                    winFormsControl.FocusCommentEditor();
+                }));
+            }));
+        }
         private void OnSolutionBeforeClosing()
         {
             winFormsControl.SaveLocalSettings();
@@ -71,6 +92,7 @@ namespace DocSets
             if (disposing)
             {
                 winFormsControl.SaveLocalSettings();
+                winFormsControl.CommentEditorFocusRequested -= OnCommentEditorFocusRequested;
                 if (solutionEvents != null)
                     solutionEvents.BeforeClosing -= OnSolutionBeforeClosing;
             }

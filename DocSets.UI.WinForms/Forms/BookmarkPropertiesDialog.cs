@@ -65,6 +65,7 @@ namespace DocSets
             ShowInTaskbar = false;
             FormBorderStyle = FormBorderStyle.Sizable;
             AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96, 96);
             Font = new Font("Segoe UI", 10f);
             MinimumSize = new Size(700, showDestination ? 680 : 610);
             Size = new Size(780, showDestination ? 740 : 670);

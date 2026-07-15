@@ -30,7 +30,7 @@ namespace DocSets
             if (string.Equals(key, currentKey, StringComparison.Ordinal)) return;
             currentKey = key;
             toolTip.Hide(label);
-            if (key != null && texts.TryGetValue(key, out var text)) toolTip.Show(text, label, e.X + 12, e.Y + 18, 30000);
+            if (key != null && texts.TryGetValue(key, out var text)) toolTip.Show(text, label, e.X + DpiService.Scale(label, 12), e.Y + DpiService.Scale(label, 18), 30000);
         }
 
         private LinkLabel.Link FindLink(Point point)

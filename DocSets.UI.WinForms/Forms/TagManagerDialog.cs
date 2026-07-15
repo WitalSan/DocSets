@@ -100,19 +100,19 @@ namespace DocSets
         private void DrawTagItem(object sender, DrawItemEventArgs e)
         {
             e.DrawBackground(); if (e.Index < 0) return;
-            var tag = list.Items[e.Index] as TagDefinition; var size = Math.Min(IconSize, e.Bounds.Height - 6);
-            e.Graphics.DrawImage(TagIconProvider.Get(tag?.Icon, size), e.Bounds.Left + 5, e.Bounds.Top + (e.Bounds.Height-size)/2, size, size);
-            TextRenderer.DrawText(e.Graphics, tag?.Name ?? "", e.Font, new Rectangle(e.Bounds.Left + size + 12, e.Bounds.Top, e.Bounds.Width-size-14, e.Bounds.Height), e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            var tag = list.Items[e.Index] as TagDefinition; var size = Math.Min(IconSize, e.Bounds.Height - DpiService.Scale(this, 6));
+            e.Graphics.DrawImage(TagIconProvider.Get(tag?.Icon, size), e.Bounds.Left + DpiService.Scale(this, 5), e.Bounds.Top + (e.Bounds.Height-size)/2, size, size);
+            TextRenderer.DrawText(e.Graphics, tag?.Name ?? "", e.Font, new Rectangle(e.Bounds.Left + size + DpiService.Scale(this, 12), e.Bounds.Top, e.Bounds.Width - size - DpiService.Scale(this, 14), e.Bounds.Height), e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             e.DrawFocusRectangle();
         }
 
         private void DrawIconItem(object sender, DrawItemEventArgs e)
         {
             e.DrawBackground(); if (e.Index < 0) return;
-            var key = icon.Items[e.Index] as string ?? ""; var size = Math.Min(IconSize, e.Bounds.Height - 6);
-            e.Graphics.DrawImage(TagIconProvider.Get(key, size), e.Bounds.Left + 5, e.Bounds.Top + (e.Bounds.Height-size)/2, size, size);
+            var key = icon.Items[e.Index] as string ?? ""; var size = Math.Min(IconSize, e.Bounds.Height - DpiService.Scale(this, 6));
+            e.Graphics.DrawImage(TagIconProvider.Get(key, size), e.Bounds.Left + DpiService.Scale(this, 5), e.Bounds.Top + (e.Bounds.Height-size)/2, size, size);
             var text = string.IsNullOrEmpty(key) ? "Без иконки" : key;
-            TextRenderer.DrawText(e.Graphics, text, e.Font, new Rectangle(e.Bounds.Left + size + 12, e.Bounds.Top, e.Bounds.Width-size-14, e.Bounds.Height), e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, text, e.Font, new Rectangle(e.Bounds.Left + size + DpiService.Scale(this, 12), e.Bounds.Top, e.Bounds.Width - size - DpiService.Scale(this, 14), e.Bounds.Height), e.ForeColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             e.DrawFocusRectangle();
         }
 

@@ -145,6 +145,19 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ContentTabsStayAvailableWithoutSelectedItem()
+        {
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                panel.LoadItem(null);
+                var tabs = Field<TabControl>(panel, "contentTabs");
+                Assert.True(panel.Enabled);
+                Assert.True(tabs.Enabled);
+                tabs.SelectedIndex = 1;
+                Assert.Equal("comment", panel.SelectedContentTab);
+            }
+        }
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ContentTabSelectionCanBeRestored()
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())

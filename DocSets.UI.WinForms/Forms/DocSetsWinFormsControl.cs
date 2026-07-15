@@ -15,6 +15,7 @@ namespace DocSets
 {
     internal sealed class DocSetsWinFormsControl : UserControl
     {
+        public event EventHandler CommentEditorFocusRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
@@ -86,21 +87,95 @@ namespace DocSets
         private bool _localStateRestored;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
         private const string AddGroupTag = "__ADD_GROUP__";
+        private int DpiIconSize => DpiService.IconSize(this);
+        private int layoutDpiAtLoad = DpiService.DefaultDpi;
 
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
             this._viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            layoutDpiAtLoad = _viewModel.Ui?.LayoutDpi ?? DpiService.DefaultDpi;
             BookmarkTreeNode.PinResolver = _viewModel.ResolvePin;
             BookmarkTreeNode.TagTextResolver = GetTagText;
             BookmarkTreeNode.TagImageResolver = GetTagImage;
             BookmarkTreeNode.PinChecker = _viewModel.IsPinned;
+            BookmarkTreeNode.IconSizeResolver = () => DpiIconSize;
             Dock = DockStyle.Fill;
             BuildLayout();
             BuildTree();
             BuildMenus();
             _viewModel.TreeChanged += ViewModel_TreeChanged;
             WireEvents();
+            ApplyDpiMetrics();
             RefreshAll();
+        }
+
+        private void ApplyDpiMetrics()
+        {
+            var iconSize = DpiIconSize;
+            _toolStrip.ImageScalingSize = new Size(iconSize, iconSize);
+            _standardGroupsStrip.ImageScalingSize = new Size(iconSize, iconSize);
+            _groupsStrip.ImageScalingSize = new Size(iconSize, iconSize);
+            _nodeMenu.ImageScalingSize = new Size(iconSize, iconSize);
+            _groupMenu.ImageScalingSize = new Size(iconSize, iconSize);
+            _filterTagsButton.DropDown.ImageScalingSize = new Size(iconSize, iconSize);
+            _workspaceCombo.Width = DpiService.Scale(this, 140);
+            ApplySplitDpiMetrics();
+            _expandAllButton.Image = IconProvider.Get(AppIcon.ExpandAll, iconSize);
+            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, iconSize);
+            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, iconSize);
+            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, iconSize);
+            _undoButton.Image = IconProvider.Get(AppIcon.Undo, iconSize);
+            _redoButton.Image = IconProvider.Get(AppIcon.Redo, iconSize);
+            _findButton.Image = IconProvider.Get(AppIcon.Find, iconSize);
+            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, iconSize);
+        }
+
+        private void ApplySplitDpiMetrics()
+        {
+            var oldAvailable = _contentSplit.ClientSize.Height - _contentSplit.SplitterWidth;
+            var oldPanel2 = oldAvailable > 0 ? oldAvailable - _contentSplit.SplitterDistance : 0;
+            var panel2Ratio = oldAvailable > 0 ? oldPanel2 / (double)oldAvailable : 0.30;
+            panel2Ratio = Math.Max(0.10, Math.Min(0.80, panel2Ratio));
+
+            _contentSplit.Panel1MinSize = 0;
+            _contentSplit.Panel2MinSize = 0;
+            _contentSplit.SplitterWidth = DpiService.Scale(this, 5);
+
+            var available = _contentSplit.ClientSize.Height - _contentSplit.SplitterWidth;
+            if (available <= 1) return;
+
+            var desiredPanel1Min = DpiService.Scale(this, 120);
+            var desiredPanel2Min = DpiService.Scale(this, 70);
+            var panel1Min = Math.Min(desiredPanel1Min, Math.Max(0, available - 1));
+            var panel2Min = Math.Min(desiredPanel2Min, Math.Max(0, available - panel1Min));
+            if (panel1Min + panel2Min > available)
+                panel1Min = Math.Max(0, available - panel2Min);
+
+            var targetPanel2 = (int)Math.Round(available * panel2Ratio);
+            targetPanel2 = Math.Max(panel2Min, Math.Min(Math.Max(panel2Min, available - panel1Min), targetPanel2));
+            var splitterDistance = Math.Max(panel1Min, Math.Min(available - panel2Min, available - targetPanel2));
+
+            _contentSplit.SplitterDistance = splitterDistance;
+            _contentSplit.Panel1MinSize = Math.Min(panel1Min, splitterDistance);
+            _contentSplit.Panel2MinSize = Math.Min(panel2Min, available - splitterDistance);
+        }
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            var targetDpi = DeviceDpi;
+            if (_viewModel.Ui != null && layoutDpiAtLoad != targetDpi)
+                _viewModel.Ui.PropertiesPanelHeight = DpiService.ScaleBetween(_viewModel.Ui.PropertiesPanelHeight, layoutDpiAtLoad, targetDpi);
+            ApplyDpiMetrics();
+            BuildFilterTagMenu();
+            RefreshAll();
+            layoutDpiAtLoad = targetDpi;
+            PerformLayout();
+        }
+        internal void FocusCommentEditor()
+        {
+            Select();
+            Focus();
+            _experimentalPropertiesPanel.FocusMarkdownEditor();
         }
 
         public System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
@@ -119,6 +194,7 @@ namespace DocSets
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
+            ApplyDpiMetrics();
             RestoreSplitterPosition();
         }
 
@@ -160,15 +236,26 @@ namespace DocSets
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             Controls.Add(root);
 
-            var top = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(3) };
-            top.Controls.Add(new Label { Text = "Workspace:", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
+            var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, RowCount = 1, Padding = new Padding(3) };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            top.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            var workspaceLabel = new Label { Text = "Workspace:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 6, 4, 0) };
+            top.Controls.Add(workspaceLabel, 0, 0);
             _workspaceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-            _workspaceCombo.Width = 220;
-            top.Controls.Add(_workspaceCombo);
+            _workspaceCombo.Width = DpiService.Scale(this, 140);
+            _workspaceCombo.Anchor = AnchorStyles.Left;
+            top.Controls.Add(_workspaceCombo, 1, 0);
             root.Controls.Add(top, 0, 0);
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
-            _toolStrip.ImageScalingSize = new Size(IconProvider.IconSize, IconProvider.IconSize);
+            _toolStrip.LayoutStyle = ToolStripLayoutStyle.Flow;
+            _toolStrip.Dock = DockStyle.Fill;
+            _toolStrip.AutoSize = true;
+            _toolStrip.CanOverflow = false;
+            ((FlowLayoutSettings)_toolStrip.LayoutSettings).WrapContents = true;
+            _toolStrip.ImageScalingSize = new Size(DpiIconSize, DpiIconSize);
             SetupUndoRedoButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
             //AddButton("+Группа", _viewModel.AddSetCommand);
@@ -188,7 +275,7 @@ namespace DocSets
             AddPropertiesPanelButton();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
-            top.Controls.Add(_toolStrip);
+            top.Controls.Add(_toolStrip, 2, 0);
 
             var groupsPanel = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty, Padding = Padding.Empty };
             groupsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -207,10 +294,9 @@ namespace DocSets
             _contentSplit.Dock = DockStyle.Fill;
             _contentSplit.Orientation = Orientation.Horizontal;
             _contentSplit.FixedPanel = FixedPanel.Panel2;
-            _contentSplit.Panel1MinSize = 120;
-            _contentSplit.Panel2MinSize = 70;
+            _contentSplit.Panel1MinSize = 0;
+            _contentSplit.Panel2MinSize = 0;
             _contentSplit.SplitterWidth = 5;
-            _contentSplit.SplitterDistance = 100;
             _contentSplit.Panel1.Controls.Add(_tree);
 
             var propertiesHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(3) };
@@ -416,8 +502,8 @@ namespace DocSets
                     var marker = new Label
                     {
                         AutoSize = false,
-                        Width = IconProvider.IconSize,
-                        Height = IconProvider.IconSize,
+                        Width = DpiIconSize,
+                        Height = DpiIconSize,
                         Margin = new Padding(2, 0, 0, 0),
                         BackColor = BookmarkColorService.GetColor(color),
                         BorderStyle = BorderStyle.FixedSingle,
@@ -434,46 +520,41 @@ namespace DocSets
             }
         }
 
-        private static Image CreateFilterChoiceImage(BookmarkColor? color, bool selected)
+        private Image CreateFilterChoiceImage(BookmarkColor? color, bool selected)
         {
-            var bitmap = new Bitmap(36, 16);
+            var bitmap = new Bitmap(DpiService.Scale(this, 36), DpiService.Scale(this, 16));
+            bitmap.SetResolution(DeviceDpi, DeviceDpi);
             using (var graphics = Graphics.FromImage(bitmap))
             {
                 graphics.Clear(Color.Transparent);
-                var checkBox = new Rectangle(0, 1, 13, 13);
-                graphics.FillRectangle(SystemBrushes.Window, checkBox);
-                graphics.DrawRectangle(SystemPens.ControlDarkDark, checkBox);
-                if (selected)
-                {
-                    using (var pen = new Pen(SystemColors.Highlight, 2))
-                    {
-                        graphics.DrawLines(pen, new[]
-                        {
-                            new Point(3, 7),
-                            new Point(6, 10),
-                            new Point(11, 3)
-                        });
-                    }
-                }
-
+                DrawFilterCheckBox(graphics, selected);
                 if (color.HasValue)
                 {
-                    var swatch = new Rectangle(20, 1, 13, 13);
-                    using (var brush = new SolidBrush(GetBookmarkColor(color.Value)))
-                    {
-                        graphics.FillRectangle(brush, swatch);
-                    }
+                    var swatch = new Rectangle(DpiService.Scale(this, 20), DpiService.Scale(this, 1), DpiService.Scale(this, 13), DpiService.Scale(this, 13));
+                    using (var brush = new SolidBrush(GetBookmarkColor(color.Value))) graphics.FillRectangle(brush, swatch);
                     graphics.DrawRectangle(Pens.Black, swatch);
-                    if (color.Value == BookmarkColor.None)
-                    {
-                        graphics.DrawLine(Pens.Gray, swatch.Left, swatch.Bottom, swatch.Right, swatch.Top);
-                    }
+                    if (color.Value == BookmarkColor.None) graphics.DrawLine(Pens.Gray, swatch.Left, swatch.Bottom, swatch.Right, swatch.Top);
                 }
             }
-
             return bitmap;
         }
 
+        private void DrawFilterCheckBox(Graphics graphics, bool selected)
+        {
+            var checkBox = new Rectangle(0, DpiService.Scale(this, 1), DpiService.Scale(this, 13), DpiService.Scale(this, 13));
+            graphics.FillRectangle(SystemBrushes.Window, checkBox);
+            graphics.DrawRectangle(SystemPens.ControlDarkDark, checkBox);
+            if (!selected) return;
+            using (var pen = new Pen(SystemColors.Highlight, DpiService.Scale(this, 2f)))
+            {
+                graphics.DrawLines(pen, new[]
+                {
+                    new Point(DpiService.Scale(this, 3), DpiService.Scale(this, 7)),
+                    new Point(DpiService.Scale(this, 6), DpiService.Scale(this, 10)),
+                    new Point(DpiService.Scale(this, 11), DpiService.Scale(this, 3))
+                });
+            }
+        }
         private static void SetFilterMenuImage(ToolStripMenuItem item, Image image)
         {
             var oldImage = item.Image;
@@ -544,7 +625,8 @@ namespace DocSets
                 foreach (var spec in orderedSpecs)
                 {
                     layoutByKey.TryGetValue(spec.Key, out var saved);
-                    var column = new TreeColumn(spec.Header, saved?.Width > 0 ? saved.Width : spec.DefaultWidth)
+                    var savedWidth = saved?.Width > 0 ? DpiService.ScaleBetween(saved.Width, layoutDpiAtLoad, DeviceDpi) : DpiService.Scale(this, spec.DefaultWidth);
+                    var column = new TreeColumn(spec.Header, savedWidth)
                     {
                         IsVisible = saved?.IsVisible ?? spec.DefaultVisible
                     };
@@ -588,6 +670,7 @@ namespace DocSets
             }
 
             _viewModel.Ui.Columns = layouts;
+            _viewModel.Ui.LayoutDpi = DeviceDpi;
             SaveLocalState();
         }
 
@@ -598,7 +681,8 @@ namespace DocSets
                 return;
             }
 
-            var panelHeight = Math.Max(_contentSplit.Panel2MinSize, _viewModel.Ui.PropertiesPanelHeight);
+            var restoredPanelHeight = DpiService.ScaleBetween(_viewModel.Ui.PropertiesPanelHeight, layoutDpiAtLoad, DeviceDpi);
+            var panelHeight = Math.Max(_contentSplit.Panel2MinSize, restoredPanelHeight);
             var maximumPanelHeight = _contentSplit.ClientSize.Height
                 - _contentSplit.Panel1MinSize
                 - _contentSplit.SplitterWidth;
@@ -615,6 +699,10 @@ namespace DocSets
             {
                 _restoringSplitter = false;
             }
+            _viewModel.Ui.PropertiesPanelHeight = panelHeight;
+            _viewModel.Ui.LayoutDpi = DeviceDpi;
+            layoutDpiAtLoad = DeviceDpi;
+            SaveLocalState();
         }
 
         private void SaveSplitterPosition()
@@ -635,6 +723,8 @@ namespace DocSets
             if (_viewModel.Ui.PropertiesPanelHeight != panelHeight)
             {
                 _viewModel.Ui.PropertiesPanelHeight = panelHeight;
+                _viewModel.Ui.LayoutDpi = DeviceDpi;
+                layoutDpiAtLoad = DeviceDpi;
                 SaveLocalState();
             }
         }
@@ -778,11 +868,11 @@ namespace DocSets
                     continue;
                 }
 
-                var headerWidth = TextRenderer.MeasureText(column.Header, _tree.Font).Width + 24;
+                var headerWidth = TextRenderer.MeasureText(column.Header, _tree.Font).Width + DpiService.Scale(this, 24);
                 var valueWidth = EnumerateItems(_viewModel.CurrentNodes)
                     .Select(x => GetColumnText(x, key))
                     .Where(x => !string.IsNullOrEmpty(x))
-                    .Select(x => TextRenderer.MeasureText(x, _tree.Font).Width + 24)
+                    .Select(x => TextRenderer.MeasureText(x, _tree.Font).Width + DpiService.Scale(this, 24))
                     .DefaultIfEmpty(0)
                     .Max();
 
@@ -813,7 +903,7 @@ namespace DocSets
         {
             if (item?.TagIds == null || item.TagIds.Count == 0) return null;
             var icons = item.TagIds.Select(id => _viewModel.Tags.FirstOrDefault(x => string.Equals(x?.Id, id, StringComparison.OrdinalIgnoreCase))?.Icon ?? "");
-            return TagIconProvider.GetStrip(icons, IconProvider.IconSize, 4);
+            return TagIconProvider.GetStrip(icons, DpiIconSize, 4);
         }
         private string GetTagText(DocumentItem item)
         {
@@ -850,7 +940,7 @@ namespace DocSets
             var button = new ToolStripButton(text)
             {
                 DisplayStyle = icon.HasValue ? ToolStripItemDisplayStyle.ImageAndText : ToolStripItemDisplayStyle.Text,
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, IconProvider.IconSize) : null,
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, DpiIconSize) : null,
                 ToolTipText = toolTipText ?? text
             };
             button.Click += (_, __) => Execute(command, null);
@@ -860,22 +950,22 @@ namespace DocSets
         private void AddTreeNavigationButtons()
         {
             _expandAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _expandAllButton.Image = IconProvider.Get(AppIcon.ExpandAll, IconProvider.IconSize);
+            _expandAllButton.Image = IconProvider.Get(AppIcon.ExpandAll, DpiIconSize);
             _expandAllButton.ToolTipText = "Развернуть все узлы дерева";
             _expandAllButton.Click += (_, __) => _tree.ExpandAll();
 
             _collapseAllButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, IconProvider.IconSize);
+            _collapseAllButton.Image = IconProvider.Get(AppIcon.CollapseAll, DpiIconSize);
             _collapseAllButton.ToolTipText = "Свернуть все узлы дерева";
             _collapseAllButton.Click += (_, __) => _tree.CollapseAll();
 
             _previousTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, IconProvider.IconSize);
+            _previousTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigatePrevious, DpiIconSize);
             _previousTreeNodeButton.ToolTipText = "Перейти к предыдущей видимой закладке";
             _previousTreeNodeButton.Click += (_, __) => MoveTreeBookmark(-1);
 
             _nextTreeNodeButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, IconProvider.IconSize);
+            _nextTreeNodeButton.Image = IconProvider.Get(AppIcon.NavigateNext, DpiIconSize);
             _nextTreeNodeButton.ToolTipText = "Перейти к следующей видимой закладке";
             _nextTreeNodeButton.Click += (_, __) => MoveTreeBookmark(1);
 
@@ -983,14 +1073,14 @@ namespace DocSets
         private void SetupUndoRedoButtons()
         {
             _undoButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _undoButton.Image = IconProvider.Get(AppIcon.Undo, IconProvider.IconSize);
+            _undoButton.Image = IconProvider.Get(AppIcon.Undo, DpiIconSize);
             _undoButton.ImageScaling = ToolStripItemImageScaling.None;
             _undoButton.ToolTipText = "Отменить (Ctrl+Z)";
             _undoButton.ButtonClick += (_, __) => Execute(_viewModel.UndoCommand, null);
             _undoButton.DropDownOpening += (_, __) => FillUndoDropDown(_undoButton, _viewModel.UndoOperations, true);
 
             _redoButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
-            _redoButton.Image = IconProvider.Get(AppIcon.Redo, IconProvider.IconSize);
+            _redoButton.Image = IconProvider.Get(AppIcon.Redo, DpiIconSize);
             _redoButton.ImageScaling = ToolStripItemImageScaling.None;
             _redoButton.ToolTipText = "Повторить (Ctrl+Y)";
             _redoButton.ButtonClick += (_, __) => Execute(_viewModel.RedoCommand, null);
@@ -1031,7 +1121,7 @@ namespace DocSets
             _findPreviousButton.Click += (_, __) => MoveFindSelection(-1);
 
             _findButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _findButton.Image = IconProvider.Get(AppIcon.Find, IconProvider.IconSize);
+            _findButton.Image = IconProvider.Get(AppIcon.Find, DpiIconSize);
             _findButton.ToolTipText = "Найти закладку в текущем Set по активному документу";
             _findButton.Click += async (_, __) => await FindBookmarksInCurrentSetAsync();
 
@@ -1078,13 +1168,13 @@ namespace DocSets
 
             BuildColumns();
 
-            _tree.NodeControls.Add(new NodeStateIcon { LeftMargin = 1 });
-            _tree.NodeControls.Add(new ExpandingIcon { LeftMargin = 1 });
+            _tree.NodeControls.Add(new NodeStateIcon { LeftMargin = DpiService.Scale(this, 1) });
+            _tree.NodeControls.Add(new ExpandingIcon { LeftMargin = DpiService.Scale(this, 1) });
             _tree.NodeControls.Add(new NodeIcon
             {
                 DataPropertyName = nameof(BookmarkTreeNode.Image),
                 ParentColumn = _columnsByKey["name"],
-                LeftMargin = 2, 
+                LeftMargin = DpiService.Scale(this, 2),
             });
             _tree.NodeControls.Add(new NodeIcon
             {
@@ -1119,7 +1209,7 @@ namespace DocSets
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = _columnsByKey["file"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Line), ParentColumn = _columnsByKey["line"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = _columnsByKey["comment"] });
-            _tree.NodeControls.Add(new NodeIcon { DataPropertyName = nameof(BookmarkTreeNode.TagImage), ParentColumn = _columnsByKey["tags"], LeftMargin = 4, ScaleMode = ImageScaleMode.Clip });
+            _tree.NodeControls.Add(new NodeIcon { DataPropertyName = nameof(BookmarkTreeNode.TagImage), ParentColumn = _columnsByKey["tags"], LeftMargin = DpiService.Scale(this, 4), ScaleMode = ImageScaleMode.Clip });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Project), ParentColumn = _columnsByKey["project"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Symbol), ParentColumn = _columnsByKey["symbol"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Solution), ParentColumn = _columnsByKey["solution"] });
@@ -1139,8 +1229,8 @@ namespace DocSets
 
         private void BuildMenus()
         {
-            _nodeMenu.ImageScalingSize = new Size(16, 16);
-            _groupMenu.ImageScalingSize = new Size(16, 16);
+            _nodeMenu.ImageScalingSize = new Size(DpiIconSize, DpiIconSize);
+            _groupMenu.ImageScalingSize = new Size(DpiIconSize, DpiIconSize);
             AddNodeMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
             AddNodeMenu("Pin / Unpin", _viewModel.TogglePinCommand, null, AppIcon.PinOverlay);
             var goToOriginalMenu = new ToolStripMenuItem("Перейти к оригиналу") { Name = "GoToPinOriginal" };
@@ -1260,7 +1350,7 @@ namespace DocSets
             var item = new ToolStripMenuItem("Синхронизировать с текущей позицией")
             {
                 Tag = _viewModel.SyncWithCurrentPositionCommand,
-                Image = IconProvider.Get(AppIcon.Sync, 16)
+                Image = IconProvider.Get(AppIcon.Sync, this, 16)
             };
 
             item.Click += async (_, __) =>
@@ -1315,9 +1405,9 @@ namespace DocSets
 
         private void BuildFilterTagMenu()
         {
-            _filterTagsButton.DropDown.ImageScalingSize = new Size(IconProvider.IconSize, IconProvider.IconSize);
+            _filterTagsButton.DropDown.ImageScalingSize = new Size(DpiIconSize, DpiIconSize);
             _filterTagsButton.DropDownItems.Clear();
-            var clear = new ToolStripMenuItem("Без фильтра") { Checked = _filterTagIds.Count == 0 };
+            var clear = new ToolStripMenuItem("Без фильтра") { Image = CreateTagFilterImage(null, _filterTagIds.Count == 0), ImageScaling = ToolStripItemImageScaling.None };
             clear.Click += (_, __) => { _filterTagIds.Clear(); BuildFilterTagMenu(); RebuildTree(); SaveLocalState(); };
             _filterTagsButton.DropDownItems.Add(clear);
             _filterTagsButton.DropDownItems.Add(new ToolStripSeparator());
@@ -1330,20 +1420,16 @@ namespace DocSets
         }
         private Image CreateTagFilterImage(TagDefinition tag, bool isChecked)
         {
-            var scale = Math.Max(1f, DeviceDpi / 96f);
-            var iconSize = Math.Max(16, (int)Math.Round(18 * scale));
-            var checkSize = Math.Max(13, (int)Math.Round(15 * scale));
-            var gap = Math.Max(3, (int)Math.Round(4 * scale));
-            var height = Math.Max(iconSize, checkSize);
-            var checkAreaWidth = checkSize + (int)Math.Round(4 * scale);
-            var bitmap = new Bitmap(checkAreaWidth + gap + iconSize, height);
+            var height = DpiService.Scale(this, 16);
+            var iconSize = DpiService.Scale(this, 16);
+            var iconLeft = DpiService.Scale(this, 20);
+            var bitmap = new Bitmap(DpiService.Scale(this, 36), height);
             bitmap.SetResolution(DeviceDpi, DeviceDpi);
             using (var graphics = Graphics.FromImage(bitmap))
             {
                 graphics.Clear(Color.Transparent);
-                var checkBounds = new Rectangle(0, (height - checkSize) / 2, checkSize, checkSize);
-                ControlPaint.DrawCheckBox(graphics, checkBounds, isChecked ? ButtonState.Checked : ButtonState.Normal);
-                graphics.DrawImage(TagIconProvider.Get(tag?.Icon, iconSize), checkAreaWidth + gap, (height - iconSize) / 2, iconSize, iconSize);
+                DrawFilterCheckBox(graphics, isChecked);
+                if (tag != null) graphics.DrawImage(TagIconProvider.Get(tag.Icon, iconSize), iconLeft, (height - iconSize) / 2, iconSize, iconSize);
             }
             return bitmap;
         }
@@ -1360,7 +1446,7 @@ namespace DocSets
             var item = new ToolStripMenuItem(text)
             {
                 Tag = color,
-                Image = CreateColorSwatch(color, 16)
+                Image = CreateColorSwatch(color, DpiService.Scale(this, 16), DeviceDpi)
             };
 
             _colorMenuItems[color] = item;
@@ -1389,13 +1475,14 @@ namespace DocSets
             parent.DropDownItems.Add(item);
         }
 
-        private static Image CreateColorSwatch(BookmarkColor color, int size)
+        private static Image CreateColorSwatch(BookmarkColor color, int size, int dpi)
         {
             var bitmap = new Bitmap(size, size);
             using (var graphics = Graphics.FromImage(bitmap))
             {
                 graphics.Clear(Color.Transparent);
-                var rectangle = new Rectangle(2, 2, size - 5, size - 5);
+                var inset = Math.Max(1, (int)Math.Round(2 * dpi / 96f));
+                var rectangle = new Rectangle(inset, inset, Math.Max(1, size - inset * 2 - 1), Math.Max(1, size - inset * 2 - 1));
                 using (var brush = new SolidBrush(GetBookmarkColor(color)))
                 {
                     graphics.FillRectangle(brush, rectangle);
@@ -1417,7 +1504,7 @@ namespace DocSets
         {
             var item = new ToolStripMenuItem("Properties...")
             {
-                Image = IconProvider.Get(AppIcon.Properties, 16)
+                Image = IconProvider.Get(AppIcon.Properties, this, 16)
             };
             item.Click += delegate { ShowBookmarkProperties(GetCurrentItem()); };
             _nodeMenu.Items.Add(item);
@@ -1549,7 +1636,7 @@ namespace DocSets
         {
             var item = new ToolStripMenuItem(text)
             {
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, IconProvider.IconSize) : null,
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, DpiIconSize) : null,
                 Tag = command
             };
             
@@ -1705,7 +1792,7 @@ namespace DocSets
         {
             var item = new ToolStripMenuItem(text)
             {
-                Image = icon.HasValue ? IconProvider.Get(icon.Value, IconProvider.IconSize) : null
+                Image = icon.HasValue ? IconProvider.Get(icon.Value, DpiIconSize) : null
             };
             if (!string.IsNullOrEmpty(shortcut)) item.ShortcutKeyDisplayString = shortcut;
             item.Click += (_, __) => Execute(command, GetCurrentItem());
@@ -1844,6 +1931,7 @@ namespace DocSets
                 _experimentalPropertiesSaveTimer.Interval = 500;
                 _experimentalPropertiesSaveTimer.Start();
             };
+            _experimentalPropertiesPanel.MarkdownDropFocusRequested += (_, __) => CommentEditorFocusRequested?.Invoke(this, EventArgs.Empty);
             _experimentalPropertiesPanel.MarkdownEditingCompleted += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
@@ -1930,6 +2018,7 @@ namespace DocSets
                 if (symbol == null || string.IsNullOrWhiteSpace(symbol.Symbol))
                 {
                     _statusLabel.Text = "Не удалось определить символ: " + text;
+                    _experimentalPropertiesPanel.RequestMarkdownEditorFocus();
                     return;
                 }
                 _experimentalPropertiesPanel.InsertResolvedExternalSymbol(new DocumentLink
@@ -2271,15 +2360,15 @@ namespace DocSets
                     AutoSize = true,
                     ToolTipText = "Управление наборами и их порядком",
                     Overflow = ToolStripItemOverflow.Never,
-                    Image = IconProvider.Get(AppIcon.Folder),
+                    Image = IconProvider.Get(AppIcon.Folder, this),
                 };
                 setsButton.Click += (_, __) => SelectSetsOverview();
                 _standardGroupsStrip.Items.Add(setsButton);
 
 
-                AddStandardGroupButton(_viewModel.HistoryRoot, IconProvider.Get(AppIcon.Item));
-                AddStandardGroupButton(_viewModel.RecentRoot, IconProvider.Get(AppIcon.LinkSymbol));
-                AddStandardGroupButton(_viewModel.PinRoot, IconProvider.Get(AppIcon.PinOverlay));
+                AddStandardGroupButton(_viewModel.HistoryRoot, IconProvider.Get(AppIcon.Item, this));
+                AddStandardGroupButton(_viewModel.RecentRoot, IconProvider.Get(AppIcon.LinkSymbol, this));
+                AddStandardGroupButton(_viewModel.PinRoot, IconProvider.Get(AppIcon.PinOverlay, this));
 
                 foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot))
                 {
@@ -2440,7 +2529,7 @@ namespace DocSets
             var host = new ToolStripControlHost(editor)
             {
                 AutoSize = false,
-                Width = Math.Max(button.Width + IconProvider.IconSize, Math.Max(90, textWidth)),
+                Width = Math.Max(button.Width + DpiIconSize, Math.Max(90, textWidth)),
                 Height = Math.Max(_groupsStrip.Height - 4, editor.PreferredHeight + 2),
                 Margin = button.Margin,
                 Padding = Padding.Empty,
@@ -2946,7 +3035,7 @@ namespace DocSets
             _togglePropertiesButton.CheckOnClick = true;
             _togglePropertiesButton.Checked = true;
             _togglePropertiesButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, IconProvider.IconSize);
+            _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, DpiIconSize);
             _togglePropertiesButton.ToolTipText = "Показать или скрыть панель свойств";
             _togglePropertiesButton.Click += (_, __) => SetPropertiesPanelVisible(_togglePropertiesButton.Checked);
             _toolStrip.Items.Add(_togglePropertiesButton);

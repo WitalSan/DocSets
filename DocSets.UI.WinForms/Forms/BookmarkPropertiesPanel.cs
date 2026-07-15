@@ -211,7 +211,7 @@ namespace DocSets
             tabs.Dock = DockStyle.Fill;
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.DrawItem += DrawTab;
-            tabs.Padding = new Point(12, 4);
+            tabs.Padding = new Point(DpiService.Scale(this, 12), DpiService.Scale(this, 4));
             var commentTab = new TabPage("Комментарий");
             var codeTab = new TabPage("Код");
             var propertiesTab = new TabPage("Свойства");
@@ -223,6 +223,7 @@ namespace DocSets
             root.Controls.Add(tabs, 0, 2);
 
             commentTextBox.Dock = DockStyle.Fill;
+            commentTextBox.Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
             commentTextBox.Multiline = true;
             commentTextBox.AcceptsReturn = true;
             commentTextBox.AcceptsTab = true;
@@ -292,7 +293,7 @@ namespace DocSets
 
             if (selected)
             {
-                using (var border = new Pen(SystemColors.Highlight, 2))
+                using (var border = new Pen(SystemColors.Highlight, DpiService.Scale(this, 2f)))
                 {
                     e.Graphics.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
                 }
@@ -502,9 +503,9 @@ namespace DocSets
             if (!loading) ItemChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        private static void SetupChoice(RadioButton button, string text)
+        private void SetupChoice(RadioButton button, string text)
         {
-            button.Text = text; button.Appearance = Appearance.Button; button.TextAlign = ContentAlignment.MiddleCenter; button.AutoSize = false; button.Width = 74; button.Height = 28; button.Margin = new Padding(0, 0, 4, 0);
+            button.Text = text; button.Appearance = Appearance.Button; button.TextAlign = ContentAlignment.MiddleCenter; button.AutoSize = false; button.Width = DpiService.Scale(this, 74); button.Height = DpiService.Scale(this, 28); button.Margin = new Padding(0, 0, 4, 0);
         }
 
         private static void AddLabel(TableLayoutPanel root, string text, int column, int row)

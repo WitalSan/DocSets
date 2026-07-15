@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -39,23 +39,12 @@ namespace DocSets
         private static readonly Dictionary<AppIcon, Image> Sources = new Dictionary<AppIcon, Image>();
         private static readonly Dictionary<Tuple<AppIcon, int>, Image> Scaled = new Dictionary<Tuple<AppIcon, int>, Image>();
         private static readonly Dictionary<Tuple<AppIcon, AppIcon, int>, Image> Overlaid = new Dictionary<Tuple<AppIcon, AppIcon, int>, Image>();
-        private static int? _iconSize;
+        public static int IconSize => 16;
         public static int PinIconSize => IconSize;
-        public static int IconSize
-        {
-            get
-            {
-                if (_iconSize == null) _iconSize = ToPhysicalIconSize(16);
-                return _iconSize.Value;
-            }
-        }
 
-        static private int ToPhysicalIconSize(int desiredSize)
+        public static Image Get(AppIcon icon, Control owner, int logicalSize = 16)
         {
-            //return Math.Max(
-            //    1,
-            //    (int)Math.Round(desiredSize / 96f * _toolStrip.DeviceDpi));
-            return 24;
+            return Get(icon, DpiService.IconSize(owner, logicalSize));
         }
 
         public static Image Get(AppIcon icon, int size = -1)
@@ -172,7 +161,7 @@ namespace DocSets
                 graphics.Clear(Color.Transparent);
                 graphics.CompositingMode = CompositingMode.SourceCopy;
                 graphics.CompositingQuality = CompositingQuality.HighQuality;
-                graphics.InterpolationMode = size < SourceSize ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
+                graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 graphics.SmoothingMode = SmoothingMode.HighQuality;
                 graphics.DrawImage(source, new Rectangle(0, 0, size, size), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel);
