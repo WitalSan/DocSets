@@ -238,16 +238,71 @@ namespace DocSets
     }
     internal sealed class MarkdownCommentControl : UserControl
     {
-        private sealed class DragWheelMessageFilter : IMessageFilter
+        private sealed class DragWheelMessageHook : IDisposable
         {
-            private const int WmMouseWheel = 0x020A;
+            private const int WhGetMessage = 3;
+            private const int PmRemove = 1;
+            private const uint WmMouseWheel = 0x020A;
             private readonly MarkdownCommentControl owner;
+            private readonly HookProc callback;
+            private IntPtr hook;
 
-            public DragWheelMessageFilter(MarkdownCommentControl owner) => this.owner = owner;
+            public DragWheelMessageHook(MarkdownCommentControl owner)
+            {
+                this.owner = owner;
+                callback = OnMessage;
+            }
 
-            public bool PreFilterMessage(ref Message message) =>
-                message.Msg == WmMouseWheel && owner.HandleDragMouseWheel(message.WParam);
+            public void Start()
+            {
+                if (hook != IntPtr.Zero) return;
+                hook = SetWindowsHookEx(WhGetMessage, callback, IntPtr.Zero, GetCurrentThreadId());
+            }
+
+            public void Stop()
+            {
+                if (hook == IntPtr.Zero) return;
+                UnhookWindowsHookEx(hook);
+                hook = IntPtr.Zero;
+            }
+
+            private IntPtr OnMessage(int code, IntPtr wParam, IntPtr lParam)
+            {
+                if (code >= 0 && wParam == new IntPtr(PmRemove) && lParam != IntPtr.Zero)
+                {
+                    try
+                    {
+                        var message = (NativeMessage)Marshal.PtrToStructure(lParam, typeof(NativeMessage));
+                        if (message.Message == WmMouseWheel && owner.HandleDragMouseWheel(message.WParam))
+                        {
+                            message.Message = 0;
+                            Marshal.StructureToPtr(message, lParam, false);
+                        }
+                    }
+                    catch
+                    {
+                        // Native hook callbacks must never propagate exceptions into the OLE message loop.
+                    }
+                }
+                return CallNextHookEx(hook, code, wParam, lParam);
+            }
+
+            public void Dispose() => Stop();
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeMessage
+        {
+            public IntPtr HWnd;
+            public uint Message;
+            public IntPtr WParam;
+            public IntPtr LParam;
+            public uint Time;
+            public Point Point;
+        }
+
+        private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
         private readonly ToolStrip toolbar = new ToolStrip();
         private readonly ToolStripButton previewButton = new ToolStripButton("Просмотр");
         private readonly ToolStripButton editButton = new ToolStripButton("Редактирование");
@@ -262,8 +317,7 @@ namespace DocSets
         private readonly DragCaretIndicator dragCaret = new DragCaretIndicator { Visible = false, BackColor = SystemColors.WindowText };
         private readonly System.Windows.Forms.Timer dragCaretTimer = new System.Windows.Forms.Timer { Interval = 50 };
         private RichTextBox dragCaretTarget;
-        private DragWheelMessageFilter dragWheelFilter;
-        private bool dragWheelFilterInstalled;
+        private DragWheelMessageHook dragWheelHook;
         private int lastDragScrollTick;
         private readonly List<MarkdownLinkSpan> links = new List<MarkdownLinkSpan>();
         private int[] previewToEditorPositions = new[] { 0 };
@@ -279,6 +333,9 @@ namespace DocSets
         private const int WmSetRedraw = 0x000B;
         private const int EmGetFirstVisibleLine = 0x00CE;
         private const int EmLineScroll = 0x00B6;
+        private const int WmVScroll = 0x0115;
+        private const int SbLineUp = 0;
+        private const int SbLineDown = 1;
         private const int ExperimentalTrailingLineCount = 10;
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
@@ -289,7 +346,7 @@ namespace DocSets
         public MarkdownCommentControl(bool experimentalDragDrop = false)
         {
             this.experimentalDragDrop = experimentalDragDrop;
-            if (experimentalDragDrop) dragWheelFilter = new DragWheelMessageFilter(this);
+            if (experimentalDragDrop) dragWheelHook = new DragWheelMessageHook(this);
             Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
             toolbar.Font = Font;
             preview.Font = Font;
@@ -544,9 +601,7 @@ private void EditorDragEnter(object sender, DragEventArgs e)
         private void BeginExperimentalDrag(RichTextBox target)
         {
             dragCaretTarget = target;
-            if (dragWheelFilterInstalled || dragWheelFilter == null) return;
-            Application.AddMessageFilter(dragWheelFilter);
-            dragWheelFilterInstalled = true;
+            dragWheelHook?.Start();
         }
 
         private bool HandleDragMouseWheel(IntPtr wParam)
@@ -565,7 +620,8 @@ private void EditorDragEnter(object sender, DragEventArgs e)
         private void ScrollDragTarget(int lineDelta)
         {
             if (dragCaretTarget == null || dragCaretTarget.IsDisposed || !dragCaretTarget.IsHandleCreated) return;
-            SendMessage(dragCaretTarget.Handle, EmLineScroll, IntPtr.Zero, new IntPtr(lineDelta));
+            var scrollCommand = lineDelta < 0 ? SbLineUp : SbLineDown;
+            SendMessage(dragCaretTarget.Handle, WmVScroll, new IntPtr(scrollCommand), IntPtr.Zero);
             ShowDragCaretAt(dragCaretTarget, dragCaretTarget.PointToClient(Cursor.Position), false);
         }
 
@@ -601,11 +657,7 @@ private void EditorDragEnter(object sender, DragEventArgs e)
         private void HideDragCaret()
         {
             dragCaretTimer.Stop();
-            if (dragWheelFilterInstalled && dragWheelFilter != null)
-            {
-                Application.RemoveMessageFilter(dragWheelFilter);
-                dragWheelFilterInstalled = false;
-            }
+            dragWheelHook?.Stop();
             dragCaretTarget = null;
             dragCaret.Visible = false;
         }
@@ -845,6 +897,19 @@ private void EditorDragEnter(object sender, DragEventArgs e)
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int hookId, HookProc callback, IntPtr module, uint threadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hook);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -852,6 +917,7 @@ private void EditorDragEnter(object sender, DragEventArgs e)
                 HideDragCaret();
                 highlightTimer.Dispose();
                 dragCaretTimer.Dispose();
+                dragWheelHook?.Dispose();
                 editorRegularFont?.Dispose();
                 editorBoldFont?.Dispose();
                 editorItalicFont?.Dispose();
