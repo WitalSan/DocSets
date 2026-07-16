@@ -48,6 +48,9 @@ namespace DocSets
         private bool isRestoringUndoState;
         private bool suppressUndoRedoNotification;
         private bool suppressUndoRedoPersistence;
+        private long undoRedoSnapshotMilliseconds;
+        private long undoRedoDeserializeMilliseconds;
+        private long undoRedoApplyMilliseconds;
         private bool refreshingRecent;
         private int mutationDepth;
         private bool mutationChanged;
@@ -409,7 +412,6 @@ namespace DocSets
             state.Root.TreeChanged -= Root_TreeChanged;
             state = loadedState;
             tagService.EnsureStandardTags(state);
-            state.Root.TreeChanged += Root_TreeChanged;
             if (state.Ui == null) state.Ui = new DocumentSetsUiSettings();
             if (solutionState.Ui == null || (solutionState.Ui.Columns.Count == 0 && state.Ui.Columns.Count > 0))
             {
@@ -429,6 +431,11 @@ namespace DocSets
                 state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
                 state.ActiveSet = "Default";
             }
+
+            // Loading and Undo restore rebuild several derived/local branches. Subscribing
+            // before that work makes every intermediate change run the full TreeChanged
+            // pipeline (ID validation, recent-bookmark refresh and persistence checks).
+            state.Root.TreeChanged += Root_TreeChanged;
 
             isApplyingState = true;
             try
@@ -2067,6 +2074,7 @@ namespace DocSets
             });
         }
         public event EventHandler UndoRedoStateRestored;
+        public string LastUndoRedoDiagnostics { get; private set; } = string.Empty;
 
         public IReadOnlyList<string> UndoOperations => undoRedoService.UndoOperations;
         public IReadOnlyList<string> RedoOperations => undoRedoService.RedoOperations;
@@ -2086,6 +2094,7 @@ namespace DocSets
         public async Task UndoManyAsync(int count)
         {
             var restored = false;
+            ResetUndoRedoDiagnostics();
             var batch = count > 1;
             suppressUndoRedoNotification = batch;
             suppressUndoRedoPersistence = true;
@@ -2111,6 +2120,7 @@ namespace DocSets
         public async Task RedoManyAsync(int count)
         {
             var restored = false;
+            ResetUndoRedoDiagnostics();
             var batch = count > 1;
             suppressUndoRedoNotification = batch;
             suppressUndoRedoPersistence = true;
@@ -2135,13 +2145,21 @@ namespace DocSets
 
         private async Task UndoAsync()
         {
-            if (!undoRedoService.TryUndo(CreateUndoSnapshot(), out var targetSnapshot, out var focusIds, out var focusSetId)) return;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var currentSnapshot = CreateUndoSnapshot();
+            timer.Stop();
+            undoRedoSnapshotMilliseconds += timer.ElapsedMilliseconds;
+            if (!undoRedoService.TryUndo(currentSnapshot, out var targetSnapshot, out var focusIds, out var focusSetId)) return;
             await RestoreUndoSnapshotAsync(targetSnapshot, focusIds, focusSetId);
         }
 
         private async Task RedoAsync()
         {
-            if (!undoRedoService.TryRedo(CreateUndoSnapshot(), out var targetSnapshot, out var focusIds, out var focusSetId)) return;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var currentSnapshot = CreateUndoSnapshot();
+            timer.Stop();
+            undoRedoSnapshotMilliseconds += timer.ElapsedMilliseconds;
+            if (!undoRedoService.TryRedo(currentSnapshot, out var targetSnapshot, out var focusIds, out var focusSetId)) return;
             await RestoreUndoSnapshotAsync(targetSnapshot, focusIds, focusSetId);
         }
 
@@ -2159,11 +2177,15 @@ namespace DocSets
         private async Task RestoreUndoSnapshotAsync(string snapshot, IEnumerable<string> focusItemIds, string focusSetId)
         {
             if (string.IsNullOrWhiteSpace(snapshot)) return;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             var envelope = JsonConvert.DeserializeObject<UndoSnapshot>(snapshot);
             var restoredState = JsonConvert.DeserializeObject<DocumentSetsState>(envelope?.State ?? "");
+            timer.Stop();
+            undoRedoDeserializeMilliseconds += timer.ElapsedMilliseconds;
             if (restoredState == null) return;
 
             isRestoringUndoState = true;
+            timer.Restart();
             try
             {
                 solutionState.Pins = JsonConvert.DeserializeObject<List<PinLocalItem>>(envelope.Pins ?? "[]") ?? new List<PinLocalItem>();
@@ -2173,6 +2195,9 @@ namespace DocSets
                 if (restoredSet != null) SelectedSet = restoredSet;
                 var selectedIds = new HashSet<string>(focusItemIds ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
                 SetSelectedNodes(GetAllNodes().Where(x => x != null && selectedIds.Contains(x.Id)));
+                timer.Stop();
+                undoRedoApplyMilliseconds += timer.ElapsedMilliseconds;
+                LastUndoRedoDiagnostics = $"snapshot {undoRedoSnapshotMilliseconds} ms, deserialize {undoRedoDeserializeMilliseconds} ms, apply {undoRedoApplyMilliseconds} ms";
                 InvalidateCommands();
                 if (!suppressUndoRedoNotification)
                 {
@@ -2186,6 +2211,14 @@ namespace DocSets
                 isRestoringUndoState = false;
                 InvalidateCommands();
             }
+        }
+
+        private void ResetUndoRedoDiagnostics()
+        {
+            undoRedoSnapshotMilliseconds = 0;
+            undoRedoDeserializeMilliseconds = 0;
+            undoRedoApplyMilliseconds = 0;
+            LastUndoRedoDiagnostics = string.Empty;
         }
 
         private async Task PersistRestoredStateAsync()

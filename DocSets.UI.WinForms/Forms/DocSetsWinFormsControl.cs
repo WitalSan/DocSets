@@ -2626,7 +2626,10 @@ namespace DocSets
 
             // Do not capture the obsolete tree immediately before rebuilding the restored state.
             _renderedExpansionOwner = null;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             RefreshAll();
+            timer.Stop();
+            _statusLabel.Text = $"Undo/Redo: {_viewModel.LastUndoRedoDiagnostics}, tree {timer.ElapsedMilliseconds} ms";
         }
         private void ViewModel_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
         {
