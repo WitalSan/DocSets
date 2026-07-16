@@ -156,10 +156,11 @@ namespace DocSets.Tests
                 var current = Field<MarkdownCommentControl>(panel, "markdownComment");
                 var experimental = Field<MarkdownCommentControl>(panel, "markdownComment2");
 
-                Assert.Equal(2, tabs.TabPages.Count);
+                Assert.Equal(3, tabs.TabPages.Count);
                 Assert.Equal("Комментарий-2", tabs.TabPages[1].Text);
                 Assert.False(current.ExperimentalDragDrop);
                 Assert.True(experimental.ExperimentalDragDrop);
+                Assert.Equal("comment3", tabs.TabPages[2].Tag as string);
                 var experimentalEditor = Field<RichTextBox>(experimental, "editor");
                 Assert.Equal(11, experimentalEditor.Lines.Length);
 

@@ -3,6 +3,8 @@
   <PropertyGroup>
     <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <VsIdeDir Condition="'$(DevEnvDir)' != ''">$(DevEnvDir)</VsIdeDir>
+    <VsIdeDir Condition="'$(VsIdeDir)' == ''">$(MSBuildToolsPath)\..\..\..\Common7\IDE\</VsIdeDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
     <LangVersion>9</LangVersion>
@@ -62,9 +64,17 @@
     <!-- Source trees are included recursively, like SDK-style projects. -->
     <Compile Include="DocSets.Core\**\*.cs" Exclude="DocSets.Core\**\bin\**;DocSets.Core\**\obj\**;DocSets.Core\**\.vs\**" />
     <Compile Include="DocSets.UI.WinForms\**\*.cs" Exclude="DocSets.UI.WinForms\**\bin\**;DocSets.UI.WinForms\**\obj\**;DocSets.UI.WinForms\**\.vs\**" />
-    <Compile Include="DocSets.Vsix\**\*.cs" Exclude="DocSets.Vsix\**\bin\**;DocSets.Vsix\**\obj\**;DocSets.Vsix\**\.vs\**" />
+    <Compile Include="DocSets.Vsix\Package\DocSetsPackage.cs" />
+    <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
+    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
+    <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
+    <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.Vsix\WinFormsHost\VsMarkdownCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="Properties\**\*.cs" Exclude="Properties\**\bin\**;Properties\**\obj\**;Properties\**\.vs\**" />
-
     <!-- Design-time hints do not participate in source inclusion. -->
     <Compile Update="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
       <SubType>Component</SubType>
@@ -86,6 +96,14 @@
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="Microsoft.VisualStudio.ComponentModelHost" />
     <Reference Include="Microsoft.VisualStudio.LanguageServices" />
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>$(VsIdeDir)PrivateAssemblies\Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.WinForms">
+      <HintPath>$(VsIdeDir)Extensions\Microsoft\Web Live Preview\Microsoft.Web.WebView2.WinForms.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -117,6 +135,10 @@
       <ResourceName>Menus.ctmenu</ResourceName>
     </VSCTCompile>
     <Content Include="Resources\DocSetsToolWindowCommand.png" />
+    <Content Include="$(VsIdeDir)PrivateAssemblies\WebView2Loader.dll" Link="WebView2Loader.dll">
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <EmbeddedResource Include="-Icons-\Item.png">
       <LogicalName>DocSets.Icons.Item.png</LogicalName>
     </EmbeddedResource>

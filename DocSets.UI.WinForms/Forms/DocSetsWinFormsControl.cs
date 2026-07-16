@@ -2652,7 +2652,17 @@ namespace DocSets
             if (e.Kind != DocumentTreeChangeKind.PropertyChanged)
             {
                 if (rootStructureChanged) RefreshGroupsStrip();
-                RebuildTree();
+
+                // History, Recent and Pins are updated in the background while the user moves
+                // through the Visual Studio editor. Rebuilding an unrelated visible set here
+                // also reloads the properties panel and disturbs its editor state/scrolling.
+                var oldSet = _viewModel.GetSetContainingNode(e.OldParent ?? e.Item);
+                var newSet = _viewModel.GetSetContainingNode(e.NewParent ?? e.Item);
+                var affectsRenderedTree = _showSetsOverview
+                    || ReferenceEquals(oldSet, _viewModel.SelectedSet)
+                    || ReferenceEquals(newSet, _viewModel.SelectedSet)
+                    || (rootStructureChanged && oldSet == null && newSet == null);
+                if (affectsRenderedTree) RebuildTree();
             }
             RefreshToolbarItems();
         }

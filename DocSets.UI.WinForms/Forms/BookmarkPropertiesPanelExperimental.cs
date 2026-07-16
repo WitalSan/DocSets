@@ -25,11 +25,13 @@ namespace DocSets
         private readonly LinkLabel codeSymbolLabel = new LinkLabel();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
+        private readonly Button openCommentWindowButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly BreadcrumbToolTipController breadcrumbToolTips;
         private readonly TabControl contentTabs = new TabControl();
         private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
         private readonly MarkdownCommentControl markdownComment2 = new MarkdownCommentControl(experimentalDragDrop: true);
+        private readonly ToastCommentControl markdownComment3 = new ToastCommentControl();
         private ExperimentalAccordionHost accordion;
         private ExperimentalAccordionSection commentSection;
         private ExperimentalAccordionSection codeSection;
@@ -46,13 +48,16 @@ namespace DocSets
         private Point breadcrumbDragStart;
         private DocumentLink breadcrumbDragLink;
         private bool markdownCommentDirty;
+        private bool markdownComment3Dirty;
         private MarkdownCommentControl dirtyMarkdownComment;
         private MarkdownCommentControl focusMarkdownComment;
         private MarkdownCommentControl pendingExternalDropComment;
+        private bool pendingToastDrop;
 
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
         public event EventHandler RefreshCodeRequested;
+        public event EventHandler OpenCommentWindowRequested;
         public event EventHandler PreviewRequested;
         public event EventHandler PinChanged;
         public event EventHandler LayoutStateChanged;
@@ -71,10 +76,11 @@ namespace DocSets
             commentTextBox.TextChanged += Changed;
             commentTextBox.TextChanged += (_, __) =>
             {
-                if (!loading) { markdownCommentDirty = false; dirtyMarkdownComment = null; }
+                if (!loading) { markdownCommentDirty = false; markdownComment3Dirty = false; dirtyMarkdownComment = null; }
             };
             WireMarkdownComment(markdownComment);
             WireMarkdownComment(markdownComment2);
+            WireMarkdownComment3();
             LoadItem(null);
         }
 
@@ -83,6 +89,7 @@ namespace DocSets
             control.CommentChanged += (_, __) =>
             {
                 if (loading) return;
+                markdownComment3Dirty = false;
                 markdownCommentDirty = true;
                 dirtyMarkdownComment = control;
                 Changed(control, EventArgs.Empty);
@@ -101,10 +108,38 @@ namespace DocSets
                 MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
             };
         }
+        private void WireMarkdownComment3()
+        {
+            markdownComment3.CommentChanged += (_, __) =>
+            {
+                if (loading) return;
+                markdownCommentDirty = false;
+                markdownComment3Dirty = false;
+                dirtyMarkdownComment = null;
+                markdownComment3Dirty = true;
+                Changed(markdownComment3, EventArgs.Empty);
+            };
+            markdownComment3.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
+            markdownComment3.LinkActivated += ActivateToastLink;
+            markdownComment3.ExternalSymbolDropRequested += text =>
+            {
+                pendingToastDrop = true;
+                ExternalSymbolDropRequested?.Invoke(text, 0);
+            };
+        }
+
+        private void ActivateToastLink(string target)
+        {
+            if (string.IsNullOrWhiteSpace(target)) return;
+            var rendered = DocumentLinkService.Render("[link](" + target + ")");
+            var link = rendered.Links.FirstOrDefault()?.Link;
+            if (link != null) DocumentLinkActivated?.Invoke(link);
+        }
+
         public DocumentItem CurrentItem => item;
         public bool RequestedPinState => !loadedAllPinned;
         public BookmarkColor SelectedColor => selectedColor;
-        public bool MarkdownEditPending => markdownCommentDirty;
+        public bool MarkdownEditPending => markdownCommentDirty || markdownComment3Dirty;
         public bool OnlyCommentChangePending
         {
             get
@@ -152,7 +187,7 @@ namespace DocSets
             BookmarkColor? commonColor,
             bool canPin)
         {
-            var preserveMarkdownEdit = ReferenceEquals(item, value) && markdownCommentDirty;
+            var preserveMarkdownEdit = ReferenceEquals(item, value) && MarkdownEditPending;
             loading = true;
             try
             {
@@ -176,7 +211,9 @@ namespace DocSets
                 {
                     markdownComment.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
                     markdownComment2.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
+                    markdownComment3.LoadComment(value?.Comment ?? string.Empty);
                     markdownCommentDirty = false;
+                    markdownComment3Dirty = false;
                     dirtyMarkdownComment = null;
                 }
                 UpdateCodePreview(value);
@@ -192,8 +229,10 @@ namespace DocSets
                 pinCheckBox.Enabled = value != null && canPin;
                 codeSymbolLabel.Enabled = value != null && !multiple;
                 refreshCodeButton.Enabled = value != null && !multiple;
+                openCommentWindowButton.Enabled = value != null && !multiple;
                 markdownComment.Enabled = value != null && !multiple;
                 markdownComment2.Enabled = value != null && !multiple;
+                markdownComment3.Enabled = value != null && !multiple;
                 SetSectionContentEnabled(value != null && !multiple);
                 UpdateColorButtons();
                 if (multiple && !commonColor.HasValue)
@@ -255,12 +294,13 @@ namespace DocSets
             if (item.Column != (int)columnBox.Value) { item.Column = (int)columnBox.Value; changed = true; }
             var comment = CurrentCommentText;
             changed |= Set(ref item, item.Comment, comment, (x, v) => x.Comment = v);
-            if (markdownCommentDirty)
+            if (MarkdownEditPending)
             {
                 loading = true;
                 try { commentTextBox.Text = comment; }
                 finally { loading = false; }
                 markdownCommentDirty = false;
+                markdownComment3Dirty = false;
                 dirtyMarkdownComment = null;
             }
             if (item.Color != selectedColor) { item.Color = selectedColor; changed = true; }
@@ -330,22 +370,25 @@ namespace DocSets
             var propertiesTab = new TabPage("Свойства") { Tag = "properties" };
             var commentMarkdownTab = new TabPage("Комментарий β") { Tag = "comment" };
             var commentMarkdownTab2 = new TabPage("Комментарий-2") { Tag = "comment2" };
+            var commentMarkdownTab3 = new TabPage("Комментарий-3") { Tag = "comment3", ToolTipText = "TOAST UI Markdown/WYSIWYG Editor" };
             propertiesTab.Controls.Add(accordion);
             commentMarkdownTab.Controls.Add(markdownComment);
             commentMarkdownTab2.Controls.Add(markdownComment2);
+            commentMarkdownTab3.Controls.Add(markdownComment3);
             contentTabs.TabPages.Add(propertiesTab);
             //contentTabs.TabPages.Add(commentMarkdownTab);
             contentTabs.TabPages.Add(commentMarkdownTab2);
+            contentTabs.TabPages.Add(commentMarkdownTab3);
             contentTabs.SelectedIndexChanged += (_, __) =>
             {
                 var selectedKind = contentTabs.SelectedTab?.Tag as string;
                 var target = string.Equals(selectedKind, "comment", StringComparison.OrdinalIgnoreCase) ? markdownComment :
                     string.Equals(selectedKind, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : null;
+                var target3 = string.Equals(selectedKind, "comment3", StringComparison.OrdinalIgnoreCase);
                 if (target == null && markdownCommentDirty) dirtyMarkdownComment?.ShowPreview();
                 if (target != null && !ReferenceEquals(target, dirtyMarkdownComment))
-                {
                     target.LoadComment(CurrentCommentText, resetToPreview: true);
-                }
+                if (target3 && !markdownComment3Dirty) markdownComment3.LoadComment(CurrentCommentText);
                 if (target != null) focusMarkdownComment = target;
                 LayoutStateChanged?.Invoke(this, EventArgs.Empty);
             };
@@ -381,6 +424,12 @@ namespace DocSets
             refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             toolTip.SetToolTip(refreshCodeButton, "Синхронизировать с текущей позицией");
             refreshCodeButton.Click += (_, __) => RefreshCodeRequested?.Invoke(this, EventArgs.Empty);
+            openCommentWindowButton.Text = "E";
+            openCommentWindowButton.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
+            openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
+            openCommentWindowButton.Margin = new Padding(0, 0, 3, 0);
+            toolTip.SetToolTip(openCommentWindowButton, "Открыть комментарий в отдельном окне");
+            openCommentWindowButton.Click += (_, __) => OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
             codeButtons.Controls.Add(copyCodeButton);
             codeRoot.Controls.Add(codeButtons, 0, 0);
 
@@ -422,20 +471,34 @@ namespace DocSets
             copyCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, this, 18);
             refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
+            openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
             foreach (var button in new[] { emptyButton, symbolButton, fileButton }) button.Size = DpiService.Scale(this, new Size(74, 28));
             accordion?.PerformLayout();
             PerformLayout();
         }
-        private string CurrentCommentText => markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : commentTextBox.Text ?? string.Empty;
+        private string CurrentCommentText => markdownComment3Dirty ? markdownComment3.CommentText :
+            markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : commentTextBox.Text ?? string.Empty;
 
         private MarkdownCommentControl SelectedMarkdownComment =>
             string.Equals(contentTabs.SelectedTab?.Tag as string, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : markdownComment;
 
-        public void FocusMarkdownEditor() => (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
+        public void FocusMarkdownEditor()
+        {
+            if (string.Equals(contentTabs.SelectedTab?.Tag as string, "comment3", StringComparison.OrdinalIgnoreCase))
+                markdownComment3.FocusEditorFromHost();
+            else
+                (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
+        }
         public void RequestMarkdownEditorFocus() => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
 
         public void InsertResolvedExternalSymbol(DocumentLink link, int position)
         {
+            if (pendingToastDrop)
+            {
+                pendingToastDrop = false;
+                markdownComment3.InsertResolvedLink(link);
+                return;
+            }
             var target = pendingExternalDropComment ?? SelectedMarkdownComment;
             pendingExternalDropComment = null;
             focusMarkdownComment = target;
