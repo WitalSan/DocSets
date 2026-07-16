@@ -315,7 +315,7 @@ namespace DocSets
             commentMarkdownTab.Controls.Add(markdownComment);
             commentMarkdownTab2.Controls.Add(markdownComment2);
             contentTabs.TabPages.Add(propertiesTab);
-            contentTabs.TabPages.Add(commentMarkdownTab);
+            //contentTabs.TabPages.Add(commentMarkdownTab);
             contentTabs.TabPages.Add(commentMarkdownTab2);
             contentTabs.SelectedIndexChanged += (_, __) =>
             {
