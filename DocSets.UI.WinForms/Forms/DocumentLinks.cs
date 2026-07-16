@@ -515,11 +515,11 @@ namespace DocSets
         private void PreviewMouseUp(object sender, MouseEventArgs e)
         {
             var span = HitTest(e.Location);
-            if (e.Button == MouseButtons.Left && span != null) LinkActivated?.Invoke(span.Link);
-            else if (e.Button == MouseButtons.Left)
-            {
-                preview.Select(preview.GetCharIndexFromPosition(e.Location), 0); preview.Focus();
-            }
+            var plainLinkClick = e.Button == MouseButtons.Left &&
+                span != null &&
+                preview.SelectionLength == 0 &&
+                (ModifierKeys & Keys.Shift) == Keys.None;
+            if (plainLinkClick) LinkActivated?.Invoke(span.Link);
             if (e.Button == MouseButtons.Right) contextLink = span;
         }
         private void PreviewKeyPress(object sender, KeyPressEventArgs e)

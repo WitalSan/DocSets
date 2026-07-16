@@ -140,7 +140,8 @@ namespace DocSets.Tests
                 Assert.Equal("**new** [[A.B.Run]]", item.Comment);
                 Field<TextBox>(panel, "commentTextBox").Text = "classic edit";
                 panel.ApplySelectedContentTab("comment");
-                Assert.Equal("classic edit", markdown.CommentText);
+                var markdown2 = Field<MarkdownCommentControl>(panel, "markdownComment2");
+                Assert.Equal("classic edit", markdown2.CommentText);
             }
         }
 
@@ -155,8 +156,8 @@ namespace DocSets.Tests
                 var current = Field<MarkdownCommentControl>(panel, "markdownComment");
                 var experimental = Field<MarkdownCommentControl>(panel, "markdownComment2");
 
-                Assert.Equal(3, tabs.TabPages.Count);
-                Assert.Equal("Комментарий-2", tabs.TabPages[2].Text);
+                Assert.Equal(2, tabs.TabPages.Count);
+                Assert.Equal("Комментарий-2", tabs.TabPages[1].Text);
                 Assert.False(current.ExperimentalDragDrop);
                 Assert.True(experimental.ExperimentalDragDrop);
                 var experimentalEditor = Field<RichTextBox>(experimental, "editor");
@@ -181,7 +182,7 @@ namespace DocSets.Tests
                 Assert.True(panel.Enabled);
                 Assert.True(tabs.Enabled);
                 tabs.SelectedIndex = 1;
-                Assert.Equal("comment", panel.SelectedContentTab);
+                Assert.Equal("comment2", panel.SelectedContentTab);
             }
         }
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
@@ -189,7 +190,7 @@ namespace DocSets.Tests
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())
             {
-                panel.ApplySelectedContentTab("comment"); Assert.Equal("comment", panel.SelectedContentTab);
+                panel.ApplySelectedContentTab("comment"); Assert.Equal("comment2", panel.SelectedContentTab);
                 panel.ApplySelectedContentTab("properties"); Assert.Equal("properties", panel.SelectedContentTab);
             }
         }

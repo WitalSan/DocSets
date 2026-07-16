@@ -122,7 +122,7 @@ namespace DocSets
 
         public IList<string> SectionOrder => accordion?.SectionOrder ?? new List<string>();
         public IList<string> ExpandedSections => accordion?.ExpandedSections ?? new List<string>();
-        public string SelectedContentTab => contentTabs.SelectedIndex == 1 ? "comment" : contentTabs.SelectedIndex == 2 ? "comment2" : "properties";
+        public string SelectedContentTab => contentTabs.SelectedTab?.Tag as string ?? "properties";
 
         public void ApplyLayoutState(IEnumerable<string> sectionOrder, IEnumerable<string> expandedSections)
         {
@@ -131,7 +131,12 @@ namespace DocSets
 
         public void ApplySelectedContentTab(string value)
         {
-            contentTabs.SelectedIndex = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ? 1 : string.Equals(value, "comment2", StringComparison.OrdinalIgnoreCase) ? 2 : 0;
+            var requested = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) &&
+                !contentTabs.TabPages.Cast<TabPage>().Any(x => string.Equals(x.Tag as string, "comment", StringComparison.OrdinalIgnoreCase))
+                ? "comment2"
+                : value;
+            contentTabs.SelectedTab = contentTabs.TabPages.Cast<TabPage>()
+                .FirstOrDefault(x => string.Equals(x.Tag as string, requested, StringComparison.OrdinalIgnoreCase)) ?? contentTabs.TabPages[0];
         }
 
         public void LoadItem(DocumentItem value, bool isPinned = false)
@@ -308,9 +313,9 @@ namespace DocSets
             accordion = new ExperimentalAccordionHost { Dock = DockStyle.Fill };
             accordion.StateChanged += (_, __) => LayoutStateChanged?.Invoke(this, EventArgs.Empty);
             contentTabs.Dock = DockStyle.Fill;
-            var propertiesTab = new TabPage("Свойства");
-            var commentMarkdownTab = new TabPage("Комментарий β");
-            var commentMarkdownTab2 = new TabPage("Комментарий-2");
+            var propertiesTab = new TabPage("Свойства") { Tag = "properties" };
+            var commentMarkdownTab = new TabPage("Комментарий β") { Tag = "comment" };
+            var commentMarkdownTab2 = new TabPage("Комментарий-2") { Tag = "comment2" };
             propertiesTab.Controls.Add(accordion);
             commentMarkdownTab.Controls.Add(markdownComment);
             commentMarkdownTab2.Controls.Add(markdownComment2);
@@ -319,8 +324,10 @@ namespace DocSets
             contentTabs.TabPages.Add(commentMarkdownTab2);
             contentTabs.SelectedIndexChanged += (_, __) =>
             {
-                var target = contentTabs.SelectedIndex == 1 ? markdownComment : contentTabs.SelectedIndex == 2 ? markdownComment2 : null;
-                if (contentTabs.SelectedIndex == 0 && markdownCommentDirty) dirtyMarkdownComment?.ShowPreview();
+                var selectedKind = contentTabs.SelectedTab?.Tag as string;
+                var target = string.Equals(selectedKind, "comment", StringComparison.OrdinalIgnoreCase) ? markdownComment :
+                    string.Equals(selectedKind, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : null;
+                if (target == null && markdownCommentDirty) dirtyMarkdownComment?.ShowPreview();
                 if (target != null && !ReferenceEquals(target, dirtyMarkdownComment))
                 {
                     target.LoadComment(CurrentCommentText, resetToPreview: true);
@@ -409,7 +416,7 @@ namespace DocSets
         private string CurrentCommentText => markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : commentTextBox.Text ?? string.Empty;
 
         private MarkdownCommentControl SelectedMarkdownComment =>
-            contentTabs.SelectedIndex == 2 ? markdownComment2 : markdownComment;
+            string.Equals(contentTabs.SelectedTab?.Tag as string, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : markdownComment;
 
         public void FocusMarkdownEditor() => (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
         public void RequestMarkdownEditorFocus() => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
