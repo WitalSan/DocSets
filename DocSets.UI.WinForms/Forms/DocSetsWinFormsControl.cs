@@ -78,6 +78,8 @@ namespace DocSets
         private readonly List<DocumentItem> _findResults = new List<DocumentItem>();
         private int _findIndex = -1;
         private bool _selectingFromFind;
+        private bool _treeMouseSelectionPending;
+        private List<DocumentItem> _treeSelectionBeforeMouseGesture;
         private bool _propertiesVisible = true;
         private bool _showSetsOverview;
         private readonly object _setsOverviewExpansionOwner = new object();
@@ -1814,14 +1816,19 @@ namespace DocSets
 
             _tree.SelectionChanged += (_, __) =>
             {
-                if (!_selectingFromFind)
+                if (_selectingFromFind) return;
+                if (Control.MouseButtons != MouseButtons.None)
                 {
-                    SyncSelectionFromTree();
+                    if (!_treeMouseSelectionPending)
+                        _treeSelectionBeforeMouseGesture = _viewModel.SelectedNodes?.Where(x => x != null).ToList() ?? new List<DocumentItem>();
+                    _treeMouseSelectionPending = true;
+                    return;
                 }
+                SyncSelectionFromTree();
             };
             _tree.Collapsing += Tree_Collapsing;
             WireTreeActivationBehavior();
-            _tree.ItemDrag += (_, __) => BeginTreeDrag();
+            _tree.ItemDrag += (_, e) => BeginTreeDrag(e.Item as TreeNodeAdv[]);
             _tree.DragOver += Tree_DragOver;
             _tree.DragDrop += Tree_DragDrop;
             _tree.KeyDown += Tree_KeyDown;
@@ -3267,6 +3274,13 @@ namespace DocSets
 
         private void Tree_MouseUp(object sender, MouseEventArgs e)
         {
+            if (e.Button == MouseButtons.Left && _treeMouseSelectionPending)
+            {
+                _treeMouseSelectionPending = false;
+                _treeSelectionBeforeMouseGesture = null;
+                SyncSelectionFromTree();
+                return;
+            }
             if (e.Button != MouseButtons.Right)
             {
                 return;
@@ -3324,10 +3338,17 @@ namespace DocSets
             RefreshStatus();
         }
 
-        private void BeginTreeDrag()
+        private void BeginTreeDrag(TreeNodeAdv[] draggedNodes)
         {
-            if (_tree.SelectedNodes.Count == 0) return;
-            var nodes = _tree.SelectedNodes.ToArray();
+            var nodes = draggedNodes?.Where(x => x != null).ToArray() ?? Array.Empty<TreeNodeAdv>();
+            if (nodes.Length == 0) return;
+
+            var previousSelection = _treeSelectionBeforeMouseGesture ??
+                (_viewModel.SelectedNodes?.Where(x => x != null).ToList() ?? new List<DocumentItem>());
+            var draggedItems = nodes.Select(x => (x.Tag as BookmarkTreeNode)?.Item).Where(x => x != null).ToList();
+            _treeMouseSelectionPending = false;
+            _viewModel.SetSelectedNodes(draggedItems);
+
             DataObject data;
             if (nodes.Length == 1)
             {
@@ -3340,7 +3361,17 @@ namespace DocSets
             }
             else data = new DataObject();
             data.SetData(typeof(TreeNodeAdv[]), nodes);
-            _tree.DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
+
+            var effect = _tree.DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
+            _treeSelectionBeforeMouseGesture = null;
+            if (effect == DragDropEffects.Move)
+            {
+                SyncSelectionFromTree();
+                return;
+            }
+
+            _viewModel.SetSelectedNodes(previousSelection);
+            SyncSelectionFromViewModel();
         }
 
         private void Tree_DragOver(object sender, DragEventArgs e)

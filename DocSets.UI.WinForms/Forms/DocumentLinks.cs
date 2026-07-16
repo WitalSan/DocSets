@@ -311,6 +311,7 @@ namespace DocSets
         private readonly ToolStripButton codeButton = new ToolStripButton("Код");
         private readonly ToolStripButton symbolButton = new ToolStripButton("Символ");
         private readonly ToolStripButton linkButton = new ToolStripButton("Link");
+        private readonly ToolStripButton copyCommentButton = new ToolStripButton();
         private readonly Panel body = new Panel();
         private readonly RichTextBox preview = new RichTextBox();
         private readonly RichTextBox editor = new RichTextBox();
@@ -352,8 +353,24 @@ namespace DocSets
             preview.Font = Font;
             editor.Font = Font;
             Dock = DockStyle.Fill; toolbar.GripStyle = ToolStripGripStyle.Hidden;
-            previewButton.CheckOnClick = editButton.CheckOnClick = true; toolbar.Items.Add(previewButton); toolbar.Items.Add(editButton);
-            toolbar.Items.Add(new ToolStripSeparator()); toolbar.Items.Add(boldButton); toolbar.Items.Add(italicButton); toolbar.Items.Add(codeButton); toolbar.Items.Add(symbolButton); toolbar.Items.Add(linkButton);
+            previewButton.CheckOnClick = editButton.CheckOnClick = true;
+            //toolbar.Items.Add(previewButton); toolbar.Items.Add(editButton);
+            //toolbar.Items.Add(new ToolStripSeparator()); toolbar.Items.Add(boldButton); toolbar.Items.Add(italicButton); toolbar.Items.Add(codeButton); toolbar.Items.Add(symbolButton); toolbar.Items.Add(linkButton);
+            if (experimentalDragDrop)
+            {
+                copyCommentButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+                copyCommentButton.Image = IconProvider.Get(AppIcon.Copy, this, 18);
+                copyCommentButton.ToolTipText = "Копировать комментарий";
+                copyCommentButton.Click += (_, __) => { var text = CommentText; if (!string.IsNullOrEmpty(text)) Clipboard.SetText(text); };
+                //toolbar.Items.Add(new ToolStripSeparator());
+                //toolbar.Items.Add(copyCommentButton);
+            }
+            toolbar.Items.AddRange(new ToolStripItem[]
+            {
+                previewButton,editButton, new ToolStripSeparator(),
+                copyCommentButton,new ToolStripSeparator(),
+                boldButton, italicButton, codeButton, symbolButton, linkButton,
+            });
             previewButton.Click += (_, __) => ShowPreview(true); editButton.Click += (_, __) => ShowEditor();
             boldButton.Font = new Font(toolbar.Font, FontStyle.Bold); italicButton.Font = new Font(toolbar.Font, FontStyle.Italic);
             boldButton.ToolTipText = "Полужирный (Ctrl+Alt+B)"; italicButton.ToolTipText = "Курсив (Ctrl+I)";
@@ -800,6 +817,19 @@ private void EditorDragEnter(object sender, DragEventArgs e)
             if (ContainsFocus && keyData == Keys.Escape)
             {
                 if (IsEditing) ShowPreview(true);
+                return true;
+            }
+            var pasteCommand = keyData == (Keys.Control | Keys.V) || keyData == (Keys.Shift | Keys.Insert);
+            if (preview.ContainsFocus && pasteCommand)
+            {
+                var previewStart = preview.SelectionStart;
+                var previewEnd = previewStart + preview.SelectionLength;
+                var editorStart = PreviewToEditorPosition(previewStart);
+                var editorEnd = PreviewToEditorPosition(previewEnd);
+                ShowEditor();
+                editor.SelectionStart = Math.Min(editorStart, editorEnd);
+                editor.SelectionLength = Math.Abs(editorEnd - editorStart);
+                editor.Paste();
                 return true;
             }
             if (preview.ContainsFocus && (keyData == Keys.Enter || keyData == Keys.F2))
