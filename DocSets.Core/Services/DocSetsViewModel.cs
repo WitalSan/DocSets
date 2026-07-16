@@ -46,6 +46,8 @@ namespace DocSets
         private SolutionLocalState solutionState = new SolutionLocalState();
         private bool historyProbeInProgress;
         private bool isRestoringUndoState;
+        private bool suppressUndoRedoNotification;
+        private bool suppressUndoRedoPersistence;
         private bool refreshingRecent;
         private int mutationDepth;
         private bool mutationChanged;
@@ -2064,15 +2066,18 @@ namespace DocSets
                 OnPropertyChanged(nameof(Tags));
             });
         }
+        public event EventHandler UndoRedoStateRestored;
+
         public IReadOnlyList<string> UndoOperations => undoRedoService.UndoOperations;
         public IReadOnlyList<string> RedoOperations => undoRedoService.RedoOperations;
 
-        public void CaptureUndoState(string description = "Изменение")
+        public void CaptureUndoState(string description = "Изменение", IEnumerable<DocumentItem> affectedItems = null)
         {
             if (!IsLoaded || isApplyingState || isRestoringUndoState) return;
 
             var snapshot = CreateUndoSnapshot();
-            if (undoRedoService.Capture(description, snapshot))
+            var ids = (affectedItems ?? SelectedNodes ?? Enumerable.Empty<DocumentItem>()).Where(x => x != null).Select(x => x.Id).ToArray();
+            if (undoRedoService.Capture(description, snapshot, ids, ids, SelectedSet?.Id, SelectedSet?.Id))
             {
                 InvalidateCommands();
             }
@@ -2080,26 +2085,64 @@ namespace DocSets
 
         public async Task UndoManyAsync(int count)
         {
-            for (var i = 0; i < count && undoRedoService.CanUndo; i++)
-                await UndoAsync();
+            var restored = false;
+            var batch = count > 1;
+            suppressUndoRedoNotification = batch;
+            suppressUndoRedoPersistence = true;
+            try
+            {
+                for (var i = 0; i < count && undoRedoService.CanUndo; i++)
+                {
+                    await UndoAsync();
+                    restored = true;
+                }
+            }
+            finally
+            {
+                suppressUndoRedoNotification = false;
+                suppressUndoRedoPersistence = false;
+            }
+            if (!restored) return;
+            if (batch) UndoRedoStateRestored?.Invoke(this, EventArgs.Empty);
+            await Task.Yield();
+            await PersistRestoredStateAsync();
         }
 
         public async Task RedoManyAsync(int count)
         {
-            for (var i = 0; i < count && undoRedoService.CanRedo; i++)
-                await RedoAsync();
+            var restored = false;
+            var batch = count > 1;
+            suppressUndoRedoNotification = batch;
+            suppressUndoRedoPersistence = true;
+            try
+            {
+                for (var i = 0; i < count && undoRedoService.CanRedo; i++)
+                {
+                    await RedoAsync();
+                    restored = true;
+                }
+            }
+            finally
+            {
+                suppressUndoRedoNotification = false;
+                suppressUndoRedoPersistence = false;
+            }
+            if (!restored) return;
+            if (batch) UndoRedoStateRestored?.Invoke(this, EventArgs.Empty);
+            await Task.Yield();
+            await PersistRestoredStateAsync();
         }
 
         private async Task UndoAsync()
         {
-            if (!undoRedoService.TryUndo(CreateUndoSnapshot(), out var targetSnapshot)) return;
-            await RestoreUndoSnapshotAsync(targetSnapshot);
+            if (!undoRedoService.TryUndo(CreateUndoSnapshot(), out var targetSnapshot, out var focusIds, out var focusSetId)) return;
+            await RestoreUndoSnapshotAsync(targetSnapshot, focusIds, focusSetId);
         }
 
         private async Task RedoAsync()
         {
-            if (!undoRedoService.TryRedo(CreateUndoSnapshot(), out var targetSnapshot)) return;
-            await RestoreUndoSnapshotAsync(targetSnapshot);
+            if (!undoRedoService.TryRedo(CreateUndoSnapshot(), out var targetSnapshot, out var focusIds, out var focusSetId)) return;
+            await RestoreUndoSnapshotAsync(targetSnapshot, focusIds, focusSetId);
         }
 
         private string CreateUndoSnapshot()
@@ -2113,7 +2156,7 @@ namespace DocSets
             return JsonConvert.SerializeObject(envelope);
         }
 
-        private async Task RestoreUndoSnapshotAsync(string snapshot)
+        private async Task RestoreUndoSnapshotAsync(string snapshot, IEnumerable<string> focusItemIds, string focusSetId)
         {
             if (string.IsNullOrWhiteSpace(snapshot)) return;
             var envelope = JsonConvert.DeserializeObject<UndoSnapshot>(snapshot);
@@ -2125,14 +2168,30 @@ namespace DocSets
             {
                 solutionState.Pins = JsonConvert.DeserializeObject<List<PinLocalItem>>(envelope.Pins ?? "[]") ?? new List<PinLocalItem>();
                 ApplyLoadedState(restoredState, preferredSetName: null, selectedNodePath: null);
-                SaveSolutionState();
-                await SaveAsync();
+                var restoredSet = state.Sets.FirstOrDefault(x => x != null &&
+                    string.Equals(x.Id, focusSetId, StringComparison.OrdinalIgnoreCase));
+                if (restoredSet != null) SelectedSet = restoredSet;
+                var selectedIds = new HashSet<string>(focusItemIds ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+                SetSelectedNodes(GetAllNodes().Where(x => x != null && selectedIds.Contains(x.Id)));
+                InvalidateCommands();
+                if (!suppressUndoRedoNotification)
+                {
+                    UndoRedoStateRestored?.Invoke(this, EventArgs.Empty);
+                    await Task.Yield();
+                }
+                if (!suppressUndoRedoPersistence) await PersistRestoredStateAsync();
             }
             finally
             {
                 isRestoringUndoState = false;
                 InvalidateCommands();
             }
+        }
+
+        private async Task PersistRestoredStateAsync()
+        {
+            SaveSolutionState();
+            await store.SaveAsync(state);
         }
 
         private void ClearUndoHistory()
@@ -2156,6 +2215,9 @@ namespace DocSets
 
             var isOuterMutation = mutationNesting.Value == 0;
             string undoSnapshot = null;
+            string undoFocusSetId = null;
+            IReadOnlyList<string> undoFocusIds = Array.Empty<string>();
+            IReadOnlyList<string> undoParentIds = Array.Empty<string>();
             if (isOuterMutation)
             {
                 await mutationGate.WaitAsync();
@@ -2170,6 +2232,9 @@ namespace DocSets
                     if (IsLoaded && !isApplyingState && !isRestoringUndoState)
                     {
                         undoSnapshot = CreateUndoSnapshot();
+                        undoFocusSetId = SelectedSet?.Id;
+                        undoFocusIds = SelectedNodes.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id)).Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                        undoParentIds = SelectedNodes.Where(x => x?.Parent != null && !string.IsNullOrWhiteSpace(x.Parent.Id)).Select(x => x.Parent.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                     }
                 }
 
@@ -2188,9 +2253,11 @@ namespace DocSets
                 if (isOuterMutation)
                 {
                     var currentSnapshot = undoSnapshot == null ? null : CreateUndoSnapshot();
+                    var redoFocusIds = SelectedNodes.Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id)).Select(x => x.Id).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                    if (redoFocusIds.Length == 0) redoFocusIds = undoParentIds.ToArray();
                     if (undoSnapshot != null
                         && !string.Equals(undoSnapshot, currentSnapshot, StringComparison.Ordinal)
-                        && undoRedoService.Capture(description, undoSnapshot))
+                        && undoRedoService.Capture(description, undoSnapshot, undoFocusIds, redoFocusIds, undoFocusSetId, SelectedSet?.Id ?? undoFocusSetId))
                     {
                         InvalidateCommands();
                     }

@@ -106,6 +106,7 @@ namespace DocSets
             BuildTree();
             BuildMenus();
             _viewModel.TreeChanged += ViewModel_TreeChanged;
+            _viewModel.UndoRedoStateRestored += ViewModel_UndoRedoStateRestored;
             WireEvents();
             ApplyDpiMetrics();
             RefreshAll();
@@ -206,6 +207,7 @@ namespace DocSets
             {
                 SaveLocalSettings();
                 _viewModel.TreeChanged -= ViewModel_TreeChanged;
+                _viewModel.UndoRedoStateRestored -= ViewModel_UndoRedoStateRestored;
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Dispose();
                 _experimentalPropertiesSaveTimer.Stop();
@@ -1078,14 +1080,14 @@ namespace DocSets
             _undoButton.Image = IconProvider.Get(AppIcon.Undo, DpiIconSize);
             _undoButton.ImageScaling = ToolStripItemImageScaling.None;
             _undoButton.ToolTipText = "Отменить (Ctrl+Z)";
-            _undoButton.ButtonClick += (_, __) => Execute(_viewModel.UndoCommand, null);
+            _undoButton.ButtonClick += async (_, __) => await _viewModel.UndoManyAsync(1);
             _undoButton.DropDownOpening += (_, __) => FillUndoDropDown(_undoButton, _viewModel.UndoOperations, true);
 
             _redoButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
             _redoButton.Image = IconProvider.Get(AppIcon.Redo, DpiIconSize);
             _redoButton.ImageScaling = ToolStripItemImageScaling.None;
             _redoButton.ToolTipText = "Повторить (Ctrl+Y)";
-            _redoButton.ButtonClick += (_, __) => Execute(_viewModel.RedoCommand, null);
+            _redoButton.ButtonClick += async (_, __) => await _viewModel.RedoManyAsync(1);
             _redoButton.DropDownOpening += (_, __) => FillUndoDropDown(_redoButton, _viewModel.RedoOperations, false);
 
             _toolStrip.Items.Add(_undoButton);
@@ -1110,7 +1112,6 @@ namespace DocSets
                 {
                     if (undo) await _viewModel.UndoManyAsync(count);
                     else await _viewModel.RedoManyAsync(count);
-                    RefreshAll();
                 };
                 button.DropDownItems.Add(item);
             }
@@ -2610,6 +2611,23 @@ namespace DocSets
             _cancelGroupRename = false;
         }
 
+        private void ViewModel_UndoRedoStateRestored(object sender, EventArgs e)
+        {
+            if (IsDisposed || Disposing) return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => ViewModel_UndoRedoStateRestored(sender, e)));
+                return;
+            }
+
+            var selectionOwner = _showSetsOverview ? _setsOverviewExpansionOwner : (object)_viewModel.SelectedSet;
+            if (selectionOwner != null)
+                _selectedItemsByView[selectionOwner] = new HashSet<DocumentItem>(_viewModel.SelectedNodes ?? Enumerable.Empty<DocumentItem>());
+
+            // Do not capture the obsolete tree immediately before rebuilding the restored state.
+            _renderedExpansionOwner = null;
+            RefreshAll();
+        }
         private void ViewModel_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
         {
             if (IsDisposed || e == null) return;
@@ -3409,13 +3427,13 @@ namespace DocSets
         {
             if (e.Control && e.KeyCode == Keys.Z)
             {
-                Execute(_viewModel.UndoCommand, null);
+                _ = _viewModel.UndoManyAsync(1);
                 e.Handled = true;
                 return;
             }
             if (e.Control && (e.KeyCode == Keys.Y || (e.Shift && e.KeyCode == Keys.Z)))
             {
-                Execute(_viewModel.RedoCommand, null);
+                _ = _viewModel.RedoManyAsync(1);
                 e.Handled = true;
                 return;
             }

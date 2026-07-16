@@ -36,7 +36,13 @@ namespace DocSets
             .Select(entry => entry.Description)
             .ToArray();
 
-        public bool Capture(string description, string snapshot)
+        public bool Capture(
+            string description,
+            string snapshot,
+            IEnumerable<string> undoItemIds = null,
+            IEnumerable<string> redoItemIds = null,
+            string undoSetId = null,
+            string redoSetId = null)
         {
             if (string.IsNullOrWhiteSpace(snapshot))
             {
@@ -49,7 +55,7 @@ namespace DocSets
                 return false;
             }
 
-            undoEntries.Add(new Entry(description, snapshot));
+            undoEntries.Add(new Entry(description, snapshot, undoItemIds, redoItemIds, undoSetId, redoSetId));
             TrimOldest(undoEntries);
             redoEntries.Clear();
             return true;
@@ -57,12 +63,22 @@ namespace DocSets
 
         public bool TryUndo(string currentSnapshot, out string targetSnapshot)
         {
-            return TryTransfer(undoEntries, redoEntries, currentSnapshot, out targetSnapshot);
+            return TryUndo(currentSnapshot, out targetSnapshot, out _, out _);
+        }
+
+        public bool TryUndo(string currentSnapshot, out string targetSnapshot, out IReadOnlyList<string> focusItemIds, out string focusSetId)
+        {
+            return TryTransfer(undoEntries, redoEntries, currentSnapshot, true, out targetSnapshot, out focusItemIds, out focusSetId);
         }
 
         public bool TryRedo(string currentSnapshot, out string targetSnapshot)
         {
-            return TryTransfer(redoEntries, undoEntries, currentSnapshot, out targetSnapshot);
+            return TryRedo(currentSnapshot, out targetSnapshot, out _, out _);
+        }
+
+        public bool TryRedo(string currentSnapshot, out string targetSnapshot, out IReadOnlyList<string> focusItemIds, out string focusSetId)
+        {
+            return TryTransfer(redoEntries, undoEntries, currentSnapshot, false, out targetSnapshot, out focusItemIds, out focusSetId);
         }
 
         public void Clear()
@@ -75,9 +91,14 @@ namespace DocSets
             IList<Entry> source,
             IList<Entry> destination,
             string currentSnapshot,
-            out string targetSnapshot)
+            bool restoreUndoSide,
+            out string targetSnapshot,
+            out IReadOnlyList<string> focusItemIds,
+            out string focusSetId)
         {
             targetSnapshot = null;
+            focusItemIds = Array.Empty<string>();
+            focusSetId = null;
             if (source.Count == 0 || string.IsNullOrWhiteSpace(currentSnapshot))
             {
                 return false;
@@ -86,9 +107,11 @@ namespace DocSets
             var lastIndex = source.Count - 1;
             var target = source[lastIndex];
             source.RemoveAt(lastIndex);
-            destination.Add(new Entry(target.Description, currentSnapshot));
+            destination.Add(target.WithSnapshot(currentSnapshot));
             TrimOldest(destination);
             targetSnapshot = target.Snapshot;
+            focusItemIds = restoreUndoSide ? target.UndoItemIds : target.RedoItemIds;
+            focusSetId = restoreUndoSide ? target.UndoSetId : target.RedoSetId;
             return true;
         }
 
@@ -102,15 +125,37 @@ namespace DocSets
 
         private sealed class Entry
         {
-            public Entry(string description, string snapshot)
+            public Entry(
+                string description,
+                string snapshot,
+                IEnumerable<string> undoItemIds = null,
+                IEnumerable<string> redoItemIds = null,
+                string undoSetId = null,
+                string redoSetId = null)
             {
                 Description = string.IsNullOrWhiteSpace(description) ? "Изменение" : description;
                 Snapshot = snapshot;
+                UndoItemIds = NormalizeIds(undoItemIds);
+                RedoItemIds = NormalizeIds(redoItemIds);
+                UndoSetId = undoSetId;
+                RedoSetId = redoSetId;
             }
 
             public string Description { get; }
-
             public string Snapshot { get; }
+            public IReadOnlyList<string> UndoItemIds { get; }
+            public IReadOnlyList<string> RedoItemIds { get; }
+            public string UndoSetId { get; }
+            public string RedoSetId { get; }
+
+            public Entry WithSnapshot(string snapshot) =>
+                new Entry(Description, snapshot, UndoItemIds, RedoItemIds, UndoSetId, RedoSetId);
+
+            private static IReadOnlyList<string> NormalizeIds(IEnumerable<string> ids) =>
+                (ids ?? Enumerable.Empty<string>())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
         }
     }
 }

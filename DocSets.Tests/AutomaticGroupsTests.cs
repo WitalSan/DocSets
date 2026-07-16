@@ -97,6 +97,35 @@ namespace DocSets.Tests
             Assert.NotSame(item.EditorState, exported.EditorState);
         }
 
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ReattachingAutomaticGroupsAfterSnapshotRestoreDoesNotDuplicateRoots()
+        {
+            var state = new DocumentSetsState();
+            var stored = Folder("Stored"); stored.Id = "stored";
+            var bookmark = Bookmark("Bookmark", "a.cs"); bookmark.Id = "bookmark";
+            bookmark.CreatedAtUtc = DateTimeOffset.UtcNow;
+            stored.Children.Add(bookmark);
+            state.Sets.Add(stored);
+            var historyItems = new[] { new NavigationHistoryLocalItem { Id = "history-item", Name = "History item", Path = "h.cs", Type = BookmarkType.File } };
+            var pins = new[] { new PinLocalItem { Id = "pin-item", TargetId = "bookmark" } };
+
+            for (var iteration = 0; iteration < 6; iteration++)
+            {
+                state = Newtonsoft.Json.JsonConvert.DeserializeObject<DocumentSetsState>(
+                    Newtonsoft.Json.JsonConvert.SerializeObject(state));
+                var history = new NavigationHistoryService(); history.Attach(state, historyItems);
+                var recent = new RecentBookmarksService(); recent.Attach(state, history.Root);
+                var pin = new PinService(); pin.Attach(state, pins, recent.Root);
+
+                Assert.Equal(1, state.Sets.Count(x => x.IsHistoryRoot));
+                Assert.Equal(1, state.Sets.Count(x => x.IsRecentRoot));
+                Assert.Equal(1, state.Sets.Count(x => x.IsPinRoot));
+                Assert.Equal(1, state.Sets.Count(x => x.Id == "stored"));
+                Assert.Equal(4, state.Sets.Count);
+                Assert.Equal(1, history.Root.Children.Count);
+                Assert.Equal(1, pin.Root.Children.Count);
+            }
+        }
         private static NavigationHistoryService Attached()
         {
             var service = new NavigationHistoryService();
