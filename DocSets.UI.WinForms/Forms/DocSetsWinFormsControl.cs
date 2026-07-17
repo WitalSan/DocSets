@@ -16,6 +16,8 @@ namespace DocSets
     internal sealed class DocSetsWinFormsControl : UserControl
     {
         public event EventHandler CommentEditorFocusRequested;
+        public event EventHandler OpenCommentWindowRequested;
+        internal event Action<DocumentItem> CurrentCommentItemChanged;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
@@ -174,6 +176,17 @@ namespace DocSets
             layoutDpiAtLoad = targetDpi;
             PerformLayout();
         }
+        internal DocumentItem CurrentCommentItem => _viewModel.ResolvePin(GetCurrentItem());
+
+        internal void RefreshCommentAfterExternalEdit(DocumentItem changedItem)
+        {
+            var current = CurrentCommentItem;
+            if (current == null || changedItem == null || !ReferenceEquals(current, changedItem)) return;
+            LoadPropertiesPanel(GetCurrentItem());
+            _tree.Invalidate();
+            RefreshStatus();
+        }
+
         internal void FocusCommentEditor()
         {
             Select();
@@ -2076,6 +2089,11 @@ namespace DocSets
 
                 LoadPropertiesPanel(GetCurrentItem());
             };
+            _experimentalPropertiesPanel.OpenCommentWindowRequested += (_, __) =>
+            {
+                CommitPendingMarkdownEdit();
+                OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
+            };
             _experimentalPropertiesPanel.LayoutStateChanged += (_, __) =>
             {
                 if (_localStateRestored) SaveLocalState();
@@ -2947,6 +2965,7 @@ namespace DocSets
                 anyPinned,
                 commonColor,
                 canPin);
+            CurrentCommentItemChanged?.Invoke(target);
         }
 
         private async Task RefreshLivePreviewAsync()

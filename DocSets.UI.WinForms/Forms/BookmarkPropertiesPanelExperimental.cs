@@ -331,8 +331,9 @@ namespace DocSets
             colorRow.Controls.Add(pinCheckBox);
             root.Controls.Add(colorRow, 0, 0);
 
-            codeSymbolLabel.AutoSize = true;
+            codeSymbolLabel.AutoSize = false;
             codeSymbolLabel.Dock = DockStyle.Fill;
+            codeSymbolLabel.TextAlign = ContentAlignment.MiddleLeft;
             codeSymbolLabel.Font = new Font("Consolas", 10F, FontStyle.Bold);
             codeSymbolLabel.LinkColor = Color.FromArgb(86, 156, 214);
             codeSymbolLabel.ActiveLinkColor = Color.FromArgb(220, 220, 170);
@@ -352,16 +353,20 @@ namespace DocSets
             var breadcrumbRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                AutoSize = true,
-                ColumnCount = 2,
+                AutoSize = false,
+                Height = DpiService.Scale(this, 30),
+                MinimumSize = new Size(0, DpiService.Scale(this, 30)),
+                ColumnCount = 3,
                 RowCount = 1,
                 Margin = new Padding(0)
             };
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             refreshCodeButton.Margin = new Padding(0, 0, 3, 0);
             breadcrumbRow.Controls.Add(refreshCodeButton, 0, 0);
-            breadcrumbRow.Controls.Add(codeSymbolLabel, 1, 0);
+            breadcrumbRow.Controls.Add(openCommentWindowButton, 1, 0);
+            breadcrumbRow.Controls.Add(codeSymbolLabel, 2, 0);
             root.Controls.Add(breadcrumbRow, 0, 1);
 
             accordion = new ExperimentalAccordionHost { Dock = DockStyle.Fill };

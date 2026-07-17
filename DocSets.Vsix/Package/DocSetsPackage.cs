@@ -1,4 +1,4 @@
-﻿using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell;
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -27,6 +27,7 @@ namespace DocSets
     [Guid(DocSetsPackage.PackageGuidString)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(DocSetsToolWindow))]
+    [ProvideToolWindow(typeof(DocSetsCommentToolWindow))]
     public sealed class DocSetsPackage : AsyncPackage
     {
         /// <summary>

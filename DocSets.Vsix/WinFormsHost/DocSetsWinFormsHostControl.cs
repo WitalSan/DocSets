@@ -23,6 +23,7 @@ namespace DocSets
             viewModel = new DocSetsViewModel(package, () => Window.GetWindow(this));
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.CommentEditorFocusRequested += OnCommentEditorFocusRequested;
+            winFormsControl.OpenCommentWindowRequested += OnOpenCommentWindowRequested;
             Focusable = true;
             Child = winFormsControl;
 
@@ -64,6 +65,12 @@ namespace DocSets
             };
         }
 
+        private void OnOpenCommentWindowRequested(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            DocSetsCommentToolWindow.Show(DocSetsPackage.Instance, viewModel, winFormsControl);
+        }
+
         private void OnCommentEditorFocusRequested(object sender, EventArgs e)
         {
             Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
@@ -93,6 +100,7 @@ namespace DocSets
             {
                 winFormsControl.SaveLocalSettings();
                 winFormsControl.CommentEditorFocusRequested -= OnCommentEditorFocusRequested;
+                winFormsControl.OpenCommentWindowRequested -= OnOpenCommentWindowRequested;
                 if (solutionEvents != null)
                     solutionEvents.BeforeClosing -= OnSolutionBeforeClosing;
             }

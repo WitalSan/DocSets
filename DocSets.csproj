@@ -63,10 +63,40 @@
   <ItemGroup>
     <!-- Source trees are included recursively, like SDK-style projects. -->
     <Compile Include="DocSets.Core\**\*.cs" Exclude="DocSets.Core\**\bin\**;DocSets.Core\**\obj\**;DocSets.Core\**\.vs\**" />
-    <Compile Include="DocSets.UI.WinForms\**\*.cs" Exclude="DocSets.UI.WinForms\**\bin\**;DocSets.UI.WinForms\**\obj\**;DocSets.UI.WinForms\**\.vs\**" />
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanel.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsWinFormsControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocumentLinks.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\PromptDialog.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\TagManagerDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Icons\BookmarkColorService.cs" />
+    <Compile Include="DocSets.UI.WinForms\Icons\DpiService.cs" />
+    <Compile Include="DocSets.UI.WinForms\Icons\IconProvider.cs" />
+    <Compile Include="DocSets.UI.WinForms\Icons\TagIconProvider.cs" />
+    <Compile Include="DocSets.UI.WinForms\TreeViewAdv\BookmarkTreeNode.cs" />
+    <Compile Include="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="DocSets.Vsix\Package\DocSetsPackage.cs" />
     <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
+    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
       <SubType>UserControl</SubType>
