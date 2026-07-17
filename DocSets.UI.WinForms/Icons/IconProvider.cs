@@ -29,7 +29,11 @@ namespace DocSets
         NavigateNext,
         Undo,
         Redo,
-        PinOverlay
+        PinOverlay,
+        NvLeft,
+        NvRight,
+        NvUp,
+        NvDown
     }
 
     internal static class IconProvider

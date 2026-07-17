@@ -79,6 +79,13 @@ namespace DocSets
             _ = SwitchItemAsync(selectedItem);
         }
 
+        internal async Task ShowSearchResultAsync(DocumentItem selectedItem, int start, int length, int occurrenceIndex)
+        {
+            await SwitchItemAsync(selectedItem);
+            var comment = item?.Comment ?? string.Empty;
+            if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
+            editor.HighlightSearchMatch(visibleText, visibleOccurrence);
+        }
         private void Source_CurrentCommentItemChanged(DocumentItem selectedItem)
         {
             if (followSelection.Checked) _ = SwitchItemAsync(selectedItem);

@@ -24,6 +24,7 @@ namespace DocSets
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.CommentEditorFocusRequested += OnCommentEditorFocusRequested;
             winFormsControl.OpenCommentWindowRequested += OnOpenCommentWindowRequested;
+            winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;
             Focusable = true;
             Child = winFormsControl;
 
@@ -65,6 +66,11 @@ namespace DocSets
             };
         }
 
+        private bool OnCommentSearchMatchRequested(DocumentItem item, int start, int length, int occurrenceIndex)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            return DocSetsCommentToolWindow.TryShowSearchResult(DocSetsPackage.Instance, item, start, length, occurrenceIndex);
+        }
         private void OnOpenCommentWindowRequested(object sender, EventArgs e)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
@@ -101,6 +107,7 @@ namespace DocSets
                 winFormsControl.SaveLocalSettings();
                 winFormsControl.CommentEditorFocusRequested -= OnCommentEditorFocusRequested;
                 winFormsControl.OpenCommentWindowRequested -= OnOpenCommentWindowRequested;
+                winFormsControl.CommentSearchMatchRequested -= OnCommentSearchMatchRequested;
                 if (solutionEvents != null)
                     solutionEvents.BeforeClosing -= OnSolutionBeforeClosing;
             }

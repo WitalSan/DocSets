@@ -23,6 +23,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Source\Model.cs" />
+    <Compile Include="..\DocSets.Core\Services\BookmarkSearchService.cs" Link="Source\BookmarkSearchService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />
     <Compile Include="..\DocSets.Core\Services\NavigationHistoryService.cs" Link="Source\NavigationHistoryService.cs" />
     <Compile Include="..\DocSets.Core\Services\PinService.cs" Link="Source\PinService.cs" />
@@ -41,7 +42,18 @@
     <EmbeddedResource Include="..\-Icons-\Copy.png" Link="Resources\Copy.png">
       <LogicalName>DocSets.Icons.Copy.png</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\Sync.png" Link="Resources\Sync.png">
+    <EmbeddedResource Include="..\-Icons-\NvUp.png" Link="Resources\NvUp.png">
+      <LogicalName>DocSets.Icons.NvUp.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\-Icons-\NvDown.png" Link="Resources\NvDown.png">
+      <LogicalName>DocSets.Icons.NvDown.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\-Icons-\NvLeft.png" Link="Resources\NvLeft.png">
+      <LogicalName>DocSets.Icons.NvLeft.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\-Icons-\NvRight.png" Link="Resources\NvRight.png">
+      <LogicalName>DocSets.Icons.NvRight.png</LogicalName>
+    </EmbeddedResource>    <EmbeddedResource Include="..\-Icons-\Sync.png" Link="Resources\Sync.png">
       <LogicalName>DocSets.Icons.Sync.png</LogicalName>
     </EmbeddedResource>
   </ItemGroup>

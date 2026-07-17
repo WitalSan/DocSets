@@ -18,6 +18,7 @@ namespace DocSets
         public event EventHandler CommentEditorFocusRequested;
         public event EventHandler OpenCommentWindowRequested;
         internal event Action<DocumentItem> CurrentCommentItemChanged;
+        internal event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
@@ -32,7 +33,12 @@ namespace DocSets
         private readonly ToolStripButton _previousTreeNodeButton = new ToolStripButton();
         private readonly ToolStripButton _nextTreeNodeButton = new ToolStripButton();
         private readonly ToolStripButton _findPreviousButton = new ToolStripButton("<");
-        private readonly ToolStripButton _findButton = new ToolStripButton("Найти");
+        private readonly ToolStripButton _findButton = new ToolStripButton("▼");
+        private readonly ToolStripTextBox _searchTextBox = new ToolStripTextBox();
+        private readonly ToolStripDropDown _searchDropDown = new ToolStripDropDown();
+        private readonly BookmarkSearchResultsControl _popupSearchResults = new BookmarkSearchResultsControl(true);
+        private readonly BookmarkSearchPanel _searchPanel = new BookmarkSearchPanel();
+        private readonly BookmarkSearchService _bookmarkSearchService = new BookmarkSearchService();
         private readonly ToolStripLabel _findCounterLabel = new ToolStripLabel("0:0");
         private readonly ToolStripButton _findNextButton = new ToolStripButton(">");
         private readonly TreeViewAdv _tree = new TreeViewAdv();
@@ -77,7 +83,8 @@ namespace DocSets
         private DocumentItem _editingGroupSet;
         private bool _cancelGroupRename;
         private TreeActivationMode _treeActivationMode = TreeActivationMode.ClassicDoubleClickOpen;
-        private readonly List<DocumentItem> _findResults = new List<DocumentItem>();
+        private readonly List<BookmarkSearchResult> _findResults = new List<BookmarkSearchResult>();
+        private bool _syncingSearchUi;
         private int _findIndex = -1;
         private bool _selectingFromFind;
         private bool _treeMouseSelectionPending;
@@ -105,6 +112,7 @@ namespace DocSets
             BookmarkTreeNode.IconSizeResolver = () => DpiIconSize;
             Dock = DockStyle.Fill;
             BuildLayout();
+            _experimentalPropertiesPanel.AttachSearchTab(_searchPanel);
             BuildTree();
             BuildMenus();
             _viewModel.TreeChanged += ViewModel_TreeChanged;
@@ -132,6 +140,8 @@ namespace DocSets
             _undoButton.Image = IconProvider.Get(AppIcon.Undo, iconSize);
             _redoButton.Image = IconProvider.Get(AppIcon.Redo, iconSize);
             _findButton.Image = IconProvider.Get(AppIcon.Find, iconSize);
+            _findPreviousButton.Image = IconProvider.Get(AppIcon.NvLeft, iconSize);
+            _findNextButton.Image = IconProvider.Get(AppIcon.NvRight, iconSize);
             _togglePropertiesButton.Image = IconProvider.Get(AppIcon.Properties, iconSize);
         }
 
@@ -1132,26 +1142,61 @@ namespace DocSets
 
         private void AddFindButtons()
         {
-            _findPreviousButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
-            _findPreviousButton.ToolTipText = "Предыдущая найденная закладка";
+            _findPreviousButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _findPreviousButton.ToolTipText = "Предыдущий результат поиска";
             _findPreviousButton.Click += (_, __) => MoveFindSelection(-1);
 
-            _findButton.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            _findButton.Image = IconProvider.Get(AppIcon.Find, DpiIconSize);
-            _findButton.ToolTipText = "Найти закладку в текущем Set по активному документу";
-            _findButton.Click += async (_, __) => await FindBookmarksInCurrentSetAsync();
+            _searchTextBox.AutoSize = false;
+            _searchTextBox.Width = DpiService.Scale(this, 120);
+            _searchTextBox.ToolTipText = "Поиск по закладкам и комментариям";
+            _searchTextBox.TextChanged += (_, __) => RunTextSearch(_searchTextBox.Text, showPopup: true);
+            _searchTextBox.TextBox.AllowDrop = true;
+            _searchTextBox.TextBox.DragEnter += SearchTextBoxDragEnter;
+            _searchTextBox.TextBox.DragOver += SearchTextBoxDragEnter;
+            _searchTextBox.TextBox.DragDrop += SearchTextBoxDragDrop;
+            _searchTextBox.KeyDown += (_, e) =>
+            {
+                if (e.KeyCode == Keys.Enter) { MoveFindSelection(e.Shift ? -1 : 1); e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Escape) _searchDropDown.Close();
+            };
+
+            _findButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _findButton.Text = "▼";
+            _findButton.ToolTipText = "Показать результаты; двойной клик — найти активный символ редактора";
+            _findButton.Click += (_, __) => ShowSearchPopup(focusResults: true);
+            _findButton.DoubleClickEnabled = true;
+            _findButton.DoubleClick += async (_, __) => await FindBookmarksInCurrentSetAsync();
 
             _findCounterLabel.AutoSize = true;
             _findCounterLabel.ToolTipText = "Текущий результат: всего найдено";
 
-            _findNextButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
-            _findNextButton.ToolTipText = "Следующая найденная закладка";
+            _findNextButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            _findNextButton.ToolTipText = "Следующий результат поиска";
             _findNextButton.Click += (_, __) => MoveFindSelection(1);
 
+            _popupSearchResults.ResultActivated += (index, result) => { _findIndex = index; SelectFindResult(); UpdateSearchSelection(ensureVisible: false); _searchDropDown.Close(); };
+            _popupSearchResults.ShowAllRequested += (_, __) => ShowAllSearchResults();
+            _searchPanel.Results.ResultActivated += (index, result) => { _findIndex = index; SelectFindResult(); UpdateSearchSelection(ensureVisible: false); };
+            _searchPanel.PreviousRequested += (_, __) => MoveFindSelection(-1);
+            _searchPanel.NextRequested += (_, __) => MoveFindSelection(1);            _searchPanel.SearchChanged += (_, __) =>
+            {
+                if (_syncingSearchUi) return;
+                _syncingSearchUi = true;
+                try { _searchTextBox.Text = _searchPanel.Query; }
+                finally { _syncingSearchUi = false; }
+                RunSearch(_searchPanel.CreateRequest(), showPopup: false);
+            };
+
+            var host = new ToolStripControlHost(_popupSearchResults) { AutoSize = false, Size = DpiService.Scale(this, new Size(600, 320)), Margin = Padding.Empty, Padding = Padding.Empty };
+            _popupSearchResults.Size = host.Size;
+            _searchDropDown.Padding = Padding.Empty;
+            _searchDropDown.Items.Add(host);
+
             _toolStrip.Items.Add(_findPreviousButton);
+            _toolStrip.Items.Add(_searchTextBox);
             _toolStrip.Items.Add(_findButton);
-            _toolStrip.Items.Add(_findCounterLabel);
             _toolStrip.Items.Add(_findNextButton);
+            _toolStrip.Items.Add(_findCounterLabel);
             UpdateFindCounter();
         }
 
@@ -2755,92 +2800,89 @@ namespace DocSets
 
         private async System.Threading.Tasks.Task FindBookmarksInCurrentSetAsync()
         {
-            _findResults.Clear();
-            _findIndex = -1;
-
             var probe = await _viewModel.CreateBookmarkFromActiveDocumentAsync(showErrors: false);
-            if (probe != null && _viewModel.CurrentNodes != null)
-            {
-                _findResults.AddRange(FindMatchesInCurrentSet(probe));
-            }
+            if (probe == null) return;
 
-            if (_findResults.Count > 0)
-            {
-                _findIndex = 0;
-                SelectFindResult();
-            }
+            var query = !string.IsNullOrWhiteSpace(probe.Symbol)
+                ? probe.Symbol.Trim()
+                : !string.IsNullOrWhiteSpace(probe.Path)
+                    ? probe.Path.Trim()
+                    : probe.Name?.Trim();
+
+            if (string.IsNullOrWhiteSpace(query)) return;
+
+            _searchPanel.EnsureSymbolsAndPathsEnabled();
+            if (string.Equals(_searchTextBox.Text, query, StringComparison.Ordinal))
+                RunTextSearch(query, showPopup: true);
             else
-            {
-                _viewModel.SetSelectedNodes(Enumerable.Empty<DocumentItem>());
-                SyncSelectionFromViewModel();
-            }
+                _searchTextBox.Text = query;
+            ShowSearchPopup();
+            _searchTextBox.Focus();
+            _searchTextBox.SelectAll();
+        }
+        private void SearchTextBoxDragEnter(object sender, DragEventArgs e)
+        {
+            e.Effect = BookmarkSearchPanel.TryGetDroppedQuery(e.Data, out _) ? DragDropEffects.Copy : DragDropEffects.None;
+        }
 
+        private void SearchTextBoxDragDrop(object sender, DragEventArgs e)
+        {
+            if (!BookmarkSearchPanel.TryGetDroppedQuery(e.Data, out var value)) return;
+            _searchTextBox.Text = value;
+            _searchTextBox.Focus();
+            _searchTextBox.SelectAll();
+        }
+        private void RunTextSearch(string text, bool showPopup)
+        {
+            if (_syncingSearchUi) return;
+
+            _syncingSearchUi = true;
+            try { _searchPanel.Query = text; }
+            finally { _syncingSearchUi = false; }
+
+            RunSearch(_searchPanel.CreateRequest(), showPopup);
+        }
+
+        private void RunSearch(BookmarkSearchRequest request, bool showPopup)
+        {
+            _findResults.Clear();
+            _findResults.AddRange(_bookmarkSearchService.Search(request, _viewModel.Sets, _viewModel.SelectedSet));
+            _findIndex = _findResults.Count == 0 ? -1 : 0;
+            UpdateSearchViews();
+
+            if (showPopup && !string.IsNullOrWhiteSpace(request.Query))
+                ShowSearchPopup();
+            else if (string.IsNullOrWhiteSpace(request.Query))
+                _searchDropDown.Close();
+        }
+
+        private void ShowSearchPopup(bool focusResults = false)
+        {
+            UpdateSearchViews();
+            if (!_searchDropDown.Visible)
+                _searchDropDown.Show(_toolStrip, new Point(_searchTextBox.Bounds.Left, _searchTextBox.Bounds.Bottom));
+            if (focusResults) _popupSearchResults.FocusResults();
+        }
+
+        private void ShowAllSearchResults()
+        {
+            _searchDropDown.Close();
+            SetPropertiesPanelVisible(true);
+            _experimentalPropertiesPanel.ShowSearchTab();
+            _searchPanel.Results.FocusResults();
+        }
+
+        private void UpdateSearchSelection(bool ensureVisible)
+        {
+            _popupSearchResults.SelectResult(_findIndex, ensureVisible);
+            _searchPanel.Results.SelectResult(_findIndex, ensureVisible);
             UpdateFindCounter();
         }
-
-        private IEnumerable<DocumentItem> FindMatchesInCurrentSet(DocumentItem probe)
+        private void UpdateSearchViews()
         {
-            var items = EnumerateItems(_viewModel.CurrentNodes)
-                .Where(x => x != null && SamePath(x.Path, probe.Path))
-                .ToList();
-
-            if (items.Count == 0)
-            {
-                return Enumerable.Empty<DocumentItem>();
-            }
-
-            var symbolMatches = items
-                .Where(x => !string.IsNullOrWhiteSpace(probe.Symbol) && SameText(x.Symbol, probe.Symbol))
-                .OrderBy(x => Distance(x.Line, probe.Line))
-                .ThenBy(x => x.Name)
-                .ToList();
-
-            if (symbolMatches.Count > 0)
-            {
-                return symbolMatches;
-            }
-
-            var fileBookmarks = items
-                .Where(x => x.Type == BookmarkType.File)
-                .OrderBy(x => x.Name)
-                .ToList();
-
-            if (fileBookmarks.Count > 0)
-            {
-                return fileBookmarks;
-            }
-
-            if (false)
-            {
-                return items
-                    .OrderBy(x => Distance(x.Line, probe.Line))
-                    .ThenBy(x => x.Name)
-                    .ToList();
-            }
-
-            return Enumerable.Empty<DocumentItem>();
-        }
-
-        private static int Distance(int a, int b)
-        {
-            return Math.Abs(Math.Max(1, a) - Math.Max(1, b));
-        }
-
-        private static bool SameText(string left, string right)
-        {
-            return string.Equals((left ?? string.Empty).Trim(), (right ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool SamePath(string left, string right)
-        {
-            var l = NormalizePathForCompare(left);
-            var r = NormalizePathForCompare(right);
-            return !string.IsNullOrWhiteSpace(l) && string.Equals(l, r, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string NormalizePathForCompare(string path)
-        {
-            return (path ?? string.Empty).Replace('/', '\\').Trim();
+            _popupSearchResults.SetResults(_findResults, _findIndex, 100);
+            _searchPanel.Results.SetResults(_findResults, _findIndex);
+            UpdateFindCounter();
         }
 
         private void MoveFindSelection(int delta)
@@ -2853,31 +2895,46 @@ namespace DocSets
 
             _findIndex = (_findIndex + delta) % _findResults.Count;
             if (_findIndex < 0)
-            {
                 _findIndex += _findResults.Count;
-            }
 
             SelectFindResult();
-            UpdateFindCounter();
+            UpdateSearchSelection(ensureVisible: true);
         }
 
         private void SelectFindResult()
         {
             if (_findIndex < 0 || _findIndex >= _findResults.Count)
-            {
                 return;
+
+            var result = _findResults[_findIndex];
+            var item = result.Item;
+            if (item == null) return;
+
+            var group = result.Group ?? _viewModel.GetSetContainingNode(item);
+            if (group != null && (!ReferenceEquals(_viewModel.SelectedSet, group) || _showSetsOverview))
+            {
+                _showSetsOverview = false;
+                _viewModel.SelectedSet = group;
+                UpdateGroupButtonsChecked();
+                RebuildTree();
             }
 
-            var item = _findResults[_findIndex];
             _viewModel.SetSelectedNodes(new[] { item });
             SyncSelectionFromViewModel();
-        }
+            LoadPropertiesPanel(item);
 
+            if (result.Field == BookmarkSearchField.Comment)
+            {
+                var handledExternally = CommentSearchMatchRequested?.Invoke(item, result.MatchStart, result.MatchLength, result.OccurrenceIndex) == true;
+                if (!handledExternally)
+                    _experimentalPropertiesPanel.ShowCommentSearchResult(result.MatchStart, result.MatchLength, result.OccurrenceIndex);
+            }
+        }
         private void ClearFindResults()
         {
             _findResults.Clear();
             _findIndex = -1;
-            UpdateFindCounter();
+            UpdateSearchViews();
         }
 
         private void UpdateFindCounter()
@@ -2888,7 +2945,6 @@ namespace DocSets
             _findPreviousButton.Enabled = enabled;
             _findNextButton.Enabled = enabled;
         }
-
         private void RefreshStatus() => _statusLabel.Text = _viewModel.StorageText ?? string.Empty;
 
         private void SyncSelectionFromTree()

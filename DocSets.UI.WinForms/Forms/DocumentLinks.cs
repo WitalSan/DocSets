@@ -150,6 +150,55 @@ namespace DocSets
             return null;
         }
 
+        public static bool TryResolveSearchHighlight(string markdown, int matchStart, int matchLength, int fallbackOccurrence,
+            out string visibleText, out int visibleOccurrence)
+        {
+            var source = markdown ?? string.Empty;
+            visibleText = matchStart >= 0 && matchLength > 0 && matchStart + matchLength <= source.Length
+                ? source.Substring(matchStart, matchLength)
+                : string.Empty;
+            visibleOccurrence = Math.Max(0, fallbackOccurrence);
+            if (visibleText.Length == 0) return false;
+
+            var matches = LinkPattern.Matches(source);
+            var linkIndex = -1;
+            for (var index = 0; index < matches.Count; index++)
+            {
+                var match = matches[index];
+                if (matchStart >= match.Index && matchStart < match.Index + match.Length)
+                {
+                    linkIndex = index;
+                    break;
+                }
+            }
+
+            if (linkIndex < 0) return true;
+            var rendered = Render(source);
+            if (linkIndex >= rendered.Links.Count) return true;
+
+            var span = rendered.Links[linkIndex];
+            var caption = span.Link?.Caption ?? string.Empty;
+            if (caption.Length == 0) return true;
+
+            visibleText = caption;
+            visibleOccurrence = CountOccurrences(rendered.Text, caption, span.Start);
+            return true;
+        }
+
+        private static int CountOccurrences(string text, string value, int before)
+        {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value) || before <= 0) return 0;
+            var count = 0;
+            var start = 0;
+            while (start < before)
+            {
+                var index = text.IndexOf(value, start, StringComparison.OrdinalIgnoreCase);
+                if (index < 0 || index >= before) break;
+                count++;
+                start = index + Math.Max(1, value.Length);
+            }
+            return count;
+        }
         public static MarkdownRenderResult Render(string markdown)
         {
             var result = new MarkdownRenderResult();

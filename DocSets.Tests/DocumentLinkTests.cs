@@ -111,5 +111,24 @@ namespace DocSets.Tests
             Assert.Equal(DocumentLinkKind.Url, link.Kind);
             Assert.Equal("https://jira.example/browse/SERVICESW-1344", link.Target);
         }
-    }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void SymbolTargetSearchHighlightsVisibleLinkCaption()
+        {
+            var markdown = "[Run](symbol:DocSets.First.Run) and [Run](symbol:DocSets.Second.Run)";
+            var start = markdown.IndexOf("DocSets.Second.Run", System.StringComparison.Ordinal);
+            Assert.True(DocumentLinkService.TryResolveSearchHighlight(markdown, start, "DocSets.Second.Run".Length, 0, out var text, out var occurrence));
+            Assert.Equal("Run", text);
+            Assert.Equal(1, occurrence);
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void PlainSearchHighlightKeepsMatchedText()
+        {
+            const string markdown = "first needle second needle";
+            var start = markdown.LastIndexOf("needle", System.StringComparison.Ordinal);
+            Assert.True(DocumentLinkService.TryResolveSearchHighlight(markdown, start, 6, 1, out var text, out var occurrence));
+            Assert.Equal("needle", text);
+            Assert.Equal(1, occurrence);
+        }    }
 }

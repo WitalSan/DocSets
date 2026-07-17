@@ -164,6 +164,34 @@ namespace DocSets
             accordion?.ApplyState(sectionOrder, expandedSections);
         }
 
+        public void AttachSearchTab(Control searchControl)
+        {
+            if (searchControl == null || contentTabs.TabPages.Cast<TabPage>().Any(page => string.Equals(page.Tag as string, "search", StringComparison.OrdinalIgnoreCase))) return;
+            var page = new TabPage("Поиск") { Tag = "search" };
+            searchControl.Dock = DockStyle.Fill;
+            page.Controls.Add(searchControl);
+            contentTabs.TabPages.Add(page);
+        }
+
+        public void ShowSearchTab()
+        {
+            var page = contentTabs.TabPages.Cast<TabPage>().FirstOrDefault(candidate => string.Equals(candidate.Tag as string, "search", StringComparison.OrdinalIgnoreCase));
+            if (page != null) contentTabs.SelectedTab = page;
+        }
+
+        public void ShowCommentSearchResult(int start, int length, int occurrenceIndex)
+        {
+            ShowCommentTab();
+            var comment = item?.Comment ?? string.Empty;
+            if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
+            markdownComment3.HighlightSearchMatch(visibleText, visibleOccurrence);
+        }
+        public void ShowCommentTab()
+        {
+            var page = contentTabs.TabPages.Cast<TabPage>().FirstOrDefault(candidate => string.Equals(candidate.Tag as string, "comment3", StringComparison.OrdinalIgnoreCase))
+                ?? contentTabs.TabPages.Cast<TabPage>().FirstOrDefault(candidate => string.Equals(candidate.Tag as string, "comment2", StringComparison.OrdinalIgnoreCase));
+            if (page != null) contentTabs.SelectedTab = page;
+        }
         public void ApplySelectedContentTab(string value)
         {
             var requested = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) &&

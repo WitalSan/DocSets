@@ -63,6 +63,7 @@
   <ItemGroup>
     <!-- Source trees are included recursively, like SDK-style projects. -->
     <Compile Include="DocSets.Core\**\*.cs" Exclude="DocSets.Core\**\bin\**;DocSets.Core\**\obj\**;DocSets.Core\**\.vs\**" />
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkSearchControls.cs"><SubType>UserControl</SubType></Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesDialog.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -220,7 +221,18 @@
     <EmbeddedResource Include="-Icons-\Redo.png">
       <LogicalName>DocSets.Icons.Redo.png</LogicalName>
     </EmbeddedResource>
-    <EmbeddedResource Include="-Icons-\PinOverlay.png">
+    <EmbeddedResource Include="-Icons-\NvUp.png">
+      <LogicalName>DocSets.Icons.NvUp.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\NvDown.png">
+      <LogicalName>DocSets.Icons.NvDown.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\NvLeft.png">
+      <LogicalName>DocSets.Icons.NvLeft.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\NvRight.png">
+      <LogicalName>DocSets.Icons.NvRight.png</LogicalName>
+    </EmbeddedResource>    <EmbeddedResource Include="-Icons-\PinOverlay.png">
       <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
     </EmbeddedResource>
   </ItemGroup>

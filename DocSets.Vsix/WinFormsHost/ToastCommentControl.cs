@@ -64,6 +64,14 @@ namespace DocSets
             FocusEditorFromHost();
         }
 
+        public void HighlightSearchMatch(string value, int occurrenceIndex)
+        {
+            if (string.IsNullOrEmpty(value) || !ready) return;
+            webView.Focus();
+            var script = "window.setTimeout(function(){ window.docsetsHighlightSearch(" +
+                JsonConvert.SerializeObject(value) + "," + Math.Max(0, occurrenceIndex) + "); }, 80)";
+            _ = webView.ExecuteScriptAsync(script);
+        }
         public void FocusEditorFromHost()
 
         {
@@ -204,6 +212,7 @@ html,body,#editor{height:100%;margin:0;overflow:hidden} body{font-family:Segoe U
 .toastui-editor-toolbar-divider{height:20px!important;margin:5px 3px!important}
 .toastui-editor-popup{font-size:12px!important}
 .toastui-editor-ww-container a,.toastui-editor-contents a{cursor:pointer!important}
+.ProseMirror ::selection,.ProseMirror::selection{background:#3390ff!important;color:#fff!important}
 @media(prefers-color-scheme:dark){body{background:#1e1e1e}.toastui-editor-defaultUI{filter:invert(.88) hue-rotate(180deg)}}
 </style></head><body><div id='editor'></div>
 <script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js'></script>
@@ -256,7 +265,51 @@ function needsDropSpace(){
     const before=$from.parent.textBetween(Math.max(0,$from.parentOffset-1),$from.parentOffset,'','');return before&&!/\s/.test(before)
   }catch{return false}
 }
-window.docsetsInsertDropped=insertDroppedValue;
+window.docsetsHighlightSearch=(value,occurrence)=>{
+  value=value||'';occurrence=Math.max(0,occurrence||0);if(!value)return false;
+  const needle=value.toLocaleLowerCase();
+  try{
+    const mode=window.docsetsEditor.getCurrentModeEditor(),view=mode&&mode.view;
+    if(view&&view.state&&view.state.doc){
+      let count=0,hit=null;
+      view.state.doc.descendants((node,pos)=>{
+        if(hit||!node.isText)return;
+        const hay=(node.text||'').toLocaleLowerCase();let from=0,index;
+        while((index=hay.indexOf(needle,from))>=0){
+          if(count++===occurrence){hit={from:pos+index,to:pos+index+value.length};return false}
+          from=index+Math.max(1,needle.length);
+        }
+      });
+      if(hit){
+        view.focus();
+        const state=view.state,selection=state.selection.constructor.create(state.doc,hit.from,hit.to);
+        view.dispatch(state.tr.setSelection(selection).scrollIntoView());
+        requestAnimationFrame(()=>{
+          try{
+            view.focus();
+            const current=view.state,again=current.selection.constructor.create(current.doc,hit.from,hit.to);
+            view.dispatch(current.tr.setSelection(again).scrollIntoView());
+          }catch{}
+        });
+        return true;
+      }
+    }
+  }catch{}
+  const roots=Array.from(document.querySelectorAll('.toastui-editor-ww-container,.toastui-editor-md-container')).filter(x=>x.offsetParent!==null);
+  const walker=document.createTreeWalker(roots[0]||document.body,NodeFilter.SHOW_TEXT);let node,count=0;
+  while(node=walker.nextNode()){
+    const hay=(node.nodeValue||'').toLocaleLowerCase();let from=0,index;
+    while((index=hay.indexOf(needle,from))>=0){
+      if(count++===occurrence){
+        const range=document.createRange();range.setStart(node,index);range.setEnd(node,index+value.length);
+        const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+        node.parentElement?.scrollIntoView({block:'center',inline:'nearest'});return true;
+      }
+      from=index+Math.max(1,needle.length);
+    }
+  }
+  return false;
+};window.docsetsInsertDropped=insertDroppedValue;
 function insertDroppedValue(value){
   value=(value||'').replace(/^\s+|\s+$/g,''); if(!value)return;
   const link=/^\[([^\]]+)\]\(([\s\S]+)\)$/.exec(value),prefix=needsDropSpace()?' ':'';

@@ -17,6 +17,17 @@ namespace DocSets
             Content = new WindowsFormsHost { Child = control };
         }
 
+        internal static bool TryShowSearchResult(AsyncPackage package, DocumentItem item, int start, int length, int occurrenceIndex)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (package == null || item == null) return false;
+            var pane = package.FindToolWindow(typeof(DocSetsCommentToolWindow), 0, false) as DocSetsCommentToolWindow;
+            if (pane?.Frame is not IVsWindowFrame frame) return false;
+            if (frame.IsVisible() != Microsoft.VisualStudio.VSConstants.S_OK) return false;
+            _ = pane.control.ShowSearchResultAsync(item, start, length, occurrenceIndex);
+            Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(frame.Show());
+            return true;
+        }
         internal static void Show(AsyncPackage package, DocSetsViewModel viewModel, DocSetsWinFormsControl source)
         {
             ThreadHelper.ThrowIfNotOnUIThread();

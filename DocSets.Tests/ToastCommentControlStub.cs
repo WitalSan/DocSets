@@ -32,6 +32,7 @@ namespace DocSets
         }
 
         public void InsertResolvedLink(DocumentLink link) { }
+        public void HighlightSearchMatch(string value, int occurrenceIndex) { }
         public void FocusEditorFromHost() => editor.Focus();
     }
 }
