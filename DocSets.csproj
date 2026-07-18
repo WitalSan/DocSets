@@ -75,6 +75,7 @@
     </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs"><SubType>UserControl</SubType></Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>

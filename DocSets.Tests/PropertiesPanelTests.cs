@@ -82,15 +82,13 @@ namespace DocSets.Tests
                 panel.PreviewRequested += (_, __) => requests++;
                 panel.LoadItem(Bookmark());
                 Assert.Equal(0, requests);
-                var preview = Field<ExperimentalAccordionSection>(panel, "previewSection");
-                preview.Expanded = true;
+                panel.ApplySelectedContentTab("preview");
                 Assert.Equal(1, requests);
                 panel.LoadItem(Bookmark());
                 Assert.Equal(2, requests);
-                preview.Expanded = false;
+                panel.ApplySelectedContentTab("properties");
                 panel.LoadItem(Bookmark());
-                Assert.Equal(2, requests);
-            }
+                Assert.Equal(2, requests);            }
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
@@ -152,15 +150,15 @@ namespace DocSets.Tests
             {
                 var item = Bookmark();
                 panel.LoadItem(item);
-                var tabs = Field<TabControl>(panel, "contentTabs");
+                var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
                 var current = Field<MarkdownCommentControl>(panel, "markdownComment");
                 var experimental = Field<MarkdownCommentControl>(panel, "markdownComment2");
 
-                Assert.Equal(3, tabs.TabPages.Count);
-                Assert.Equal("Комментарий-2", tabs.TabPages[1].Text);
+                Assert.True(dock.ContainsPanel("properties"));
+                Assert.True(dock.ContainsPanel("comment2"));
+                Assert.True(dock.ContainsPanel("comment3"));
                 Assert.False(current.ExperimentalDragDrop);
                 Assert.True(experimental.ExperimentalDragDrop);
-                Assert.Equal("comment3", tabs.TabPages[2].Tag as string);
                 var experimentalEditor = Field<RichTextBox>(experimental, "editor");
                 Assert.Equal(11, experimentalEditor.Lines.Length);
 
@@ -172,17 +170,16 @@ namespace DocSets.Tests
                 Assert.True(panel.ApplyToCurrentItem());
                 Assert.Equal("changed", item.Comment);
             }
-        }
-        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        }        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ContentTabsStayAvailableWithoutSelectedItem()
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())
             {
                 panel.LoadItem(null);
-                var tabs = Field<TabControl>(panel, "contentTabs");
+                var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
                 Assert.True(panel.Enabled);
-                Assert.True(tabs.Enabled);
-                tabs.SelectedIndex = 1;
+                Assert.True(dock.Enabled);
+                panel.ApplySelectedContentTab("comment2");
                 Assert.Equal("comment2", panel.SelectedContentTab);
             }
         }
@@ -196,6 +193,86 @@ namespace DocSets.Tests
             }
         }
 
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void DockLayoutPreservesHiddenPanelsAndResetRestoresDefaults()
+        {
+            string layout;
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
+                dock.HidePanel("preview");
+                Assert.False(dock.IsPanelVisible("preview"));
+                layout = panel.CaptureDockLayout();
+            }
+
+            using (var restored = new BookmarkPropertiesPanelExperimental())
+            {
+                restored.RestoreDockLayout(layout);
+                var dock = Field<DockWorkspaceControl>(restored, "dockWorkspace");
+                Assert.False(dock.IsPanelVisible("preview"));
+                restored.ResetDockLayout();
+                Assert.True(dock.IsPanelVisible("preview"));
+                Assert.Equal(1, dock.GroupCount);
+            }
+        }
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void SplitterRatioIgnoresTransientTinySize()
+        {
+            using (var split = new SplitContainer
+            {
+                Orientation = Orientation.Horizontal,
+                Size = new System.Drawing.Size(100, 100),
+                Panel1MinSize = 40,
+                Panel2MinSize = 40,
+                SplitterWidth = 8,
+                SplitterDistance = 46
+            })
+            {
+                split.Height = 13;
+                DockWorkspaceControl.ApplySplitterRatio(split, 0.5F);
+                Assert.Equal(0, split.Panel1MinSize);
+                Assert.Equal(0, split.Panel2MinSize);
+                Assert.True(split.SplitterDistance >= 0);
+            }
+        }
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void DockLayoutRestoresHorizontalSplit()
+        {
+            const string json = "{\"Version\":2,\"Root\":{\"Type\":\"split\",\"Orientation\":1,\"Ratio\":0.5," +
+                "\"First\":{\"Type\":\"tabs\",\"Id\":\"left\",\"PanelIds\":[\"code\"],\"ActivePanelId\":\"code\"}," +
+                "\"Second\":{\"Type\":\"tabs\",\"Id\":\"right\",\"PanelIds\":[\"preview\"],\"ActivePanelId\":\"preview\"}}}";
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                var previewRequests = 0;
+                panel.PreviewRequested += (_, __) => previewRequests++;
+                panel.RestoreDockLayout(json);
+                panel.LoadItem(Bookmark());
+                var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
+                Assert.Equal(1, previewRequests);
+                Assert.True(dock.IsPanelDisplayed("preview"));
+                Assert.Equal(2, dock.GroupCount);
+                Assert.True(dock.IsPanelVisible("code"));
+                Assert.True(dock.IsPanelVisible("preview"));
+                Assert.True(panel.CaptureDockLayout().Contains("\"Orientation\":1"));
+            }
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void DockLayoutMigratesLegacyVerticalGroups()
+        {
+            const string json = "{\"Groups\":[" +
+                "{\"Id\":\"top\",\"Weight\":0.4,\"PanelIds\":[\"code\"],\"ActivePanelId\":\"code\"}," +
+                "{\"Id\":\"bottom\",\"Weight\":0.6,\"PanelIds\":[\"preview\"],\"ActivePanelId\":\"preview\"}]}";
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            {
+                panel.RestoreDockLayout(json);
+                var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
+                Assert.Equal(2, dock.GroupCount);
+                var migrated = panel.CaptureDockLayout();
+                Assert.True(migrated.Contains("\"Version\":2"));
+                Assert.True(migrated.Contains("\"Root\""));
+            }
+        }
         private static T Field<T>(object instance, string name) where T : class
         {
             return (T)instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(instance);

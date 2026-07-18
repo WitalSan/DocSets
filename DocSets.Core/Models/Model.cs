@@ -61,6 +61,9 @@ namespace DocSets
         [JsonProperty("propertiesContentTab")]
         public string PropertiesContentTab { get; set; } = "properties";
 
+        [JsonProperty("propertiesDockLayout", NullValueHandling = NullValueHandling.Ignore)]
+        public string PropertiesDockLayout { get; set; } = "";
+
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
 

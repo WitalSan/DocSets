@@ -28,7 +28,7 @@ namespace DocSets
         private readonly Button openCommentWindowButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly BreadcrumbToolTipController breadcrumbToolTips;
-        private readonly TabControl contentTabs = new TabControl();
+        private readonly DockWorkspaceControl dockWorkspace = new DockWorkspaceControl();
         private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
         private readonly MarkdownCommentControl markdownComment2 = new MarkdownCommentControl(experimentalDragDrop: true);
         private readonly ToastCommentControl markdownComment3 = new ToastCommentControl();
@@ -157,7 +157,7 @@ namespace DocSets
 
         public IList<string> SectionOrder => accordion?.SectionOrder ?? new List<string>();
         public IList<string> ExpandedSections => accordion?.ExpandedSections ?? new List<string>();
-        public string SelectedContentTab => contentTabs.SelectedTab?.Tag as string ?? "properties";
+        public string SelectedContentTab => dockWorkspace.SelectedPanelId ?? "properties";
 
         public void ApplyLayoutState(IEnumerable<string> sectionOrder, IEnumerable<string> expandedSections)
         {
@@ -166,18 +166,11 @@ namespace DocSets
 
         public void AttachSearchTab(Control searchControl)
         {
-            if (searchControl == null || contentTabs.TabPages.Cast<TabPage>().Any(page => string.Equals(page.Tag as string, "search", StringComparison.OrdinalIgnoreCase))) return;
-            var page = new TabPage("Поиск") { Tag = "search" };
-            searchControl.Dock = DockStyle.Fill;
-            page.Controls.Add(searchControl);
-            contentTabs.TabPages.Add(page);
+            if (searchControl == null || dockWorkspace.ContainsPanel("search")) return;
+            dockWorkspace.Register("search", "Поиск", searchControl);
         }
 
-        public void ShowSearchTab()
-        {
-            var page = contentTabs.TabPages.Cast<TabPage>().FirstOrDefault(candidate => string.Equals(candidate.Tag as string, "search", StringComparison.OrdinalIgnoreCase));
-            if (page != null) contentTabs.SelectedTab = page;
-        }
+        public void ShowSearchTab() => dockWorkspace.ActivatePanel("search");
 
         public void ShowCommentSearchResult(int start, int length, int occurrenceIndex)
         {
@@ -186,22 +179,22 @@ namespace DocSets
             if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
             markdownComment3.HighlightSearchMatch(visibleText, visibleOccurrence);
         }
+
         public void ShowCommentTab()
         {
-            var page = contentTabs.TabPages.Cast<TabPage>().FirstOrDefault(candidate => string.Equals(candidate.Tag as string, "comment3", StringComparison.OrdinalIgnoreCase))
-                ?? contentTabs.TabPages.Cast<TabPage>().FirstOrDefault(candidate => string.Equals(candidate.Tag as string, "comment2", StringComparison.OrdinalIgnoreCase));
-            if (page != null) contentTabs.SelectedTab = page;
-        }
-        public void ApplySelectedContentTab(string value)
-        {
-            var requested = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) &&
-                !contentTabs.TabPages.Cast<TabPage>().Any(x => string.Equals(x.Tag as string, "comment", StringComparison.OrdinalIgnoreCase))
-                ? "comment2"
-                : value;
-            contentTabs.SelectedTab = contentTabs.TabPages.Cast<TabPage>()
-                .FirstOrDefault(x => string.Equals(x.Tag as string, requested, StringComparison.OrdinalIgnoreCase)) ?? contentTabs.TabPages[0];
+            if (dockWorkspace.ContainsPanel("comment3")) dockWorkspace.ActivatePanel("comment3");
+            else dockWorkspace.ActivatePanel("comment2");
         }
 
+        public void ApplySelectedContentTab(string value)
+        {
+            var requested = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ? "comment2" : value;
+            dockWorkspace.ActivatePanel(requested);
+        }
+
+        public string CaptureDockLayout() => dockWorkspace.CaptureLayout();
+        public void RestoreDockLayout(string json) => dockWorkspace.RestoreLayout(json);
+        public void ResetDockLayout() => dockWorkspace.ResetLayout();
         public void LoadItem(DocumentItem value, bool isPinned = false)
         {
             LoadSelection(value, false, isPinned, isPinned, value?.Color, value != null);
@@ -399,34 +392,19 @@ namespace DocSets
 
             accordion = new ExperimentalAccordionHost { Dock = DockStyle.Fill };
             accordion.StateChanged += (_, __) => LayoutStateChanged?.Invoke(this, EventArgs.Empty);
-            contentTabs.Dock = DockStyle.Fill;
-            var propertiesTab = new TabPage("Свойства") { Tag = "properties" };
-            var commentMarkdownTab = new TabPage("Комментарий β") { Tag = "comment" };
-            var commentMarkdownTab2 = new TabPage("Комментарий-2") { Tag = "comment2" };
-            var commentMarkdownTab3 = new TabPage("Комментарий-3") { Tag = "comment3", ToolTipText = "TOAST UI Markdown/WYSIWYG Editor" };
-            propertiesTab.Controls.Add(accordion);
-            commentMarkdownTab.Controls.Add(markdownComment);
-            commentMarkdownTab2.Controls.Add(markdownComment2);
-            commentMarkdownTab3.Controls.Add(markdownComment3);
-            contentTabs.TabPages.Add(propertiesTab);
-            //contentTabs.TabPages.Add(commentMarkdownTab);
-            contentTabs.TabPages.Add(commentMarkdownTab2);
-            contentTabs.TabPages.Add(commentMarkdownTab3);
-            contentTabs.SelectedIndexChanged += (_, __) =>
+            dockWorkspace.LayoutStateChanged += (_, __) => LayoutStateChanged?.Invoke(this, EventArgs.Empty);
+            dockWorkspace.SelectedPanelChanged += (_, __) =>
             {
-                var selectedKind = contentTabs.SelectedTab?.Tag as string;
+                var selectedKind = dockWorkspace.SelectedPanelId;
                 var target = string.Equals(selectedKind, "comment", StringComparison.OrdinalIgnoreCase) ? markdownComment :
                     string.Equals(selectedKind, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : null;
                 var target3 = string.Equals(selectedKind, "comment3", StringComparison.OrdinalIgnoreCase);
                 if (target == null && markdownCommentDirty) dirtyMarkdownComment?.ShowPreview();
-                if (target != null && !ReferenceEquals(target, dirtyMarkdownComment))
-                    target.LoadComment(CurrentCommentText, resetToPreview: true);
+                if (target != null && !ReferenceEquals(target, dirtyMarkdownComment)) target.LoadComment(CurrentCommentText, resetToPreview: true);
                 if (target3 && !markdownComment3Dirty) markdownComment3.LoadComment(CurrentCommentText);
                 if (target != null) focusMarkdownComment = target;
-                LayoutStateChanged?.Invoke(this, EventArgs.Empty);
+                if (string.Equals(selectedKind, "preview", StringComparison.OrdinalIgnoreCase)) RequestPreviewIfVisible();
             };
-            root.Controls.Add(contentTabs, 0, 2);
-
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
             commentTextBox.Multiline = true;
@@ -491,10 +469,13 @@ namespace DocSets
             previewSection = new ExperimentalAccordionSection("preview", "Preview", livePreviewTextBox, 210, false);
             propertiesSection = new ExperimentalAccordionSection("properties", "Свойства", detailsHost, 180, false);
             previewSection.ExpandedChanged += (_, __) => RequestPreviewIfVisible();
-            accordion.AddSection(propertiesSection);
-            //accordion.AddSection(commentSection);
-            accordion.AddSection(codeSection);
-            accordion.AddSection(previewSection);
+
+            dockWorkspace.Register("properties", "Свойства", detailsHost);
+            dockWorkspace.Register("code", "Код", codeRoot);
+            dockWorkspace.Register("preview", "Preview", livePreviewTextBox);
+            dockWorkspace.Register("comment2", "Комментарий-2", markdownComment2);
+            dockWorkspace.Register("comment3", "Комментарий-3", markdownComment3);
+            root.Controls.Add(dockWorkspace, 0, 2);
         }
 
         protected override void OnDpiChangedAfterParent(EventArgs e)
@@ -513,11 +494,11 @@ namespace DocSets
             markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : commentTextBox.Text ?? string.Empty;
 
         private MarkdownCommentControl SelectedMarkdownComment =>
-            string.Equals(contentTabs.SelectedTab?.Tag as string, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : markdownComment;
+            string.Equals(dockWorkspace.SelectedPanelId, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : markdownComment;
 
         public void FocusMarkdownEditor()
         {
-            if (string.Equals(contentTabs.SelectedTab?.Tag as string, "comment3", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(dockWorkspace.SelectedPanelId, "comment3", StringComparison.OrdinalIgnoreCase))
                 markdownComment3.FocusEditorFromHost();
             else
                 (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
@@ -597,7 +578,7 @@ namespace DocSets
 
         private void RequestPreviewIfVisible()
         {
-            if (!loading && !multipleSelection && item != null && previewSection != null && previewSection.Expanded)
+            if (!loading && !multipleSelection && item != null && dockWorkspace.IsPanelDisplayed("preview"))
             {
                 PreviewRequested?.Invoke(this, EventArgs.Empty);
             }

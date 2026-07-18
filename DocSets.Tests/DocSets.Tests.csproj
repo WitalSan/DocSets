@@ -37,6 +37,7 @@
     <Compile Include="..\DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" Link="Source\BreadcrumbToolTip.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\DocumentLinks.cs" Link="Source\DocumentLinks.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs" Link="Source\BookmarkPropertiesPanelExperimental.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs" Link="Source\DockWorkspaceControl.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\-Icons-\Copy.png" Link="Resources\Copy.png">

@@ -2275,6 +2275,7 @@ namespace DocSets
             _experimentalPropertiesPanel.ApplyLayoutState(
                 local.PropertiesSectionOrder,
                 local.ExpandedPropertiesSections);
+            _experimentalPropertiesPanel.RestoreDockLayout(local.PropertiesDockLayout);
             _experimentalPropertiesPanel.ApplySelectedContentTab(local.PropertiesContentTab);
 
             var byId = EnumerateItems(_viewModel.Root.Children).Where(x => !string.IsNullOrWhiteSpace(x.Id))
@@ -2368,6 +2369,7 @@ namespace DocSets
             local.PropertiesSectionOrder = _experimentalPropertiesPanel.SectionOrder.ToList();
             local.ExpandedPropertiesSections = _experimentalPropertiesPanel.ExpandedSections.ToList();
             local.PropertiesContentTab = _experimentalPropertiesPanel.SelectedContentTab;
+            local.PropertiesDockLayout = _experimentalPropertiesPanel.CaptureDockLayout();
             local.Views = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in _collapsedItemsByView)
             {
@@ -3422,6 +3424,11 @@ namespace DocSets
 
         private async void Tree_DragDrop(object sender, DragEventArgs e)
         {
+            if (e.Data?.GetDataPresent(DockWorkspaceControl.DockPanelDragFormat) == true)
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
             var target = (_tree.DropPosition.Node?.Tag as BookmarkTreeNode)?.Item;
             var position = ConvertDropPosition(_tree.DropPosition.Position);
             var copy = IsCopyDrag(e);
@@ -3482,6 +3489,11 @@ namespace DocSets
 
         private void Tree_DragOver(object sender, DragEventArgs e)
         {
+            if (e.Data?.GetDataPresent(DockWorkspaceControl.DockPanelDragFormat) == true)
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
             var target = (_tree.DropPosition.Node?.Tag as BookmarkTreeNode)?.Item;
             var position = ConvertDropPosition(_tree.DropPosition.Position);
             var copy = IsCopyDrag(e);

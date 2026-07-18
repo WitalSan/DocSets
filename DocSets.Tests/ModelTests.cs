@@ -189,6 +189,7 @@ namespace DocSets.Tests
                 PropertiesSectionOrder = new List<string> { "properties", "preview", "code" },
                 ExpandedPropertiesSections = new List<string> { "preview", "code" },
                 PropertiesContentTab = "comment",
+                PropertiesDockLayout = "{\"groups\":[]}",
                 FilterColors = new List<BookmarkColor> { BookmarkColor.Red, BookmarkColor.Blue }
             };
             var restored = JsonConvert.DeserializeObject<SolutionLocalState>(JsonConvert.SerializeObject(state));
@@ -196,6 +197,7 @@ namespace DocSets.Tests
             Assert.SequenceEqual(state.PropertiesSectionOrder, restored.PropertiesSectionOrder);
             Assert.SequenceEqual(state.ExpandedPropertiesSections, restored.ExpandedPropertiesSections);
             Assert.Equal("comment", restored.PropertiesContentTab);
+            Assert.Equal(state.PropertiesDockLayout, restored.PropertiesDockLayout);
             Assert.SequenceEqual(state.FilterColors, restored.FilterColors);
         }
 
