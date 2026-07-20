@@ -73,6 +73,7 @@ namespace DocSets
             Dock = DockStyle.Fill;
             BuildLayout();
             WireChanges(detailsHost);
+            folderCheckBox.CheckedChanged += Changed;
             commentTextBox.TextChanged += Changed;
             commentTextBox.TextChanged += (_, __) =>
             {
@@ -248,6 +249,7 @@ namespace DocSets
                             ? CheckState.Indeterminate
                             : CheckState.Unchecked;
                 pinCheckBox.Enabled = value != null && canPin;
+                folderCheckBox.Enabled = value != null && !multiple;
                 codeSymbolLabel.Enabled = value != null && !multiple;
                 refreshCodeButton.Enabled = value != null && !multiple;
                 openCommentWindowButton.Enabled = value != null && !multiple;
@@ -344,12 +346,48 @@ namespace DocSets
             Controls.Add(root);
 
             var colorRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 3) };
-            colorRow.Controls.Add(CreatePalette());
-            pinCheckBox.Text = "Pin";
-            pinCheckBox.AutoSize = true;
-            pinCheckBox.Margin = new Padding(10, 4, 0, 0);
+            pinCheckBox.Appearance = Appearance.Button;
+            pinCheckBox.AutoSize = false;
+            pinCheckBox.Size = DpiService.Scale(this, new Size(30, 28));
+            pinCheckBox.Image = IconProvider.Get(AppIcon.PinOverlay, this, 18);
+            pinCheckBox.Text = string.Empty;
+            pinCheckBox.TextAlign = ContentAlignment.MiddleCenter;
+            pinCheckBox.ImageAlign = ContentAlignment.MiddleCenter;
+            pinCheckBox.FlatStyle = FlatStyle.Flat;
+            pinCheckBox.UseVisualStyleBackColor = false;
+            pinCheckBox.FlatAppearance.CheckedBackColor = SystemColors.GradientActiveCaption;
+            pinCheckBox.FlatAppearance.MouseOverBackColor = SystemColors.ControlLight;
+            pinCheckBox.Margin = new Padding(0, 0, 5, 0);
+            toolTip.SetToolTip(pinCheckBox, "Pin");
+            pinCheckBox.CheckStateChanged += (_, __) => UpdatePinButtonAppearance();
             pinCheckBox.CheckedChanged += (_, __) => { if (!loading) PinChanged?.Invoke(this, EventArgs.Empty); };
+            UpdatePinButtonAppearance();
             colorRow.Controls.Add(pinCheckBox);
+
+            folderCheckBox.Appearance = Appearance.Button;
+            folderCheckBox.AutoSize = false;
+            folderCheckBox.Size = DpiService.Scale(this, new Size(30, 28));
+            folderCheckBox.Image = IconProvider.Get(AppIcon.Folder, this, 18);
+            folderCheckBox.Text = string.Empty;
+            folderCheckBox.TextAlign = ContentAlignment.MiddleCenter;
+            folderCheckBox.ImageAlign = ContentAlignment.MiddleCenter;
+            folderCheckBox.FlatStyle = FlatStyle.Flat;
+            folderCheckBox.UseVisualStyleBackColor = false;
+            folderCheckBox.FlatAppearance.CheckedBackColor = SystemColors.GradientActiveCaption;
+            folderCheckBox.FlatAppearance.MouseOverBackColor = SystemColors.ControlLight;
+            folderCheckBox.Margin = new Padding(0, 0, 5, 0);
+            toolTip.SetToolTip(folderCheckBox, "Папка");
+            folderCheckBox.CheckedChanged += (_, __) => UpdateFolderButtonAppearance();
+            UpdateFolderButtonAppearance();
+            colorRow.Controls.Add(folderCheckBox);
+            colorRow.Controls.Add(new Panel
+            {
+                Width = DpiService.Scale(this, 1),
+                Height = DpiService.Scale(this, 22),
+                BackColor = SystemColors.ControlDark,
+                Margin = new Padding(0, 3, 7, 0)
+            });
+            colorRow.Controls.Add(CreatePalette());
             root.Controls.Add(colorRow, 0, 0);
 
             codeSymbolLabel.AutoSize = false;
@@ -486,6 +524,10 @@ namespace DocSets
             refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, this, 18);
             refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
+            pinCheckBox.Image = IconProvider.Get(AppIcon.PinOverlay, this, 18);
+            pinCheckBox.Size = DpiService.Scale(this, new Size(30, 28));
+            folderCheckBox.Image = IconProvider.Get(AppIcon.Folder, this, 18);
+            folderCheckBox.Size = DpiService.Scale(this, new Size(30, 28));
             foreach (var button in new[] { emptyButton, symbolButton, fileButton }) button.Size = DpiService.Scale(this, new Size(74, 28));
             accordion?.PerformLayout();
             PerformLayout();
@@ -652,7 +694,7 @@ namespace DocSets
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
             AddLabel(root, "Название:", 0, 0); nameTextBox.Dock = DockStyle.Fill; root.Controls.Add(nameTextBox, 1, 0);
-            folderCheckBox.Text = "Папка"; folderCheckBox.AutoSize = true; root.Controls.Add(folderCheckBox, 2, 0);
+            root.SetColumnSpan(nameTextBox, 3);
 
             AddLabel(root, "Тип ссылки:", 0, 1);
             var typePanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
@@ -705,6 +747,30 @@ namespace DocSets
                 pair.Value.FlatAppearance.BorderSize = pair.Key == selectedColor ? 3 : 1;
                 pair.Value.FlatAppearance.BorderColor = pair.Key == selectedColor ? SystemColors.Highlight : SystemColors.ControlDark;
             }
+        }
+
+        private void UpdateFolderButtonAppearance()
+        {
+            folderCheckBox.BackColor = folderCheckBox.Checked
+                ? SystemColors.GradientActiveCaption
+                : SystemColors.Control;
+            folderCheckBox.FlatAppearance.BorderColor = folderCheckBox.Checked
+                ? SystemColors.Highlight
+                : SystemColors.ControlDark;
+            folderCheckBox.FlatAppearance.BorderSize = folderCheckBox.Checked ? 2 : 1;
+        }
+
+        private void UpdatePinButtonAppearance()
+        {
+            var active = pinCheckBox.CheckState == CheckState.Checked;
+            var indeterminate = pinCheckBox.CheckState == CheckState.Indeterminate;
+            pinCheckBox.BackColor = active
+                ? SystemColors.GradientActiveCaption
+                : indeterminate ? SystemColors.GradientInactiveCaption : SystemColors.Control;
+            pinCheckBox.FlatAppearance.BorderColor = active || indeterminate
+                ? SystemColors.Highlight
+                : SystemColors.ControlDark;
+            pinCheckBox.FlatAppearance.BorderSize = active || indeterminate ? 2 : 1;
         }
 
         private void ClearColorSelection()
