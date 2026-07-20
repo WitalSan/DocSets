@@ -21,6 +21,8 @@ namespace DocSets
         internal event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
+        private readonly Button _openDocSetButton = new Button();
+        private readonly Button _createDocSetButton = new Button();
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
@@ -253,7 +255,8 @@ namespace DocSets
 
         private void BuildLayout()
         {
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 5, ColumnCount = 1 };
+            var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 6, ColumnCount = 1 };
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -262,6 +265,21 @@ namespace DocSets
 
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             Controls.Add(root);
+
+            var documentRow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                WrapContents = false,
+                Padding = new Padding(3, 3, 3, 0)
+            };
+            _openDocSetButton.Text = "Открыть…";
+            _openDocSetButton.AutoSize = true;
+            _createDocSetButton.Text = "Создать…";
+            _createDocSetButton.AutoSize = true;
+            documentRow.Controls.Add(_openDocSetButton);
+            documentRow.Controls.Add(_createDocSetButton);
+            root.Controls.Add(documentRow, 0, 0);
 
             var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, RowCount = 1, Padding = new Padding(3) };
             top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -274,7 +292,7 @@ namespace DocSets
             _workspaceCombo.Width = DpiService.Scale(this, 140);
             _workspaceCombo.Anchor = AnchorStyles.Left;
             top.Controls.Add(_workspaceCombo, 1, 0);
-            root.Controls.Add(top, 0, 0);
+            root.Controls.Add(top, 0, 1);
 
             _toolStrip.GripStyle = ToolStripGripStyle.Hidden;
             _toolStrip.LayoutStyle = ToolStripLayoutStyle.Flow;
@@ -315,8 +333,8 @@ namespace DocSets
             _groupsStrip.KeyDown += GroupsStrip_KeyDown;
             groupsPanel.Controls.Add(_standardGroupsStrip, 0, 0);
             groupsPanel.Controls.Add(_groupsStrip, 0, 1);
-            root.Controls.Add(groupsPanel, 0, 2);
-            root.Controls.Add(CreateFilterRow(), 0, 1);
+            root.Controls.Add(groupsPanel, 0, 3);
+            root.Controls.Add(CreateFilterRow(), 0, 2);
 
             _contentSplit.Dock = DockStyle.Fill;
             _contentSplit.Orientation = Orientation.Horizontal;
@@ -341,8 +359,8 @@ namespace DocSets
             _statusLabel.Dock = DockStyle.Fill;
             _statusLabel.AutoEllipsis = true;
             _statusLabel.Padding = new Padding(4, 2, 4, 2);
-            root.Controls.Add(_contentSplit, 0, 3);
-            root.Controls.Add(_statusLabel, 0, 4);
+            root.Controls.Add(_contentSplit, 0, 4);
+            root.Controls.Add(_statusLabel, 0, 5);
         }
 
         private static void ConfigureGroupsStrip(ToolStrip strip, bool canOverflow)
@@ -615,7 +633,7 @@ namespace DocSets
         private static IEnumerable<ColumnSpec> GetDefaultColumnSpecs()
         {
             yield return new ColumnSpec("name", "Название", 340);
-            yield return new ColumnSpec("comment", "Комментарий", 240);
+            yield return new ColumnSpec("comment", "Заметка", 240);
             yield return new ColumnSpec("tags", "Теги", 160);
             yield return new ColumnSpec("project", "Проект", 160);
             yield return new ColumnSpec("file", "Файл", 280);
@@ -951,7 +969,7 @@ namespace DocSets
                 }
                 case "file": return target?.Path ?? string.Empty;
                 case "line": return target == null || target.NodeType == NodeType.Folder ? string.Empty : target.Line.ToString();
-                case "comment": return target?.CommentFirstLine ?? string.Empty;
+                case "comment": return target?.ContentFirstLine ?? string.Empty;
                 case "tags": return GetTagText(target);
                 case "project": return target?.Project ?? string.Empty;
                 case "symbol": return target?.Symbol ?? string.Empty;
@@ -1269,7 +1287,7 @@ namespace DocSets
             _tree.NodeControls.Add(_nameNode);
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.File), ParentColumn = _columnsByKey["file"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Line), ParentColumn = _columnsByKey["line"] });
-            _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Comment), ParentColumn = _columnsByKey["comment"] });
+            _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Content), ParentColumn = _columnsByKey["comment"] });
             _tree.NodeControls.Add(new NodeIcon { DataPropertyName = nameof(BookmarkTreeNode.TagImage), ParentColumn = _columnsByKey["tags"], LeftMargin = DpiService.Scale(this, 4), ScaleMode = ImageScaleMode.Clip });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Project), ParentColumn = _columnsByKey["project"] });
             _tree.NodeControls.Add(new NodeTextBox { DataPropertyName = nameof(BookmarkTreeNode.Symbol), ParentColumn = _columnsByKey["symbol"] });
@@ -1860,8 +1878,57 @@ namespace DocSets
             _nodeMenu.Items.Add(item);
         }
 
+        private async Task OpenDocSetAsync()
+        {
+            var directory = NativeFolderDialog.Show(this,
+                "Выберите каталог *.DocSets",
+                _viewModel.SolutionDirectory);
+            if (string.IsNullOrWhiteSpace(directory)) return;
+            try
+            {
+                if (!await _viewModel.OpenDocSetAsync(directory)) return;
+                _showSetsOverview = false;
+                ClearFindResults();
+                RefreshAll();
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Открытие DocSet",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async Task CreateDocSetAsync()
+        {
+            var parentPath = NativeFolderDialog.Show(this,
+                "Выберите каталог для нового DocSet",
+                _viewModel.SolutionDirectory);
+            if (string.IsNullOrWhiteSpace(parentPath)) return;
+            var name = PromptDialog.Ask(System.Windows.Application.Current?.MainWindow,
+                "Новый DocSet", "Название:", "New");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var safeName = string.Concat(name.Trim().Select(character =>
+                System.IO.Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+            var directory = System.IO.Path.Combine(parentPath,
+                safeName + DirectoryDocSetStore.DirectorySuffix);
+            try
+            {
+                if (!await _viewModel.CreateDocSetAsync(directory, name)) return;
+                _showSetsOverview = false;
+                ClearFindResults();
+                RefreshAll();
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(this, exception.Message, "Создание DocSet",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void WireEvents()
         {
+            _openDocSetButton.Click += async (_, __) => await OpenDocSetAsync();
+            _createDocSetButton.Click += async (_, __) => await CreateDocSetAsync();
             _workspaceCombo.SelectedIndexChanged += async (_, __) =>
             {
                 if (_refreshing) return;
@@ -2063,7 +2130,7 @@ namespace DocSets
                         opened = await _viewModel.OpenSymbolAsync(_experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem(), link.Target, link.Project);
                         break;
                     case DocumentLinkKind.File:
-                        opened = await _viewModel.OpenFileLinkAsync(link.Target);
+                        opened = await _viewModel.OpenFileLinkAsync(link.Target, link.SourceId);
                         break;
                     case DocumentLinkKind.Bookmark:
                         opened = await _viewModel.OpenBookmarkByIdAsync(link.Target);
@@ -2092,7 +2159,8 @@ namespace DocSets
                     Kind = DocumentLinkKind.Symbol,
                     Caption = string.IsNullOrWhiteSpace(text) ? symbol.Name : text,
                     Target = symbol.Symbol,
-                    Project = symbol.Project
+                    Project = symbol.Project,
+                    SourceId = symbol.SourceId
                 }, position);
             };
             _experimentalPropertiesPanel.Leave += async (_, __) =>
@@ -2925,7 +2993,7 @@ namespace DocSets
             SyncSelectionFromViewModel();
             LoadPropertiesPanel(item);
 
-            if (result.Field == BookmarkSearchField.Comment)
+            if (result.Field == BookmarkSearchField.Content)
             {
                 var handledExternally = CommentSearchMatchRequested?.Invoke(item, result.MatchStart, result.MatchLength, result.OccurrenceIndex) == true;
                 if (!handledExternally)
@@ -3598,9 +3666,9 @@ namespace DocSets
                     return string.Empty;
                 }
 
-                if (!string.IsNullOrWhiteSpace(item.Comment))
+                if (!string.IsNullOrWhiteSpace(item.Content))
                 {
-                    return item.Comment;
+                    return item.Content;
                 }
 
                 return item.NodeType == NodeType.Folder ? item.Name : item.Display;

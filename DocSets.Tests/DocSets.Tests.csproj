@@ -23,6 +23,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Source\Model.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Source\DocSetStorageModels.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DirectoryDocSetStore.cs" Link="Source\DirectoryDocSetStore.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DocSetDocumentRepository.cs" Link="Source\DocSetDocumentRepository.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DocSetsWorkspaceStore.cs" Link="Source\DocSetsWorkspaceStore.cs" />
+    <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
+    <Compile Include="..\DocSets.Core\Services\CodeSourceLocator.cs" Link="Source\CodeSourceLocator.cs" />
+    <Compile Include="..\DocSets.Core\Services\SourceReferenceService.cs" Link="Source\SourceReferenceService.cs" />
+    <Compile Include="..\DocSets.Import\LegacyDocSetConverter.cs" Link="Source\LegacyDocSetConverter.cs" />
     <Compile Include="..\DocSets.Core\Services\BookmarkSearchService.cs" Link="Source\BookmarkSearchService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />
     <Compile Include="..\DocSets.Core\Services\NavigationHistoryService.cs" Link="Source\NavigationHistoryService.cs" />
@@ -37,9 +45,16 @@
     <Compile Include="..\DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" Link="Source\BreadcrumbToolTip.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\DocumentLinks.cs" Link="Source\DocumentLinks.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs" Link="Source\BookmarkPropertiesPanelExperimental.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Forms\DocSetsLogControl.cs" Link="Source\DocSetsLogControl.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs" Link="Source\DockWorkspaceControl.cs" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\-Icons-\Folder.png" Link="Resources\Folder.png">
+      <LogicalName>DocSets.Icons.Folder.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\-Icons-\PinOverlay.png" Link="Resources\PinOverlay.png">
+      <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="..\-Icons-\Copy.png" Link="Resources\Copy.png">
       <LogicalName>DocSets.Icons.Copy.png</LogicalName>
     </EmbeddedResource>

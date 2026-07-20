@@ -19,7 +19,7 @@ namespace DocSets.Tests
             var bookmark = Bookmark("Method", "C:/a.cs", BookmarkType.Symbol);
             bookmark.Symbol = "A.B.Method";
             bookmark.Project = "Project";
-            bookmark.Comment = "line 1\nline 2";
+            bookmark.Content = "line 1\nline 2";
             bookmark.Color = BookmarkColor.Purple;
             bookmark.CreatedAtUtc = created;
             bookmark.ModifiedAtUtc = modified;
@@ -128,14 +128,14 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
-        public void CommentFirstLineNormalizesLineEndings()
+        public void ContentFirstLineNormalizesLineEndings()
         {
-            var item = new DocumentItem { Comment = "  first  \r\nsecond" };
-            Assert.Equal("first", item.CommentFirstLine);
-            item.Comment = "single";
-            Assert.Equal("single", item.CommentFirstLine);
-            item.Comment = "  ";
-            Assert.Equal(string.Empty, item.CommentFirstLine);
+            var item = new DocumentItem { Content = "  first  \r\nsecond" };
+            Assert.Equal("first", item.ContentFirstLine);
+            item.Content = "single";
+            Assert.Equal("single", item.ContentFirstLine);
+            item.Content = "  ";
+            Assert.Equal(string.Empty, item.ContentFirstLine);
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]

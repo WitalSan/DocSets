@@ -54,7 +54,7 @@ namespace DocSets
         private const string Separator = "────────────────";
         public static string Build(DocumentItem item, string symbolPath)
         {
-            var bookmarkComment = item?.Comment?.Trim() ?? "";
+            var bookmarkComment = item?.Content?.Trim() ?? "";
             var snapshot = item?.EditorState?.SymbolSnapshots?
                 .FirstOrDefault(x => string.Equals(x?.Symbol, symbolPath, StringComparison.Ordinal));
             var component = snapshot == null ? "" : JoinNonEmpty(snapshot.Signature, snapshot.Comment);

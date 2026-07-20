@@ -43,6 +43,23 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void SecondaryFileSourceRoundTripsWhileDefaultStaysShort()
+        {
+            var markdown = DocumentLinkService.ToMarkdown(new DocumentLink
+            {
+                Kind = DocumentLinkKind.File, Caption = "Shared.cs", Target = "lib/Shared.cs", SourceId = "shared"
+            });
+            Assert.Equal("[Shared.cs](file:shared|lib/Shared.cs)", markdown);
+            var link = DocumentLinkService.Render(markdown).Links[0].Link;
+            Assert.Equal("shared", link.SourceId);
+            Assert.Equal("lib/Shared.cs", link.Target);
+            Assert.Equal("[Main.cs](file:src/Main.cs)", DocumentLinkService.ToMarkdown(new DocumentLink
+            {
+                Kind = DocumentLinkKind.File, Caption = "Main.cs", Target = "src/Main.cs"
+            }));
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void CustomDragPayloadRoundTrips()
         {
             var source = new DocumentLink { Kind = DocumentLinkKind.Bookmark, Caption = "Bookmark", Target = "item-id" };

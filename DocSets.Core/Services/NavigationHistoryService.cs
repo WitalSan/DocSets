@@ -46,7 +46,7 @@ namespace DocSets
                     Path = saved.Path ?? string.Empty,
                     Line = saved.Line,
                     Column = saved.Column,
-                    Comment = saved.Comment ?? string.Empty,
+                    Content = saved.Comment ?? string.Empty,
                     EditorState = saved.EditorState?.Clone(),
                     IsLocalOnly = true,
                     IsHistoryItem = true
@@ -106,7 +106,7 @@ namespace DocSets
             item.Path = source.Path;
             item.Line = source.Line;
             item.Column = source.Column;
-            item.Comment = visitedAt.ToString("yyyy-MM-dd HH:mm:ss");
+            item.Content = visitedAt.ToString("yyyy-MM-dd HH:mm:ss");
             item.EditorState = source.EditorState?.Clone();
 
             if (existing != null)
@@ -140,8 +140,8 @@ namespace DocSets
                 Path = item.Path,
                 Line = item.Line,
                 Column = item.Column,
-                Comment = item.Comment,
-                VisitedAt = DateTime.TryParse(item.Comment, out var visited) ? visited : DateTime.Now,
+                Comment = item.Content,
+                VisitedAt = DateTime.TryParse(item.Content, out var visited) ? visited : DateTime.Now,
                 EditorState = item.EditorState?.Clone()
             }).ToList() ?? new List<NavigationHistoryLocalItem>();
         }

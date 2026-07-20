@@ -21,7 +21,7 @@ namespace DocSets.Tests
         public void SnapshotSignatureAndCommentPrecedeBookmarkComment()
         {
             var item = Item(new SymbolSnapshot { Symbol = "A.Run", Signature = "void Run(int count)", Comment = "Runs work." });
-            item.Comment = "Bookmark note";
+            item.Content = "Bookmark note";
             var value = BreadcrumbToolTipBuilder.Build(item, "A.Run");
             Assert.True(value.Contains("void Run(int count)"));
             Assert.True(value.Contains("Runs work."));

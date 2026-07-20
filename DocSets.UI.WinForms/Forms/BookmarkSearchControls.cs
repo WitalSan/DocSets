@@ -149,7 +149,7 @@ namespace DocSets
         private bool suppressColumnsButtonClick;
         private readonly CheckBox names = new CheckBox { Text = "Названия", Checked = true, AutoSize = true };
         private readonly CheckBox symbols = new CheckBox { Text = "Символы", Checked = true, AutoSize = true };
-        private readonly CheckBox comments = new CheckBox { Text = "Комментарии", Checked = true, AutoSize = true };
+        private readonly CheckBox content = new CheckBox { Text = "Заметки", Checked = true, AutoSize = true };
         private readonly CheckBox matchCase = new CheckBox { Text = "Aa", Appearance = Appearance.Button, AutoSize = true };
         private readonly CheckBox wholeWord = new CheckBox { Text = "|w|", Appearance = Appearance.Button, AutoSize = true };
         private readonly CheckBox regex = new CheckBox { Text = "Regex", Appearance = Appearance.Button, AutoSize = true };
@@ -201,7 +201,7 @@ namespace DocSets
             var filterRow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Margin = Padding.Empty };
             filterRow.Controls.Add(names);
             filterRow.Controls.Add(symbols);
-            filterRow.Controls.Add(comments);
+            filterRow.Controls.Add(content);
             scope.DropDownStyle = ComboBoxStyle.DropDownList;
             scope.Items.Add("В текущей группе");
             scope.Items.Add("Во всех группах");
@@ -233,7 +233,7 @@ namespace DocSets
             scope.SelectedIndexChanged += Changed;
             names.CheckedChanged += Changed;
             symbols.CheckedChanged += Changed;
-            comments.CheckedChanged += Changed;
+            content.CheckedChanged += Changed;
             matchCase.CheckedChanged += Changed;
             wholeWord.CheckedChanged += Changed;
             regex.CheckedChanged += Changed;
@@ -288,7 +288,7 @@ namespace DocSets
             Scope = scope.SelectedIndex == 1 ? BookmarkSearchScope.AllGroups : BookmarkSearchScope.CurrentGroup,
             SearchNames = names.Checked,
             SearchSymbolsAndPaths = symbols.Checked,
-            SearchComments = comments.Checked,
+            SearchContent = content.Checked,
             MatchCase = matchCase.Checked,
             MatchWholeWord = wholeWord.Checked,
             UseRegularExpressions = regex.Checked

@@ -46,7 +46,7 @@ namespace DocSets.Tests
 
             Assert.Equal(2, results.Count);
             Assert.SequenceEqual(new[] { 4, 15 }, results.Select(x => x.MatchStart));
-            Assert.True(results.All(x => x.Field == BookmarkSearchField.Comment));
+            Assert.True(results.All(x => x.Field == BookmarkSearchField.Content));
         }
 
         [TestMethod]
@@ -68,7 +68,7 @@ namespace DocSets.Tests
                 Query = "Word",
                 SearchNames = false,
                 SearchSymbolsAndPaths = false,
-                SearchComments = true,
+                SearchContent = true,
                 MatchCase = true,
                 MatchWholeWord = true
             };
@@ -87,13 +87,13 @@ namespace DocSets.Tests
                 Query = @"[A-Z]{2}-\d+",
                 SearchNames = false,
                 SearchSymbolsAndPaths = false,
-                SearchComments = true,
+                SearchContent = true,
                 UseRegularExpressions = true
             };
 
             var results = new BookmarkSearchService().Search(request, new[] { group }, group);
             Assert.Equal(2, results.Count);
-            Assert.SequenceEqual(new[] { "AB-12", "CD-345" }, results.Select(x => x.Item.Comment.Substring(x.MatchStart, x.MatchLength)));
+            Assert.SequenceEqual(new[] { "AB-12", "CD-345" }, results.Select(x => x.Item.Content.Substring(x.MatchStart, x.MatchLength)));
         }
 
         [TestMethod]
@@ -111,7 +111,7 @@ namespace DocSets.Tests
                 Scope = scope,
                 SearchNames = false,
                 SearchSymbolsAndPaths = false,
-                SearchComments = true
+                SearchContent = true
             }, groups, current);
         }
 
@@ -124,7 +124,7 @@ namespace DocSets.Tests
 
         private static DocumentItem Bookmark(string name, string comment)
         {
-            return new DocumentItem { Name = name, Comment = comment, Type = BookmarkType.Symbol };
+            return new DocumentItem { Name = name, Content = comment, Type = BookmarkType.Symbol };
         }
     }
 }

@@ -62,7 +62,8 @@ namespace DocSets
                     Kind = DocumentLinkKind.Symbol,
                     Caption = string.IsNullOrWhiteSpace(text) ? symbol.Name : text,
                     Target = symbol.Symbol,
-                    Project = symbol.Project
+                    Project = symbol.Project,
+                    SourceId = symbol.SourceId
                 });
             };
         }
@@ -82,7 +83,7 @@ namespace DocSets
         internal async Task ShowSearchResultAsync(DocumentItem selectedItem, int start, int length, int occurrenceIndex)
         {
             await SwitchItemAsync(selectedItem);
-            var comment = item?.Comment ?? string.Empty;
+            var comment = item?.Content ?? string.Empty;
             if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
             editor.HighlightSearchMatch(visibleText, visibleOccurrence);
         }
@@ -101,8 +102,8 @@ namespace DocSets
             try
             {
                 editor.Enabled = item != null;
-                editor.LoadComment(item?.Comment ?? string.Empty);
-                title.Text = item?.Name ?? "Комментарий не выбран";
+                editor.LoadComment(item?.Content ?? string.Empty);
+                title.Text = item?.Name ?? "Заметка не выбрана";
                 dirty = false;
             }
             finally { switching = false; }
@@ -112,9 +113,9 @@ namespace DocSets
         {
             if (!dirty || item == null || viewModel == null) return;
             var value = editor.CommentText ?? string.Empty;
-            if (string.Equals(item.Comment ?? string.Empty, value, StringComparison.Ordinal)) { dirty = false; return; }
+            if (string.Equals(item.Content ?? string.Empty, value, StringComparison.Ordinal)) { dirty = false; return; }
             viewModel.CaptureUndoState("Изменение комментария", new[] { item });
-            item.Comment = value;
+            item.Content = value;
             viewModel.MarkBookmarkModified(item);
             dirty = false;
             await viewModel.SaveAsync();
@@ -130,7 +131,7 @@ namespace DocSets
             switch (link.Kind)
             {
                 case DocumentLinkKind.Symbol: await viewModel.OpenSymbolAsync(item, link.Target, link.Project); break;
-                case DocumentLinkKind.File: await viewModel.OpenFileLinkAsync(link.Target); break;
+                case DocumentLinkKind.File: await viewModel.OpenFileLinkAsync(link.Target, link.SourceId); break;
                 case DocumentLinkKind.Bookmark: await viewModel.OpenBookmarkByIdAsync(link.Target); break;
                 case DocumentLinkKind.Url:
                     if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri)) VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri);

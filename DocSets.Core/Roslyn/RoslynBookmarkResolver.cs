@@ -343,7 +343,8 @@ namespace DocSets
                 {
                     Name = string.IsNullOrWhiteSpace(draggedText) ? symbol.Name : draggedText.Trim(),
                     Symbol = symbol.ToDisplayString(StoredSymbolFormat),
-                    Project = document.Project.Name ?? ""
+                    Project = document.Project.Name ?? "",
+                    Path = document.FilePath ?? ""
                 };
             }
             catch { return null; }

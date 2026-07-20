@@ -151,6 +151,8 @@ namespace DocSets
         public string Name { get; set; } = "";
         public string Symbol { get; set; } = "";
         public string Project { get; set; } = "";
+        public string Path { get; set; } = "";
+        public string SourceId { get; set; } = "";
     }
 
     public sealed class DocumentSetsState : NotifyObject
@@ -358,7 +360,7 @@ namespace DocSets
                 Path = item.Path ?? "",
                 Line = item.Line,
                 Column = item.Column,
-                Comment = item.Comment ?? "",
+                Comment = item.Content ?? "",
                 Color = item.Color,
                 CreatedAtUtc = item.CreatedAtUtc,
                 ModifiedAtUtc = item.ModifiedAtUtc,
@@ -422,7 +424,7 @@ namespace DocSets
                 Path = source.Path ?? "",
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
-                Comment = source.Comment ?? "",
+                Content = source.Comment ?? "",
                 Color = source.Color,
                 CreatedAtUtc = source.CreatedAtUtc,
                 ModifiedAtUtc = source.ModifiedAtUtc,
@@ -716,8 +718,11 @@ namespace DocSets
         private BookmarkType type;
         private string symbol = "";
         private string project = "";
+        private string sourceId = "";
         private string path = "";
-        private string comment = "";
+        private string content = "";
+        private string contentPath = "";
+        private ContentFormat contentFormat = ContentFormat.Markdown;
         private BookmarkColor color;
         private DateTimeOffset? createdAtUtc;
         private DateTimeOffset? modifiedAtUtc;
@@ -838,15 +843,15 @@ namespace DocSets
             }
         }
 
-        [JsonProperty("comment", NullValueHandling = NullValueHandling.Ignore)]
-        public string Comment
+        [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)]
+        public string Content
         {
-            get => comment;
+            get => content;
             set
             {
-                if (SetProperty(ref comment, value ?? ""))
+                if (SetProperty(ref content, value ?? ""))
                 {
-                    OnPropertyChanged(nameof(CommentFirstLine));
+                    OnPropertyChanged(nameof(ContentFirstLine));
                 }
             }
         }
@@ -857,6 +862,28 @@ namespace DocSets
         {
             get => color;
             set => SetProperty(ref color, value);
+        }
+
+        [JsonProperty("sourceId", NullValueHandling = NullValueHandling.Ignore)]
+        public string SourceId
+        {
+            get => sourceId;
+            set => SetProperty(ref sourceId, value ?? "");
+        }
+
+        [JsonProperty("contentFormat")]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ContentFormat ContentFormat
+        {
+            get => contentFormat;
+            set => SetProperty(ref contentFormat, value);
+        }
+
+        [JsonProperty("contentPath", NullValueHandling = NullValueHandling.Ignore)]
+        public string ContentPath
+        {
+            get => contentPath;
+            set => SetProperty(ref contentPath, value ?? "");
         }
 
         [JsonIgnore]
@@ -881,16 +908,16 @@ namespace DocSets
         }
 
         [JsonIgnore]
-        public string CommentFirstLine
+        public string ContentFirstLine
         {
             get
             {
-                if (string.IsNullOrWhiteSpace(Comment))
+                if (string.IsNullOrWhiteSpace(Content))
                 {
                     return string.Empty;
                 }
 
-                var normalized = Comment.Replace("\r\n", "\n").Replace('\r', '\n');
+                var normalized = Content.Replace("\r\n", "\n").Replace('\r', '\n');
                 var index = normalized.IndexOf('\n');
                 return index < 0 ? normalized.Trim() : normalized.Substring(0, index).Trim();
             }
@@ -1120,10 +1147,13 @@ namespace DocSets
                 Type = Type,
                 Symbol = Type == BookmarkType.Symbol ? Symbol : "",
                 Project = Project,
+                SourceId = SourceId,
                 Path = Path,
                 Line = Line,
                 Column = Column,
-                Comment = Comment,
+                Content = Content,
+                ContentFormat = ContentFormat,
+                ContentPath = ContentPath,
                 Color = Color,
                 CreatedAtUtc = CreatedAtUtc,
                 ModifiedAtUtc = ModifiedAtUtc,

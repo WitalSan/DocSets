@@ -18,6 +18,7 @@ namespace DocSets
         public string Caption { get; set; }
         public string Target { get; set; }
         public string Project { get; set; }
+        public string SourceId { get; set; }
     }
 
     internal sealed class MarkdownLinkSpan
@@ -51,6 +52,8 @@ namespace DocSets
             var caption = string.IsNullOrWhiteSpace(link.Caption) ? GetDefaultCaption(link) : link.Caption.Trim();
             var target = link.Target.Trim();
             if (link.Kind == DocumentLinkKind.Symbol && !string.IsNullOrWhiteSpace(link.Project)) target = link.Project.Trim() + "|" + target;
+            if (link.Kind == DocumentLinkKind.Symbol && !string.IsNullOrWhiteSpace(link.SourceId)) target = link.SourceId.Trim() + "|" + target;
+            if (link.Kind == DocumentLinkKind.File && !string.IsNullOrWhiteSpace(link.SourceId)) target = link.SourceId.Trim() + "|" + target;
             return "[" + EscapeCaption(caption) + "](" + (link.Kind == DocumentLinkKind.Url ? target : link.Kind.ToString().ToLowerInvariant() + ":" + target) + ")";
         }
 
@@ -215,12 +218,29 @@ namespace DocSets
                 else if (match.Groups["url"].Success) kind = DocumentLinkKind.Url;
                 else if (!Enum.TryParse(match.Groups["kind"].Value, true, out kind)) { output.Append(match.Value); offset = match.Index + match.Length; continue; }
                 string project = null;
+                string sourceId = null;
                 if (kind == DocumentLinkKind.Symbol && target.IndexOf('|') > 0)
                 {
-                    var separator = target.IndexOf('|'); project = target.Substring(0, separator); target = target.Substring(separator + 1);
+                    var separator = target.IndexOf('|');
+                    var secondSeparator = target.IndexOf('|', separator + 1);
+                    if (secondSeparator > separator)
+                    {
+                        sourceId = target.Substring(0, separator);
+                        project = target.Substring(separator + 1, secondSeparator - separator - 1);
+                        target = target.Substring(secondSeparator + 1);
+                    }
+                    else
+                    {
+                        project = target.Substring(0, separator);
+                        target = target.Substring(separator + 1);
+                    }
+                }
+                else if (kind == DocumentLinkKind.File && target.IndexOf('|') > 0)
+                {
+                    var separator = target.IndexOf('|'); sourceId = target.Substring(0, separator); target = target.Substring(separator + 1);
                 }
                 var start = output.Length; output.Append(caption);
-                result.Links.Add(new MarkdownLinkSpan { Start = start, Length = caption.Length, Link = new DocumentLink { Kind = kind, Caption = caption, Target = target, Project = project } });
+                result.Links.Add(new MarkdownLinkSpan { Start = start, Length = caption.Length, Link = new DocumentLink { Kind = kind, Caption = caption, Target = target, Project = project, SourceId = sourceId } });
                 offset = match.Index + match.Length;
             }
             AppendPlain(result, output, source.Substring(offset, source.Length - offset));
@@ -409,7 +429,7 @@ namespace DocSets
             {
                 copyCommentButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
                 copyCommentButton.Image = IconProvider.Get(AppIcon.Copy, this, 18);
-                copyCommentButton.ToolTipText = "Копировать комментарий";
+                copyCommentButton.ToolTipText = "Копировать заметку";
                 copyCommentButton.Click += (_, __) => { var text = CommentText; if (!string.IsNullOrEmpty(text)) Clipboard.SetText(text); };
                 //toolbar.Items.Add(new ToolStripSeparator());
                 //toolbar.Items.Add(copyCommentButton);

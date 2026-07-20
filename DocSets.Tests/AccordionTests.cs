@@ -84,7 +84,7 @@ namespace DocSets.Tests
         {
             var host = new ExperimentalAccordionHost { Width = 500, Height = 300 };
             properties = new ExperimentalAccordionSection("properties", "Свойства", new Panel(), 180, false);
-            comment = new ExperimentalAccordionSection("comment", "Комментарий", new Panel(), 130, false);
+            comment = new ExperimentalAccordionSection("comment", "Заметка", new Panel(), 130, false);
             code = new ExperimentalAccordionSection("code", "Код", new Panel(), 210, false);
             host.AddSection(properties);
             host.AddSection(comment);

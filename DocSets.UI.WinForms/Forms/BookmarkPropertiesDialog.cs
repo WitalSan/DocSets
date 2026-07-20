@@ -97,7 +97,7 @@ namespace DocSets
             item.Project = item.Type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty;
             item.Line = (int)lineBox.Value;
             item.Column = (int)columnBox.Value;
-            item.Comment = commentTextBox.Text ?? string.Empty;
+            item.Content = commentTextBox.Text ?? string.Empty;
             item.Color = selectedColor;
 
             if (item.Type == BookmarkType.File && string.IsNullOrWhiteSpace(item.Name))
@@ -233,7 +233,7 @@ namespace DocSets
 
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            AddLabel(root, row, "Комментарий:");
+            AddLabel(root, row, "Заметка:");
             commentTextBox.Dock = DockStyle.Fill;
             commentTextBox.Multiline = true;
             commentTextBox.AcceptsReturn = true;
@@ -408,7 +408,7 @@ namespace DocSets
             projectTextBox.Text = item.Project ?? string.Empty;
             lineBox.Value = Math.Max(lineBox.Minimum, Math.Min(lineBox.Maximum, item.Line));
             columnBox.Value = Math.Max(columnBox.Minimum, Math.Min(columnBox.Maximum, item.Column));
-            commentTextBox.Text = item.Comment ?? string.Empty;
+            commentTextBox.Text = item.Content ?? string.Empty;
             selectedColor = item.Color;
             UpdateColorButtons();
             UpdateEnabledState();

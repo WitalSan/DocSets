@@ -89,7 +89,7 @@ namespace DocSets
                 projectTextBox.Text = value?.Project ?? string.Empty;
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
-                commentTextBox.Text = value?.Comment ?? string.Empty;
+                commentTextBox.Text = value?.Content ?? string.Empty;
                 UpdateCodePreview(value);
                 selectedColor = commonColor ?? BookmarkColor.None;
                 pinCheckBox.ThreeState = multiple;
@@ -133,7 +133,7 @@ namespace DocSets
             if (!string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal)) changes.Add("проект");
             if (item.Line != (int)lineBox.Value) changes.Add("строка");
             if (item.Column != (int)columnBox.Value) changes.Add("колонка");
-            if (!string.Equals(item.Comment ?? string.Empty, commentTextBox.Text ?? string.Empty, StringComparison.Ordinal)) changes.Add("комментарий");
+            if (!string.Equals(item.Content ?? string.Empty, commentTextBox.Text ?? string.Empty, StringComparison.Ordinal)) changes.Add("заметка");
             if (item.Color != selectedColor) changes.Add("цвет");
 
             if (changes.Count == 0) return null;
@@ -161,7 +161,7 @@ namespace DocSets
             changed |= Set(ref item, item.Project, project, (x, v) => x.Project = v);
             if (item.Line != (int)lineBox.Value) { item.Line = (int)lineBox.Value; changed = true; }
             if (item.Column != (int)columnBox.Value) { item.Column = (int)columnBox.Value; changed = true; }
-            changed |= Set(ref item, item.Comment, commentTextBox.Text ?? string.Empty, (x, v) => x.Comment = v);
+            changed |= Set(ref item, item.Content, commentTextBox.Text ?? string.Empty, (x, v) => x.Content = v);
             if (item.Color != selectedColor) { item.Color = selectedColor; changed = true; }
             return changed;
         }
@@ -212,7 +212,7 @@ namespace DocSets
             tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
             tabs.DrawItem += DrawTab;
             tabs.Padding = new Point(DpiService.Scale(this, 12), DpiService.Scale(this, 4));
-            var commentTab = new TabPage("Комментарий");
+            var commentTab = new TabPage("Заметка");
             var codeTab = new TabPage("Код");
             var propertiesTab = new TabPage("Свойства");
             tabs.TabPages.Add(commentTab);

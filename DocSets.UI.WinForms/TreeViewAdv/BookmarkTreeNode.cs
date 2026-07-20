@@ -75,7 +75,7 @@ namespace DocSets
         public string Line => ResolvedItem == null || ResolvedItem.Type == BookmarkType.Empty ? string.Empty : ResolvedItem.Line.ToString();
         public string Project => ResolvedItem?.Type == BookmarkType.Symbol ? ResolvedItem.Project ?? string.Empty : string.Empty;
         public string Symbol => ResolvedItem?.Type == BookmarkType.Symbol ? ResolvedItem.Symbol ?? string.Empty : string.Empty;
-        public string Comment => ResolvedItem?.CommentFirstLine ?? string.Empty;
+        public string Content => ResolvedItem?.ContentFirstLine ?? string.Empty;
         public string Solution => ResolvedItem?.ModifiedInSolution ?? string.Empty;
         public string Modified => FormatDate(ResolvedItem?.ModifiedAtUtc);
         public string Created => FormatDate(ResolvedItem?.CreatedAtUtc);

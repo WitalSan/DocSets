@@ -79,10 +79,14 @@
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsLogControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsWinFormsControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocumentLinks.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\NativeFolderDialog.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\PromptDialog.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\TagManagerDialog.cs">
       <SubType>Form</SubType>

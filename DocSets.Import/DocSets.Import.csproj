@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <RootNamespace>DocSets.Import</RootNamespace>
+    <AssemblyName>DocSets.Import</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Legacy\Model.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Storage\DocSetStorageModels.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DirectoryDocSetStore.cs" Link="Storage\DirectoryDocSetStore.cs" />
+    <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Services\DocSetsLog.cs" />
+    <Compile Include="..\DocSets.Core\Services\CodeSourceLocator.cs" Link="Services\CodeSourceLocator.cs" />
+  </ItemGroup>
+</Project>

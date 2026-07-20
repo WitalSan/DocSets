@@ -31,6 +31,7 @@ namespace DocSets
         private readonly PinService pinService;
         private readonly UndoRedoService undoRedoService;
         private readonly TagService tagService;
+        private readonly SourceReferenceService sourceReferenceService = new SourceReferenceService();
         private readonly Func<Window> ownerAccessor;
         private DocumentSetsState state = new DocumentSetsState();
         private DocumentItem selectedSet;
@@ -111,6 +112,7 @@ namespace DocSets
         public IReadOnlyList<TagDefinition> Tags => state.Tags;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
+        public string SolutionDirectory => store.SolutionDirectory;
 
         public WorkspaceInfo SelectedWorkspace
         {
@@ -308,6 +310,28 @@ namespace DocSets
             await RefreshWorkspacesAsync();
         }
 
+        public async Task<bool> OpenDocSetAsync(string directoryPath)
+        {
+            if (string.IsNullOrWhiteSpace(directoryPath)) return false;
+            if (IsLoaded) await SaveAsync();
+            if (!await store.OpenDocSetAsync(directoryPath)) return false;
+            ApplyLoadedState(await store.LoadAsync(), preferredSetName: null, selectedNodePath: null);
+            ClearUndoHistory();
+            await RefreshWorkspacesAsync();
+            return true;
+        }
+
+        public async Task<bool> CreateDocSetAsync(string directoryPath, string name)
+        {
+            if (string.IsNullOrWhiteSpace(directoryPath)) return false;
+            if (IsLoaded) await SaveAsync();
+            if (!await store.CreateDocSetAsync(directoryPath, name)) return false;
+            ApplyLoadedState(await store.LoadAsync(), preferredSetName: null, selectedNodePath: null);
+            ClearUndoHistory();
+            await RefreshWorkspacesAsync();
+            return true;
+        }
+
         private async Task RefreshWorkspacesAsync()
         {
             workspaces = await store.GetWorkspacesAsync();
@@ -315,10 +339,10 @@ namespace DocSets
             if (SelectedWorkspace == null && !string.IsNullOrWhiteSpace(store.CurrentWorkspaceRelativePath))
             {
                 var path = store.CurrentWorkspaceRelativePath;
-                var fileName = System.IO.Path.GetFileName(path);
-                var name = fileName.EndsWith(".docsets.json", StringComparison.OrdinalIgnoreCase)
-                    ? fileName.Substring(0, fileName.Length - ".docsets.json".Length)
-                    : System.IO.Path.GetFileNameWithoutExtension(fileName);
+                var fileName = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+                var name = fileName.EndsWith(DirectoryDocSetStore.DirectorySuffix, StringComparison.OrdinalIgnoreCase)
+                    ? fileName.Substring(0, fileName.Length - DirectoryDocSetStore.DirectorySuffix.Length)
+                    : fileName;
                 SelectedWorkspace = new WorkspaceInfo { Name = name, RelativePath = path, FullPath = store.StateFilePath };
                 workspaces = workspaces.Concat(new[] { SelectedWorkspace }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
             }
@@ -374,6 +398,14 @@ namespace DocSets
                     return;
                 }
 
+                // Обновление отслеживаемых позиций выполняется как часть текущего
+                // сохранения. Его события уже попадут в записываемый снимок и не
+                // должны рекурсивно запускать следующую запись.
+                if (Volatile.Read(ref activeSaveCount) > 0)
+                {
+                    return;
+                }
+
                 if (mutationDepth > 0)
                 {
                     mutationChanged = true;
@@ -404,7 +436,9 @@ namespace DocSets
                 OnPropertyChanged(nameof(SelectedSet));
                 OnPropertyChanged(nameof(SelectedNode));
                 OnPropertyChanged(nameof(CurrentNodes));
-                StorageText = "DocSets: solution ещё не открыт";
+                StorageText = string.IsNullOrWhiteSpace(store.SolutionFilePath)
+                    ? "DocSets: solution ещё не открыт"
+                    : "DocSets: откройте или создайте DocSet";
                 InvalidateCommands();
                 return;
             }
@@ -459,8 +493,8 @@ namespace DocSets
                 StorageText = string.IsNullOrWhiteSpace(store.StateFilePath)
                     ? "DocSets: откройте solution (.sln)"
                     : store.IsSharedWorkspace
-                        ? $"DocSets workspace: {store.StateFilePath}"
-                        : $"DocSets solution: {store.StateFilePath}";
+                        ? $"DocSet (внешний): {store.StateFilePath}"
+                        : $"DocSet: {store.StateFilePath}";
             }
             finally
             {
@@ -1389,9 +1423,9 @@ namespace DocSets
             var location = string.IsNullOrWhiteSpace(node.Path) ? "" : $" — {node.Path}:{node.Line}:{node.Column}";
             lines.Add($"{indent}{node.Name}{location}");
 
-            if (!string.IsNullOrWhiteSpace(node.Comment))
+            if (!string.IsNullOrWhiteSpace(node.Content))
             {
-                var commentLines = node.Comment.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+                var commentLines = node.Content.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
                 foreach (var commentLine in commentLines)
                 {
                     lines.Add($"{indent}  # {commentLine}");
@@ -1413,7 +1447,8 @@ namespace DocSets
             var envelope = new ClipboardEnvelope
             {
                 Items = clipboardNodes,
-                TagDefinitions = state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList()
+                TagDefinitions = state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList(),
+                SourceContext = store.CurrentSourceContext
             };
             return JsonConvert.SerializeObject(envelope, Formatting.Indented);
         }
@@ -1426,7 +1461,24 @@ namespace DocSets
                 return BuildClipboardTree(JsonConvert.DeserializeObject<List<ClipboardNode>>(json));
             var envelope = JsonConvert.DeserializeObject<ClipboardEnvelope>(json) ?? new ClipboardEnvelope();
             tagService.MergeDefinitions(state, envelope.TagDefinitions);
+            if (envelope.SourceContext != null)
+                RebaseClipboardNodes(envelope.Items, envelope.SourceContext, store.CurrentSourceContext);
             return BuildClipboardTree(envelope.Items);
+        }
+
+        private void RebaseClipboardNodes(IEnumerable<ClipboardNode> nodes,
+            SourceReferenceContext sourceContext, SourceReferenceContext targetContext)
+        {
+            foreach (var node in nodes ?? Enumerable.Empty<ClipboardNode>())
+            {
+                var sourceId = node.SourceId ?? "";
+                var path = node.Path ?? "";
+                sourceReferenceService.Rebase(sourceContext, targetContext, ref sourceId, ref path);
+                node.SourceId = sourceId;
+                node.Path = path;
+                node.Content = sourceReferenceService.RebaseMarkdownFileLinks(
+                    node.Content, sourceContext, targetContext);
+            }
         }
 
         private static void AppendClipboardNode(DocumentItem item, string parentId, ICollection<ClipboardNode> result, ISet<string> usedIds)
@@ -1444,12 +1496,13 @@ namespace DocSets
                 Name = item.Name ?? string.Empty,
                 NodeType = item.NodeType,
                 Type = item.Type,
+                SourceId = item.SourceId ?? string.Empty,
                 Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? string.Empty : string.Empty,
                 Project = item.Project ?? string.Empty,
                 Path = item.Path ?? string.Empty,
                 Line = item.Line,
                 Column = item.Column,
-                Comment = item.Comment ?? string.Empty,
+                Content = item.Content ?? string.Empty,
                 Color = item.Color,
                 TagIds = item.TagIds?.ToList() ?? new List<string>(),
                 EditorState = item.EditorState?.Clone()
@@ -1495,12 +1548,13 @@ namespace DocSets
                 Name = source.Name ?? string.Empty,
                 NodeType = source.NodeType,
                 Type = source.Type,
+                SourceId = source.SourceId ?? string.Empty,
                 Symbol = source.Type == BookmarkType.Symbol ? source.Symbol ?? string.Empty : string.Empty,
                 Project = source.Project ?? string.Empty,
                 Path = source.Path ?? string.Empty,
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
-                Comment = source.Comment ?? string.Empty,
+                Content = source.Content ?? string.Empty,
                 Color = source.Color,
                 TagIds = source.TagIds?.ToList() ?? new List<string>(),
                 EditorState = source.EditorState?.Clone(),
@@ -1569,9 +1623,9 @@ namespace DocSets
                     if (lastItem != null)
                     {
                         var commentLine = content.Length == 1 ? string.Empty : content.Substring(1).TrimStart();
-                        lastItem.Comment = string.IsNullOrEmpty(lastItem.Comment)
+                        lastItem.Content = string.IsNullOrEmpty(lastItem.Content)
                             ? commentLine
-                            : lastItem.Comment + Environment.NewLine + commentLine;
+                            : lastItem.Content + Environment.NewLine + commentLine;
                     }
                     continue;
                 }
@@ -1697,6 +1751,8 @@ namespace DocSets
             public List<ClipboardNode> Items { get; set; } = new List<ClipboardNode>();
             [JsonProperty("tagDefinitions", NullValueHandling = NullValueHandling.Ignore)]
             public List<TagDefinition> TagDefinitions { get; set; } = new List<TagDefinition>();
+            [JsonProperty("sourceContext", NullValueHandling = NullValueHandling.Ignore)]
+            public SourceReferenceContext SourceContext { get; set; }
         }
         private sealed class ClipboardNode
         {
@@ -1729,6 +1785,9 @@ namespace DocSets
             [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
             public BookmarkType Type { get; set; }
 
+            [JsonProperty("sourceId", NullValueHandling = NullValueHandling.Ignore)]
+            public string SourceId { get; set; }
+
             [JsonProperty("symbol")]
             public string Symbol { get; set; }
 
@@ -1744,8 +1803,8 @@ namespace DocSets
             [JsonProperty("column")]
             public int Column { get; set; }
 
-            [JsonProperty("comment")]
-            public string Comment { get; set; }
+            [JsonProperty("content")]
+            public string Content { get; set; }
 
             [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
             [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
@@ -1807,7 +1866,6 @@ namespace DocSets
             ApplyIdMigration(state?.EnsureReadableIds());
             solutionState.History = historyService.Export();
             solutionState.Pins = pinService.Export();
-            solutionState.Workspace = store.CurrentWorkspaceRelativePath ?? "";
             store.SaveSolutionState(solutionState);
         }
 
@@ -1947,12 +2005,13 @@ namespace DocSets
             return true;
         }
 
-        public async Task<bool> OpenFileLinkAsync(string path)
+        public async Task<bool> OpenFileLinkAsync(string path, string sourceId = "")
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
             await store.OpenBookmarkAsync(new DocumentItem
             {
-                Type = BookmarkType.File, NodeType = NodeType.Item, Path = path, Line = 1, Column = 1
+                Type = BookmarkType.File, NodeType = NodeType.Item, SourceId = sourceId ?? "",
+                Path = path, Line = 1, Column = 1
             });
             return true;
         }

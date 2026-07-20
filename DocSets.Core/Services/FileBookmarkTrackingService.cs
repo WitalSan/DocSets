@@ -23,12 +23,12 @@ namespace DocSets
     internal sealed class FileBookmarkTrackingService
     {
         private readonly AsyncPackage package;
-        private readonly Func<string, string> toFullPath;
+        private readonly Func<DocumentItem, string> toFullPath;
         private readonly Dictionary<DocumentItem, ViewEntry> entries = new Dictionary<DocumentItem, ViewEntry>();
         private readonly Dictionary<IWpfTextView, EventHandler<CaretPositionChangedEventArgs>> caretHandlers = new Dictionary<IWpfTextView, EventHandler<CaretPositionChangedEventArgs>>();
         private readonly Dictionary<IWpfTextView, EventHandler> closedHandlers = new Dictionary<IWpfTextView, EventHandler>();
 
-        public FileBookmarkTrackingService(AsyncPackage package, Func<string, string> toFullPath)
+        public FileBookmarkTrackingService(AsyncPackage package, Func<DocumentItem, string> toFullPath)
         {
             this.package = package ?? throw new ArgumentNullException(nameof(package));
             this.toFullPath = toFullPath ?? throw new ArgumentNullException(nameof(toFullPath));
@@ -208,7 +208,7 @@ namespace DocSets
             }
 
             var filePath = GetTextBufferPath(view.TextBuffer);
-            var itemFullPath = toFullPath(item.Path);
+            var itemFullPath = toFullPath(item);
             return PathsEqual(filePath, itemFullPath);
         }
 

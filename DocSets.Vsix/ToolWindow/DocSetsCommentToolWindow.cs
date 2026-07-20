@@ -13,7 +13,7 @@ namespace DocSets
 
         public DocSetsCommentToolWindow() : base(null)
         {
-            Caption = "DocSets Comment";
+            Caption = "DocSets Заметка";
             Content = new WindowsFormsHost { Child = control };
         }
 

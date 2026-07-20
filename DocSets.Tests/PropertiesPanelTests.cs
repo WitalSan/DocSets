@@ -37,7 +37,7 @@ namespace DocSets.Tests
                 Assert.NotNull(panel.GetPendingChangeDescription());
                 Assert.True(panel.ApplyToCurrentItem());
                 Assert.Equal("Renamed", item.Name);
-                Assert.Equal("new comment", item.Comment);
+                Assert.Equal("new comment", item.Content);
                 Assert.Equal(BookmarkType.File, item.Type);
                 Assert.Equal("new.cs", item.Path);
                 Assert.Equal(42, item.Line);
@@ -133,9 +133,9 @@ namespace DocSets.Tests
                 Assert.Equal("old comment", markdown.CommentText);
                 Assert.False(markdown.IsEditing);
                 Field<RichTextBox>(markdown, "editor").Text = "**new** [[A.B.Run]]";
-                Assert.Equal("old comment", item.Comment);
+                Assert.Equal("old comment", item.Content);
                 Assert.True(panel.ApplyToCurrentItem());
-                Assert.Equal("**new** [[A.B.Run]]", item.Comment);
+                Assert.Equal("**new** [[A.B.Run]]", item.Content);
                 Field<TextBox>(panel, "commentTextBox").Text = "classic edit";
                 panel.ApplySelectedContentTab("comment");
                 var markdown2 = Field<MarkdownCommentControl>(panel, "markdownComment2");
@@ -168,7 +168,7 @@ namespace DocSets.Tests
                 experimentalEditor.Text = "changed" + Environment.NewLine + Environment.NewLine;
                 Assert.Equal("changed", experimental.CommentText);
                 Assert.True(panel.ApplyToCurrentItem());
-                Assert.Equal("changed", item.Comment);
+                Assert.Equal("changed", item.Content);
             }
         }        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ContentTabsStayAvailableWithoutSelectedItem()
@@ -282,7 +282,7 @@ namespace DocSets.Tests
         {
             Name = "Item", NodeType = NodeType.Item, Type = BookmarkType.Symbol,
             Path = "old.cs", Symbol = "A.B", Project = "P", Line = 10, Column = 2,
-            Comment = "old comment", Color = BookmarkColor.Blue
+            Content = "old comment", Color = BookmarkColor.Blue
         };
     }
 }

@@ -32,6 +32,7 @@ namespace DocSets
         private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
         private readonly MarkdownCommentControl markdownComment2 = new MarkdownCommentControl(experimentalDragDrop: true);
         private readonly ToastCommentControl markdownComment3 = new ToastCommentControl();
+        private readonly DocSetsLogControl logControl = new DocSetsLogControl();
         private ExperimentalAccordionHost accordion;
         private ExperimentalAccordionSection commentSection;
         private ExperimentalAccordionSection codeSection;
@@ -83,6 +84,7 @@ namespace DocSets
             WireMarkdownComment(markdownComment2);
             WireMarkdownComment3();
             LoadItem(null);
+            DocSetsLog.Current.Info("Интерфейс", "Окно DocSets открыто.");
         }
 
         private void WireMarkdownComment(MarkdownCommentControl control)
@@ -145,7 +147,7 @@ namespace DocSets
         {
             get
             {
-                if (loading || item == null || multipleSelection || string.Equals(item.Comment ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) return false;
+                if (loading || item == null || multipleSelection || string.Equals(item.Content ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) return false;
                 var type = fileButton.Checked ? BookmarkType.File : symbolButton.Checked ? BookmarkType.Symbol : BookmarkType.Empty;
                 return string.Equals(item.Name ?? string.Empty, nameTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal) &&
                     item.NodeType == (folderCheckBox.Checked ? NodeType.Folder : NodeType.Item) && item.Type == type &&
@@ -176,7 +178,7 @@ namespace DocSets
         public void ShowCommentSearchResult(int start, int length, int occurrenceIndex)
         {
             ShowCommentTab();
-            var comment = item?.Comment ?? string.Empty;
+            var comment = item?.Content ?? string.Empty;
             if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
             markdownComment3.HighlightSearchMatch(visibleText, visibleOccurrence);
         }
@@ -228,12 +230,12 @@ namespace DocSets
                 projectTextBox.Text = value?.Project ?? string.Empty;
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
-                commentTextBox.Text = value?.Comment ?? string.Empty;
+                commentTextBox.Text = value?.Content ?? string.Empty;
                 if (!preserveMarkdownEdit)
                 {
-                    markdownComment.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
-                    markdownComment2.LoadComment(value?.Comment ?? string.Empty, resetToPreview: true);
-                    markdownComment3.LoadComment(value?.Comment ?? string.Empty);
+                    markdownComment.LoadComment(value?.Content ?? string.Empty, resetToPreview: true);
+                    markdownComment2.LoadComment(value?.Content ?? string.Empty, resetToPreview: true);
+                    markdownComment3.LoadComment(value?.Content ?? string.Empty);
                     markdownCommentDirty = false;
                     markdownComment3Dirty = false;
                     dirtyMarkdownComment = null;
@@ -287,7 +289,7 @@ namespace DocSets
             if (!string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal)) changes.Add("проект");
             if (item.Line != (int)lineBox.Value) changes.Add("строка");
             if (item.Column != (int)columnBox.Value) changes.Add("колонка");
-            if (!string.Equals(item.Comment ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) changes.Add("комментарий");
+            if (!string.Equals(item.Content ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) changes.Add("заметка");
             if (item.Color != selectedColor) changes.Add("цвет");
 
             if (changes.Count == 0) return null;
@@ -316,7 +318,7 @@ namespace DocSets
             if (item.Line != (int)lineBox.Value) { item.Line = (int)lineBox.Value; changed = true; }
             if (item.Column != (int)columnBox.Value) { item.Column = (int)columnBox.Value; changed = true; }
             var comment = CurrentCommentText;
-            changed |= Set(ref item, item.Comment, comment, (x, v) => x.Comment = v);
+            changed |= Set(ref item, item.Content, comment, (x, v) => x.Content = v);
             if (MarkdownEditPending)
             {
                 loading = true;
@@ -477,7 +479,7 @@ namespace DocSets
             openCommentWindowButton.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
             openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
             openCommentWindowButton.Margin = new Padding(0, 0, 3, 0);
-            toolTip.SetToolTip(openCommentWindowButton, "Открыть комментарий в отдельном окне");
+            toolTip.SetToolTip(openCommentWindowButton, "Открыть заметку в отдельном окне");
             openCommentWindowButton.Click += (_, __) => OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
             codeButtons.Controls.Add(copyCodeButton);
             codeRoot.Controls.Add(codeButtons, 0, 0);
@@ -502,7 +504,7 @@ namespace DocSets
             detailsHost.Dock = DockStyle.Fill;
             detailsHost.AutoScroll = true;
             detailsHost.Controls.Add(CreateDetailsLayout());
-            commentSection = new ExperimentalAccordionSection("comment", "Комментарий", commentHost, 130, false);
+            commentSection = new ExperimentalAccordionSection("comment", "Заметка", commentHost, 130, false);
             codeSection = new ExperimentalAccordionSection("code", "Код", codeRoot, 210, false);
             previewSection = new ExperimentalAccordionSection("preview", "Preview", livePreviewTextBox, 210, false);
             propertiesSection = new ExperimentalAccordionSection("properties", "Свойства", detailsHost, 180, false);
@@ -511,8 +513,9 @@ namespace DocSets
             dockWorkspace.Register("properties", "Свойства", detailsHost);
             dockWorkspace.Register("code", "Код", codeRoot);
             dockWorkspace.Register("preview", "Preview", livePreviewTextBox);
-            dockWorkspace.Register("comment2", "Комментарий-2", markdownComment2);
-            dockWorkspace.Register("comment3", "Комментарий-3", markdownComment3);
+            dockWorkspace.Register("comment2", "Заметка-2", markdownComment2);
+            dockWorkspace.Register("comment3", "Заметка", markdownComment3);
+            dockWorkspace.Register("log", "Лог", logControl, visibleByDefault: false);
             root.Controls.Add(dockWorkspace, 0, 2);
         }
 

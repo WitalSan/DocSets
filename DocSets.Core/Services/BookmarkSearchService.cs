@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 namespace DocSets
 {
     internal enum BookmarkSearchScope { CurrentGroup, AllGroups }
-    internal enum BookmarkSearchField { Name, Symbol, Path, Comment }
+    internal enum BookmarkSearchField { Name, Symbol, Path, Content }
 
     internal sealed class BookmarkSearchRequest
     {
@@ -14,7 +14,7 @@ namespace DocSets
         public BookmarkSearchScope Scope { get; set; } = BookmarkSearchScope.CurrentGroup;
         public bool SearchNames { get; set; } = true;
         public bool SearchSymbolsAndPaths { get; set; } = true;
-        public bool SearchComments { get; set; } = true;
+        public bool SearchContent { get; set; } = true;
         public bool MatchCase { get; set; }
         public bool MatchWholeWord { get; set; }
         public bool UseRegularExpressions { get; set; }
@@ -33,7 +33,7 @@ namespace DocSets
         public string Snippet { get; set; } = string.Empty;
         public string FieldName => Field == BookmarkSearchField.Name ? "Название" :
             Field == BookmarkSearchField.Symbol ? "Символ" :
-            Field == BookmarkSearchField.Path ? "Путь" : "Комментарий";
+            Field == BookmarkSearchField.Path ? "Путь" : "Заметка";
     }
 
     internal sealed class BookmarkSearchService
@@ -77,7 +77,7 @@ namespace DocSets
                         AddMatches(results, item, group, BookmarkSearchField.Symbol, item.Symbol, matcher, request.MaximumResults, treePath);
                         AddMatches(results, item, group, BookmarkSearchField.Path, item.Path, matcher, request.MaximumResults, treePath);
                     }
-                    if (request.SearchComments) AddMatches(results, item, group, BookmarkSearchField.Comment, item.Comment, matcher, request.MaximumResults, treePath);
+                    if (request.SearchContent) AddMatches(results, item, group, BookmarkSearchField.Content, item.Content, matcher, request.MaximumResults, treePath);
                     if (results.Count >= request.MaximumResults) return results;
                 }
             }
