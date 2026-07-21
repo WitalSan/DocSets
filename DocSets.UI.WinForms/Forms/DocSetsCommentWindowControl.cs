@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.Shell;
 using Newtonsoft.Json;
 using System;
 using System.Drawing;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -18,6 +19,10 @@ namespace DocSets
         private DocumentItem item;
         private bool dirty;
         private bool switching;
+        private long revision;
+        private readonly System.Windows.Forms.Timer idleSaveTimer =
+            new System.Windows.Forms.Timer { Interval = 3000 };
+        private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
 
         public DocSetsCommentWindowControl()
         {
@@ -49,9 +54,35 @@ namespace DocSets
                 if (followSelection.Checked && source != null)
                     await SwitchItemAsync(source.CurrentCommentItem);
             };
-            editor.CommentChanged += (_, __) => { if (!switching) dirty = true; };
+            idleSaveTimer.Tick += async (_, __) =>
+            {
+                idleSaveTimer.Stop();
+                await SaveAsync();
+            };
+            editor.CommentChanged += (_, __) =>
+            {
+                if (switching) return;
+                dirty = true;
+                revision++;
+                idleSaveTimer.Stop();
+                idleSaveTimer.Start();
+            };
             editor.EditingCompleted += async (_, __) => await SaveAsync();
             editor.LinkActivated += target => _ = ActivateLinkAsync(target);
+            editor.ImageInsertionRequested += async (data, mime, name, requestId) =>
+            {
+                if (viewModel == null) return;
+                try
+                {
+                    var bytes = Convert.FromBase64String(data);
+                    var assetReference = await viewModel.SaveImageAssetAsync(bytes, mime, name);
+                    editor.InsertImage(assetReference, name, requestId);
+                }
+                catch (Exception exception)
+                {
+                    title.Text = "Не удалось сохранить изображение: " + exception.Message;
+                }
+            };
             editor.ExternalSymbolDropRequested += async text =>
             {
                 if (viewModel == null) return;
@@ -77,6 +108,7 @@ namespace DocSets
                 if (source != null) source.CurrentCommentItemChanged += Source_CurrentCommentItemChanged;
             }
             viewModel = model;
+            editor.SetAssetDirectory(viewModel?.AssetDirectory);
             _ = SwitchItemAsync(selectedItem);
         }
 
@@ -109,17 +141,40 @@ namespace DocSets
             finally { switching = false; }
         }
 
-        private async Task SaveAsync()
+        private async Task SaveAsync(bool readEditor = true)
         {
-            if (!dirty || item == null || viewModel == null) return;
-            var value = editor.CommentText ?? string.Empty;
-            if (string.Equals(item.Content ?? string.Empty, value, StringComparison.Ordinal)) { dirty = false; return; }
-            viewModel.CaptureUndoState("Изменение комментария", new[] { item });
-            item.Content = value;
-            viewModel.MarkBookmarkModified(item);
-            dirty = false;
-            await viewModel.SaveAsync();
-            source?.RefreshCommentAfterExternalEdit(item);
+            idleSaveTimer.Stop();
+            await saveGate.WaitAsync();
+            try
+            {
+                var target = item;
+                if (target == null || viewModel == null || !dirty) return;
+                var savingRevision = revision;
+                // TOAST сохраняет собственную редактируемую версию. В модель передаём
+                // отдельный снимок, в котором data:image уже вынесены в assets.
+                var editorValue = readEditor
+                    ? await editor.GetCurrentCommentAsync()
+                    : editor.CommentText ?? string.Empty;
+                var value = await viewModel.NormalizeCommentAssetsAsync(editorValue);
+                if (!string.Equals(target.Content ?? string.Empty, value, StringComparison.Ordinal))
+                {
+                    viewModel.CaptureUndoState("Изменение заметки", new[] { target });
+                    target.Content = value;
+                    viewModel.MarkBookmarkModified(target);
+                    await viewModel.SaveAsync();
+                    source?.RefreshCommentAfterExternalEdit(target);
+                }
+                if (savingRevision == revision) dirty = false;
+            }
+            finally
+            {
+                saveGate.Release();
+                if (dirty && !IsDisposed)
+                {
+                    idleSaveTimer.Stop();
+                    idleSaveTimer.Start();
+                }
+            }
         }
 
         private async Task ActivateLinkAsync(string target)
@@ -144,8 +199,12 @@ namespace DocSets
             if (disposing)
             {
                 if (source != null) source.CurrentCommentItemChanged -= Source_CurrentCommentItemChanged;
-                if (dirty && viewModel != null) ThreadHelper.JoinableTaskFactory.Run(SaveAsync);
+                idleSaveTimer.Stop();
+                if (dirty && item != null && viewModel != null)
+                    ThreadHelper.JoinableTaskFactory.Run(() => SaveAsync(readEditor: false));
                 editor.Dispose();
+                idleSaveTimer.Dispose();
+                saveGate.Dispose();
                 toolTip.Dispose();
             }
             base.Dispose(disposing);

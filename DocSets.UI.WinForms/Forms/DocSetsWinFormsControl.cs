@@ -48,10 +48,12 @@ namespace DocSets
         private OverflowNodeTextBox _nameNode;
         private readonly SplitContainer _contentSplit = new SplitContainer();
         private readonly BookmarkPropertiesPanel _propertiesPanel = new BookmarkPropertiesPanel();
+        private readonly OptionalPropertiesPanelController _classicProperties;
         private readonly BookmarkPropertiesPanelExperimental _experimentalPropertiesPanel = new BookmarkPropertiesPanelExperimental();
         private readonly TabControl _propertiesTabs = new TabControl();
         private readonly System.Windows.Forms.Timer _propertiesSaveTimer = new System.Windows.Forms.Timer();
         private readonly System.Windows.Forms.Timer _experimentalPropertiesSaveTimer = new System.Windows.Forms.Timer();
+        private readonly SemaphoreSlim _commentSaveGate = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _previewCancellation;
         private CancellationTokenSource _experimentalPreviewCancellation;
         private readonly ToolStripButton _togglePropertiesButton = new ToolStripButton("Свойства");
@@ -106,6 +108,7 @@ namespace DocSets
         public DocSetsWinFormsControl(DocSetsViewModel viewModel)
         {
             this._viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            _classicProperties = new OptionalPropertiesPanelController(_propertiesPanel, this);
             layoutDpiAtLoad = _viewModel.Ui?.LayoutDpi ?? DpiService.DefaultDpi;
             BookmarkTreeNode.PinResolver = _viewModel.ResolvePin;
             BookmarkTreeNode.TagTextResolver = GetTagText;
@@ -1967,11 +1970,12 @@ namespace DocSets
             _propertiesSaveTimer.Tick += async (_, __) =>
             {
                 _propertiesSaveTimer.Stop();
-                var undoDescription = _propertiesPanel.GetPendingChangeDescription();
+                if (!_classicProperties.IsActive) return;
+                var undoDescription = _classicProperties.GetPendingChangeDescription();
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
-                if (_propertiesPanel.ApplyToCurrentItem())
+                if (_classicProperties.ApplyToCurrentItem())
                 {
-                    _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
+                    _viewModel.MarkBookmarkModified(_classicProperties.CurrentItem);
                     await _viewModel.SaveAsync();
                     RebuildTree();
                     RefreshStatus();
@@ -1979,11 +1983,13 @@ namespace DocSets
             };
             _propertiesPanel.ItemChanged += (_, __) =>
             {
+                if (!_classicProperties.IsActive) return;
                 _propertiesSaveTimer.Stop();
                 _propertiesSaveTimer.Start();
             };
             _propertiesPanel.ColorChanged += async (_, __) =>
             {
+                if (!_classicProperties.IsActive) return;
                 var targets = GetSelectedPropertyTargets(GetCurrentItem());
                 await _viewModel.SetColorAsync(targets, _propertiesPanel.SelectedColor);
                 _tree.Invalidate();
@@ -1992,6 +1998,7 @@ namespace DocSets
             };
             _propertiesPanel.PinChanged += async (_, __) =>
             {
+                if (!_classicProperties.IsActive) return;
                 var current = GetCurrentItem();
                 var targets = GetSelectedPropertyTargets(current);
                 if (targets.Count == 0) return;
@@ -2003,7 +2010,8 @@ namespace DocSets
             };
             _propertiesPanel.RefreshCodeRequested += async (_, __) =>
             {
-                var current = _propertiesPanel.CurrentItem ?? GetCurrentItem();
+                if (!_classicProperties.IsActive) return;
+                var current = _classicProperties.CurrentItem ?? GetCurrentItem();
                 if (current == null)
                 {
                     return;
@@ -2016,24 +2024,27 @@ namespace DocSets
             };
             _propertiesPanel.PreviewRequested += async (_, __) =>
             {
-                if (_propertiesVisible && _propertiesTabs.SelectedTab?.Controls.Contains(_propertiesPanel) == true)
+                if (_classicProperties.IsActive && _propertiesVisible &&
+                    _propertiesTabs.SelectedTab?.Controls.Contains(_propertiesPanel) == true)
                 {
                     await RefreshLivePreviewAsync();
                 }
             };
             _propertiesPanel.SymbolLinkClicked += async symbol =>
             {
-                var current = _propertiesPanel.CurrentItem ?? GetCurrentItem();
+                if (!_classicProperties.IsActive) return;
+                var current = _classicProperties.CurrentItem ?? GetCurrentItem();
                 await _viewModel.OpenSymbolAsync(current, symbol);
             };
             _propertiesPanel.Leave += async (_, __) =>
             {
+                if (!_classicProperties.IsActive) return;
                 _propertiesSaveTimer.Stop();
-                var undoDescription = _propertiesPanel.GetPendingChangeDescription();
+                var undoDescription = _classicProperties.GetPendingChangeDescription();
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
-                if (_propertiesPanel.ApplyToCurrentItem())
+                if (_classicProperties.ApplyToCurrentItem())
                 {
-                    _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
+                    _viewModel.MarkBookmarkModified(_classicProperties.CurrentItem);
                     await _viewModel.SaveAsync();
                     RebuildTree();
                     RefreshStatus();
@@ -2044,40 +2055,20 @@ namespace DocSets
             _experimentalPropertiesSaveTimer.Tick += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
-                var commentOnly = _experimentalPropertiesPanel.OnlyCommentChangePending;
-                var undoDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
-                if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
-                if (_experimentalPropertiesPanel.ApplyToCurrentItem())
-                {
-                    _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
-                    await _viewModel.SaveAsync();
-                    if (commentOnly) _tree.Invalidate();
-                    else RebuildTree();
-                    RefreshStatus();
-                }
-                _experimentalPropertiesSaveTimer.Interval = 500;
+                await SaveExperimentalPropertiesAsync();
             };
             _experimentalPropertiesPanel.ItemChanged += (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
-                if (_experimentalPropertiesPanel.MarkdownEditPending) return;
-                _experimentalPropertiesSaveTimer.Interval = 500;
+                _experimentalPropertiesSaveTimer.Interval =
+                    _experimentalPropertiesPanel.MarkdownEditPending ? 3000 : 500;
                 _experimentalPropertiesSaveTimer.Start();
             };
             _experimentalPropertiesPanel.MarkdownDropFocusRequested += (_, __) => CommentEditorFocusRequested?.Invoke(this, EventArgs.Empty);
             _experimentalPropertiesPanel.MarkdownEditingCompleted += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
-                var commentOnly = _experimentalPropertiesPanel.OnlyCommentChangePending;
-                var description = _experimentalPropertiesPanel.GetPendingChangeDescription();
-                if (description != null) _viewModel.CaptureUndoState(description);
-                if (_experimentalPropertiesPanel.ApplyToCurrentItem())
-                {
-                    _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
-                    await _viewModel.SaveAsync();
-                    if (commentOnly) _tree.Invalidate(); else RebuildTree();
-                    RefreshStatus();
-                }
+                await SaveExperimentalPropertiesAsync();
             };
             _experimentalPropertiesPanel.ColorChanged += async (_, __) =>
             {
@@ -2163,6 +2154,19 @@ namespace DocSets
                     SourceId = symbol.SourceId
                 }, position);
             };
+            _experimentalPropertiesPanel.ImageInsertionRequested += async (data, mime, name, requestId) =>
+            {
+                try
+                {
+                    var bytes = Convert.FromBase64String(data);
+                    var assetReference = await _viewModel.SaveImageAssetAsync(bytes, mime, name);
+                    _experimentalPropertiesPanel.InsertImageAsset(assetReference, name, requestId);
+                }
+                catch (Exception exception)
+                {
+                    _statusLabel.Text = "Не удалось сохранить изображение: " + exception.Message;
+                }
+            };
             _experimentalPropertiesPanel.Leave += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
@@ -2182,10 +2186,10 @@ namespace DocSets
                 _experimentalPropertiesSaveTimer.Stop();
 
                 var changed = false;
-                var classicDescription = _propertiesPanel.GetPendingChangeDescription();
+                var classicDescription = _classicProperties.GetPendingChangeDescription();
                 if (classicDescription != null) _viewModel.CaptureUndoState(classicDescription);
-                var classicChanged = _propertiesPanel.ApplyToCurrentItem();
-                if (classicChanged) _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
+                var classicChanged = _classicProperties.ApplyToCurrentItem();
+                if (classicChanged) _viewModel.MarkBookmarkModified(_classicProperties.CurrentItem);
                 changed |= classicChanged;
 
                 var experimentalDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
@@ -3017,20 +3021,19 @@ namespace DocSets
         }
         private void RefreshStatus() => _statusLabel.Text = _viewModel.StorageText ?? string.Empty;
 
-        private void SyncSelectionFromTree()
+        private async void SyncSelectionFromTree()
         {
             if (_refreshing) return;
 
-            var pendingPropertyChange = _propertiesPanel.GetPendingChangeDescription();
+            // До смены элемента фиксируем заметку прежнего элемента. Редактор остаётся
+            // доступным, а в модель попадает уже нормализованный Markdown.
+            await SaveExperimentalPropertiesAsync();
+
+            var pendingPropertyChange = _classicProperties.GetPendingChangeDescription();
             if (pendingPropertyChange != null) _viewModel.CaptureUndoState(pendingPropertyChange);
-            var classicChanged = _propertiesPanel.ApplyToCurrentItem();
-            if (classicChanged) _viewModel.MarkBookmarkModified(_propertiesPanel.CurrentItem);
+            var classicChanged = _classicProperties.ApplyToCurrentItem();
+            if (classicChanged) _viewModel.MarkBookmarkModified(_classicProperties.CurrentItem);
             var propertiesChanged = classicChanged;
-            var experimentalPendingPropertyChange = _experimentalPropertiesPanel.GetPendingChangeDescription();
-            if (experimentalPendingPropertyChange != null) _viewModel.CaptureUndoState(experimentalPendingPropertyChange);
-            var experimentalChanged = _experimentalPropertiesPanel.ApplyToCurrentItem();
-            if (experimentalChanged) _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
-            propertiesChanged |= experimentalChanged;
             if (propertiesChanged)
             {
                 _ = _viewModel.SaveAsync();
@@ -3059,6 +3062,77 @@ namespace DocSets
             LoadPropertiesPanel(items.FirstOrDefault());
         }
 
+        private async Task SaveExperimentalPropertiesAsync()
+        {
+            if (_disposingProperties) return;
+            await _commentSaveGate.WaitAsync();
+            try
+            {
+                var target = _experimentalPropertiesPanel.CurrentItem;
+                if (target == null) return;
+
+                var commentPending = _experimentalPropertiesPanel.MarkdownEditPending;
+                var commentOnly = _experimentalPropertiesPanel.OnlyCommentChangePending;
+                var revision = _experimentalPropertiesPanel.CommentRevision;
+                string normalizedComment = null;
+                if (commentPending)
+                {
+                    var editorComment = await _experimentalPropertiesPanel.GetCurrentCommentAsync();
+                    normalizedComment = await _viewModel.NormalizeCommentAssetsAsync(editorComment);
+                }
+
+                var description = _experimentalPropertiesPanel.GetPendingChangeDescription();
+                if (description != null)
+                    _viewModel.CaptureUndoState(description, new[] { target });
+
+                var changed = false;
+                if (ReferenceEquals(target, _experimentalPropertiesPanel.CurrentItem))
+                    changed = _experimentalPropertiesPanel.ApplyToCurrentItem();
+
+                if (commentPending)
+                    changed |= _experimentalPropertiesPanel.ApplyCommittedComment(
+                        target, revision, normalizedComment);
+
+                if (!changed)
+                {
+                    if (commentPending)
+                        _experimentalPropertiesPanel.AcceptCommittedComment(
+                            target, revision, normalizedComment);
+                    return;
+                }
+                _viewModel.MarkBookmarkModified(target);
+                await _viewModel.SaveAsync();
+                if (commentPending)
+                    _experimentalPropertiesPanel.AcceptCommittedComment(
+                        target, revision, normalizedComment);
+
+                if (commentOnly) _tree.Invalidate();
+                else RebuildTree();
+                RefreshStatus();
+
+                // Если пользователь продолжил ввод во время сохранения, текущая
+                // редакция остаётся dirty и получит собственный idle-commit.
+                if (_experimentalPropertiesPanel.MarkdownEditPending &&
+                    ReferenceEquals(target, _experimentalPropertiesPanel.CurrentItem))
+                {
+                    _experimentalPropertiesSaveTimer.Stop();
+                    _experimentalPropertiesSaveTimer.Interval = 3000;
+                    _experimentalPropertiesSaveTimer.Start();
+                }
+            }
+            catch (ObjectDisposedException) when (_disposingProperties)
+            {
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Заметки", "Не удалось сохранить заметку.", exception);
+            }
+            finally
+            {
+                _commentSaveGate.Release();
+            }
+        }
+
         private void LoadPropertiesPanel(DocumentItem item)
         {
             _propertiesSaveTimer.Stop();
@@ -3077,7 +3151,10 @@ namespace DocSets
                 commonColor = targets[0].Color;
             }
 
-            _propertiesPanel.LoadSelection(
+            // Виртуальный каталог изображений должен быть подключён до передачи
+            // Markdown в WebView, иначе первая загрузка asset-ссылок завершается ошибкой.
+            _experimentalPropertiesPanel.SetAssetDirectory(_viewModel.AssetDirectory);
+            _classicProperties.LoadSelection(
                 target,
                 selectedCount > 1,
                 allPinned,
@@ -3096,8 +3173,9 @@ namespace DocSets
 
         private async Task RefreshLivePreviewAsync()
         {
+            if (!_classicProperties.IsActive) return;
             if (_disposingProperties) return;
-            var current = _propertiesPanel.CurrentItem;
+            var current = _classicProperties.CurrentItem;
             CancelPreview(ref _previewCancellation);
             var cancellation = new CancellationTokenSource();
             _previewCancellation = cancellation;
@@ -3106,7 +3184,7 @@ namespace DocSets
             try
             {
                 var preview = await _viewModel.GetLivePreviewAsync(current, cancellation.Token);
-                if (!cancellation.IsCancellationRequested && ReferenceEquals(current, _propertiesPanel.CurrentItem))
+                if (!cancellation.IsCancellationRequested && ReferenceEquals(current, _classicProperties.CurrentItem))
                 {
                     _propertiesPanel.ShowLivePreview(preview);
                 }

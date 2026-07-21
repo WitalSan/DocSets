@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace DocSets
@@ -50,6 +51,8 @@ namespace DocSets
         private DocumentLink breadcrumbDragLink;
         private bool markdownCommentDirty;
         private bool markdownComment3Dirty;
+        private long commentRevision;
+        private string loadedCommentText = string.Empty;
         private MarkdownCommentControl dirtyMarkdownComment;
         private MarkdownCommentControl focusMarkdownComment;
         private MarkdownCommentControl pendingExternalDropComment;
@@ -65,6 +68,7 @@ namespace DocSets
         public event Action<string> SymbolLinkClicked;
         public event Action<DocumentLink> DocumentLinkActivated;
         public event Action<string, int> ExternalSymbolDropRequested;
+        public event Action<string, string, string, string> ImageInsertionRequested;
         public event EventHandler MarkdownEditingCompleted;
         public event EventHandler MarkdownDropFocusRequested;
 
@@ -78,7 +82,13 @@ namespace DocSets
             commentTextBox.TextChanged += Changed;
             commentTextBox.TextChanged += (_, __) =>
             {
-                if (!loading) { markdownCommentDirty = false; markdownComment3Dirty = false; dirtyMarkdownComment = null; }
+                if (!loading)
+                {
+                    loadedCommentText = commentTextBox.Text ?? string.Empty;
+                    markdownCommentDirty = false;
+                    markdownComment3Dirty = false;
+                    dirtyMarkdownComment = null;
+                }
             };
             WireMarkdownComment(markdownComment);
             WireMarkdownComment(markdownComment2);
@@ -92,6 +102,7 @@ namespace DocSets
             control.CommentChanged += (_, __) =>
             {
                 if (loading) return;
+                commentRevision++;
                 markdownComment3Dirty = false;
                 markdownCommentDirty = true;
                 dirtyMarkdownComment = control;
@@ -116,6 +127,7 @@ namespace DocSets
             markdownComment3.CommentChanged += (_, __) =>
             {
                 if (loading) return;
+                commentRevision++;
                 markdownCommentDirty = false;
                 markdownComment3Dirty = false;
                 dirtyMarkdownComment = null;
@@ -129,6 +141,8 @@ namespace DocSets
                 pendingToastDrop = true;
                 ExternalSymbolDropRequested?.Invoke(text, 0);
             };
+            markdownComment3.ImageInsertionRequested += (data, mime, name, requestId) =>
+                ImageInsertionRequested?.Invoke(data, mime, name, requestId);
         }
 
         private void ActivateToastLink(string target)
@@ -143,6 +157,34 @@ namespace DocSets
         public bool RequestedPinState => !loadedAllPinned;
         public BookmarkColor SelectedColor => selectedColor;
         public bool MarkdownEditPending => markdownCommentDirty || markdownComment3Dirty;
+        public long CommentRevision => commentRevision;
+
+        public Task<string> GetCurrentCommentAsync()
+        {
+            if (markdownComment3Dirty) return markdownComment3.GetCurrentCommentAsync();
+            return Task.FromResult(CurrentCommentText);
+        }
+
+        public void AcceptCommittedComment(DocumentItem committedItem, long committedRevision,
+            string normalizedComment)
+        {
+            if (!ReferenceEquals(item, committedItem) || commentRevision != committedRevision) return;
+            loadedCommentText = normalizedComment ?? string.Empty;
+            markdownCommentDirty = false;
+            markdownComment3Dirty = false;
+            dirtyMarkdownComment = null;
+        }
+
+        public bool ApplyCommittedComment(DocumentItem committedItem, long committedRevision,
+            string normalizedComment)
+        {
+            if (committedItem == null) return false;
+            var value = normalizedComment ?? string.Empty;
+            var changed = !string.Equals(committedItem.Content ?? string.Empty, value,
+                StringComparison.Ordinal);
+            if (changed) committedItem.Content = value;
+            return changed;
+        }
         public bool OnlyCommentChangePending
         {
             get
@@ -230,7 +272,12 @@ namespace DocSets
                 projectTextBox.Text = value?.Project ?? string.Empty;
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
-                commentTextBox.Text = value?.Content ?? string.Empty;
+                // Старый TextBox больше не показывается в докинге. Загрузка большого
+                // data:image в Win32 TextBox блокировала UI на десятки секунд.
+                loadedCommentText = value?.Content ?? string.Empty;
+                if (loadedCommentText.Length < 65536 ||
+                    loadedCommentText.IndexOf("data:image", StringComparison.OrdinalIgnoreCase) < 0)
+                    commentTextBox.Text = loadedCommentText;
                 if (!preserveMarkdownEdit)
                 {
                     markdownComment.LoadComment(value?.Content ?? string.Empty, resetToPreview: true);
@@ -317,17 +364,8 @@ namespace DocSets
             changed |= Set(ref item, item.Project, project, (x, v) => x.Project = v);
             if (item.Line != (int)lineBox.Value) { item.Line = (int)lineBox.Value; changed = true; }
             if (item.Column != (int)columnBox.Value) { item.Column = (int)columnBox.Value; changed = true; }
-            var comment = CurrentCommentText;
-            changed |= Set(ref item, item.Content, comment, (x, v) => x.Content = v);
-            if (MarkdownEditPending)
-            {
-                loading = true;
-                try { commentTextBox.Text = comment; }
-                finally { loading = false; }
-                markdownCommentDirty = false;
-                markdownComment3Dirty = false;
-                dirtyMarkdownComment = null;
-            }
+            // Содержимое заметки применяет отдельный асинхронный commit-контур.
+            // До присваивания модели он извлекает data:image в каталог assets.
             if (item.Color != selectedColor) { item.Color = selectedColor; changed = true; }
             return changed;
         }
@@ -536,7 +574,7 @@ namespace DocSets
             PerformLayout();
         }
         private string CurrentCommentText => markdownComment3Dirty ? markdownComment3.CommentText :
-            markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : commentTextBox.Text ?? string.Empty;
+            markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : loadedCommentText ?? string.Empty;
 
         private MarkdownCommentControl SelectedMarkdownComment =>
             string.Equals(dockWorkspace.SelectedPanelId, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : markdownComment;
@@ -549,6 +587,13 @@ namespace DocSets
                 (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
         }
         public void RequestMarkdownEditorFocus() => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
+
+        public void SetAssetDirectory(string path) => markdownComment3.SetAssetDirectory(path);
+
+        public void InsertImageAsset(string assetReference, string originalName, string requestId = "")
+            => markdownComment3.InsertImage(assetReference,
+                string.IsNullOrWhiteSpace(originalName) ? "Изображение" : Path.GetFileNameWithoutExtension(originalName),
+                requestId);
 
         public void InsertResolvedExternalSymbol(DocumentLink link, int position)
         {

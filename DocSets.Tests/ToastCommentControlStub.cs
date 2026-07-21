@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace DocSets
@@ -13,6 +14,7 @@ namespace DocSets
         public event EventHandler EditingCompleted;
         public event Action<string> LinkActivated;
         public event Action<string> ExternalSymbolDropRequested;
+        public event Action<string, string, string, string> ImageInsertionRequested;
 
         public ToastCommentControl()
         {
@@ -22,6 +24,7 @@ namespace DocSets
         }
 
         public string CommentText => editor.Text ?? string.Empty;
+        public Task<string> GetCurrentCommentAsync() => Task.FromResult(CommentText);
         public bool UsesVisualStudioMarkdownEditor => false;
 
         public void LoadComment(string value)
@@ -32,6 +35,8 @@ namespace DocSets
         }
 
         public void InsertResolvedLink(DocumentLink link) { }
+        public void InsertImage(string assetReference, string alternativeText, string requestId = "") { }
+        public void SetAssetDirectory(string value) { }
         public void HighlightSearchMatch(string value, int occurrenceIndex) { }
         public void FocusEditorFromHost() => editor.Focus();
     }

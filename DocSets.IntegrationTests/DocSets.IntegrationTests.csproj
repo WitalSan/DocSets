@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9</LangVersion>
+    <RootNamespace>DocSets.IntegrationTests</RootNamespace>
+    <AssemblyName>DocSets.IntegrationTests</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <VsIdeDir Condition="'$(DevEnvDir)' != ''">$(DevEnvDir)</VsIdeDir>
+    <VsIdeDir Condition="'$(VsIdeDir)' == ''">$(MSBuildToolsPath)\..\..\..\Common7\IDE\</VsIdeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework">
+      <HintPath>..\DocSets.Tests\lib\Microsoft.VisualStudio.QualityTools.UnitTestFramework.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>$(VsIdeDir)Extensions\Microsoft\Web Live Preview\Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.WinForms">
+      <HintPath>$(VsIdeDir)Extensions\Microsoft\Web Live Preview\Microsoft.Web.WebView2.WinForms.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Source\Model.cs" />
+    <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Source\DocSetStorageModels.cs" />
+    <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
+    <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
+    <Compile Include="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs" Link="Source\ToastCommentControl.cs" />
+    <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="$(VsIdeDir)Extensions\Microsoft\Web Live Preview\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

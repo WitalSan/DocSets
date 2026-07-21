@@ -1,5 +1,6 @@
-/.vs
+**/.vs
 **/bin
 **/obj
 /.dotnet_cli
+/DocSets.IntegrationTests/bin*
 **/.dotnet-home

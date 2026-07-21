@@ -29,13 +29,14 @@ namespace DocSets.Tests
                 var item = Bookmark();
                 panel.LoadItem(item);
                 Field<TextBox>(panel, "nameTextBox").Text = "Renamed";
-                Field<TextBox>(panel, "commentTextBox").Text = "new comment";
                 Field<RadioButton>(panel, "fileButton").Checked = true;
                 Field<TextBox>(panel, "pathTextBox").Text = "new.cs";
                 Field<NumericUpDown>(panel, "lineBox").Value = 42;
 
                 Assert.NotNull(panel.GetPendingChangeDescription());
                 Assert.True(panel.ApplyToCurrentItem());
+                Assert.True(panel.ApplyCommittedComment(item, panel.CommentRevision, "new comment"));
+                panel.AcceptCommittedComment(item, panel.CommentRevision, "new comment");
                 Assert.Equal("Renamed", item.Name);
                 Assert.Equal("new comment", item.Content);
                 Assert.Equal(BookmarkType.File, item.Type);
@@ -134,9 +135,13 @@ namespace DocSets.Tests
                 Assert.False(markdown.IsEditing);
                 Field<RichTextBox>(markdown, "editor").Text = "**new** [[A.B.Run]]";
                 Assert.Equal("old comment", item.Content);
-                Assert.True(panel.ApplyToCurrentItem());
+                Assert.False(panel.ApplyToCurrentItem());
+                Assert.True(panel.ApplyCommittedComment(item, panel.CommentRevision, markdown.CommentText));
+                panel.AcceptCommittedComment(item, panel.CommentRevision, markdown.CommentText);
                 Assert.Equal("**new** [[A.B.Run]]", item.Content);
-                Field<TextBox>(panel, "commentTextBox").Text = "classic edit";
+                panel.ApplyCommittedComment(item, panel.CommentRevision, "classic edit");
+                panel.AcceptCommittedComment(item, panel.CommentRevision, "classic edit");
+                panel.LoadItem(item);
                 panel.ApplySelectedContentTab("comment");
                 var markdown2 = Field<MarkdownCommentControl>(panel, "markdownComment2");
                 Assert.Equal("classic edit", markdown2.CommentText);
@@ -167,7 +172,9 @@ namespace DocSets.Tests
                 Assert.Equal("old comment", experimental.CommentText);
                 experimentalEditor.Text = "changed" + Environment.NewLine + Environment.NewLine;
                 Assert.Equal("changed", experimental.CommentText);
-                Assert.True(panel.ApplyToCurrentItem());
+                Assert.False(panel.ApplyToCurrentItem());
+                Assert.True(panel.ApplyCommittedComment(item, panel.CommentRevision, experimental.CommentText));
+                panel.AcceptCommittedComment(item, panel.CommentRevision, experimental.CommentText);
                 Assert.Equal("changed", item.Content);
             }
         }        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]

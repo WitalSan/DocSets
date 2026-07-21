@@ -101,7 +101,6 @@ namespace DocSets
             };
             state.Sets = await BuildTreeAsync(directoryPath, manifest.Items, cancellationToken).ConfigureAwait(false);
             logger.Info("Хранилище", "DocSet открыт: " + Path.GetFullPath(directoryPath));
-            new CodeSourceLocator(logger).LocateAll(directoryPath, manifest.Sources);
             return new DocSetDocument(directoryPath, manifest, state);
         }
 

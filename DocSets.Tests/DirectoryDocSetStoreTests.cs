@@ -293,6 +293,45 @@ namespace DocSets.Tests
             => new SourceReferenceContext { Sources = sources.ToList() };
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ImageAssetsUseContentHashDeduplicateAndRejectPathEscape()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "DocSets.Tests", Guid.NewGuid().ToString("N"), "Images.DocSets");
+            Directory.CreateDirectory(root);
+            try
+            {
+                var service = new AssetStorageService();
+                var bytes = new byte[] { 1, 2, 3, 4, 5 };
+                var first = service.SaveImageAsync(root, bytes, "image/png", "screen.png").GetAwaiter().GetResult();
+                var second = service.SaveImageAsync(root, bytes, "image/png", "other.png").GetAwaiter().GetResult();
+
+                Assert.Equal(first, second);
+                Assert.True(first.StartsWith("asset:images/"));
+                Assert.True(File.Exists(service.ResolveAssetPath(root, first)));
+                Assert.Equal(first, service.FindReferences("Текст ![image](" + first + ")")[0]);
+                Assert.True(bytes.SequenceEqual(service.Read(root, first)));
+                var embedded = "Текст ![image](data:image/png;base64," + Convert.ToBase64String(bytes) + ")";
+                var normalized = service.ImportEmbeddedImagesAsync(root, embedded).GetAwaiter().GetResult();
+                Assert.False(normalized.Contains("data:image"));
+                Assert.True(normalized.Contains(first));
+                var html = "<img src=\"data:image/png;base64," + Convert.ToBase64String(bytes) +
+                    "\" alt=\"Схема\" width=\"640\" height=\"480\">";
+                var normalizedHtml = service.ImportEmbeddedImagesAsync(root, html).GetAwaiter().GetResult();
+                Assert.Equal("<img src=\"" + first +
+                    "\" alt=\"Схема\" width=\"640\" height=\"480\">", normalizedHtml);
+                Assert.Equal(normalizedHtml,
+                    service.ImportEmbeddedImagesAsync(root, normalizedHtml).GetAwaiter().GetResult());
+                Assert.Throws<System.IO.InvalidDataException>(() =>
+                    service.ResolveAssetPath(root, "asset:../docsets.json"));
+            }
+            finally
+            {
+                var testDirectory = Directory.GetParent(root)?.FullName;
+                if (!string.IsNullOrWhiteSpace(testDirectory) && Directory.Exists(testDirectory))
+                    Directory.Delete(testDirectory, true);
+            }
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void DocumentRepositoryMapsManifestTreeContentAndSourcesToRuntimeAndBack()
         {
             WithTemporaryDocSet((store, directory) =>

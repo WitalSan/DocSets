@@ -33,6 +33,7 @@ namespace DocSets
         private string activeDocSetDirectory = "";
         private IReadOnlyList<CodeSourceStatus> sourceStatuses = Array.Empty<CodeSourceStatus>();
         private readonly CodeSourceLocator sourceLocator = new CodeSourceLocator();
+        private readonly AssetStorageService assetStorage = new AssetStorageService();
 
         public DocSetsStore(AsyncPackage package)
         {
@@ -51,11 +52,38 @@ namespace DocSets
         public bool IsSharedWorkspace => isSharedWorkspace;
 
         public string StateFilePath => stateFilePath;
+        public string AssetDirectory => string.IsNullOrWhiteSpace(activeDocSetDirectory)
+            ? "" : Path.Combine(activeDocSetDirectory, "assets");
 
         public string CurrentWorkspaceRelativePath => ToSolutionRelativePath(activeDocSetDirectory);
 
         internal SourceReferenceContext CurrentSourceContext
             => SourceReferenceContext.Create(sourceStatuses, sourceLocator);
+
+        public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
+        {
+            if (string.IsNullOrWhiteSpace(activeDocSetDirectory))
+                throw new InvalidOperationException("DocSet не открыт.");
+            return assetStorage.SaveImageAsync(activeDocSetDirectory, content, mimeType, originalName);
+        }
+
+        public Task<string> NormalizeCommentAssetsAsync(string markdown,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(activeDocSetDirectory))
+                throw new InvalidOperationException("DocSet не открыт.");
+            return assetStorage.ImportEmbeddedImagesAsync(
+                activeDocSetDirectory, markdown, cancellationToken);
+        }
+
+        internal IReadOnlyList<string> FindAssetReferences(string markdown)
+            => assetStorage.FindReferences(markdown);
+
+        internal byte[] ReadAsset(string assetReference)
+            => assetStorage.Read(activeDocSetDirectory, assetReference);
+
+        internal string GetAssetMimeType(string assetReference)
+            => assetStorage.GetMimeType(assetReference);
 
         public async Task<IReadOnlyList<WorkspaceInfo>> GetWorkspacesAsync()
         {
@@ -92,7 +120,7 @@ namespace DocSets
             return await OpenDocSetCoreAsync(fullPath, true);
         }
 
-        public async Task<DocumentSetsState> LoadAsync()
+        public async Task<DocumentSetsState> LoadAsync(bool forceReload = false)
         {
             if (!await EnsureInitializedAsync())
             {
@@ -100,6 +128,14 @@ namespace DocSets
             }
 
             if (string.IsNullOrWhiteSpace(activeDocSetDirectory)) return null;
+
+            // Восстановление рабочего пространства и команды открытия уже загрузили
+            // документ в OpenDocSetCoreAsync. Повторно читаем его только при обнаружении
+            // внешнего изменения на диске.
+            if (currentDocument != null && !forceReload)
+            {
+                return currentDocument.State;
+            }
 
             try
             {
@@ -140,6 +176,7 @@ namespace DocSets
             await saveGate.WaitAsync();
             try
             {
+                await NormalizeEmbeddedImagesAsync(state);
                 var stateJson = SerializeState(state);
                 if (string.Equals(stateJson, lastSavedStateJson, StringComparison.Ordinal))
                 {
@@ -369,6 +406,8 @@ namespace DocSets
         {
             var fullPath = Path.GetFullPath(directoryPath);
             var document = await documentRepository.OpenAsync(fullPath);
+            if (await NormalizeEmbeddedImagesAsync(document.State, fullPath))
+                await documentRepository.SaveAsync(document);
             currentDocument = document;
             ConfigureActiveDocument(document);
             lastSavedStateJson = SerializeState(document.State);
@@ -376,6 +415,35 @@ namespace DocSets
             if (saveWorkspace) await workspaceStore.SaveAsync(workspaceLocation, workspaceManager.Workspace);
             RememberCurrentFileStamp();
             return true;
+        }
+
+        private async Task<bool> NormalizeEmbeddedImagesAsync(DocumentSetsState documentState,
+            string docSetDirectory = null)
+        {
+            if (documentState == null) return false;
+            var directory = string.IsNullOrWhiteSpace(docSetDirectory)
+                ? activeDocSetDirectory : docSetDirectory;
+            if (string.IsNullOrWhiteSpace(directory)) return false;
+
+            var changed = false;
+            foreach (var item in EnumerateItems(documentState.Sets))
+            {
+                var normalized = await assetStorage.ImportEmbeddedImagesAsync(directory, item.Content);
+                if (string.Equals(item.Content ?? string.Empty, normalized, StringComparison.Ordinal)) continue;
+                item.Content = normalized;
+                changed = true;
+            }
+            return changed;
+        }
+
+        private static IEnumerable<DocumentItem> EnumerateItems(IEnumerable<DocumentItem> items)
+        {
+            foreach (var item in items ?? Enumerable.Empty<DocumentItem>())
+            {
+                if (item == null) continue;
+                yield return item;
+                foreach (var child in EnumerateItems(item.Children)) yield return child;
+            }
         }
 
         private void ConfigureActiveDocument(DocSetDocument document)

@@ -5,6 +5,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Drawing;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
@@ -22,29 +23,66 @@ namespace DocSets
             Text = "Инициализация TOAST UI Editor…"
         };
         private const string InternalLinkPrefix = "https://docsets.local/";
+        private const string AssetHostPrefix = "https://docsets.assets/";
         private static readonly Regex StoredDocSetsLink = new Regex(@"\]\((?<kind>symbol|bookmark|file):(?<target>[^\)]+)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex EditorDocSetsLink = new Regex(@"\]\(https://docsets\.local/(?<kind>symbol|bookmark|file)/(?<target>[^\)]+)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private bool ready;
         private bool loading;
         private bool editing;
+        private bool initializing;
         private string text = string.Empty;
+        private string assetDirectory = string.Empty;
+        private readonly string webViewUserDataFolder;
 
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
         public event Action<string> LinkActivated;
         public event Action<string> ExternalSymbolDropRequested;
+        public event Action<string, string, string, string> ImageInsertionRequested;
 
-        public ToastCommentControl()
+        public ToastCommentControl(string userDataFolder = null)
         {
+            webViewUserDataFolder = userDataFolder;
             Dock = DockStyle.Fill;
             Controls.Add(webView);
             Controls.Add(status);
             status.BringToFront();
-            _ = InitializeAsync();
+            HandleCreated += OnHandleCreated;
+        }
+
+        private async void OnHandleCreated(object sender, EventArgs e)
+        {
+            if (ready || initializing || IsDisposed) return;
+            initializing = true;
+            try { await InitializeAsync(); }
+            finally { initializing = false; }
         }
 
         public string CommentText => text ?? string.Empty;
         public bool IsReady => ready;
+
+        public async Task<string> GetCurrentCommentAsync()
+        {
+            if (!ready || webView.CoreWebView2 == null) return CommentText;
+            try
+            {
+                var json = await webView.ExecuteScriptAsync(
+                    "window.docsetsEditor ? window.docsetsEditor.getMarkdown() : ''");
+                var current = JsonConvert.DeserializeObject<string>(json) ?? string.Empty;
+                text = FromEditorMarkdown(current);
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Заметки", "Не удалось получить текст из редактора.", exception);
+            }
+            return CommentText;
+        }
+
+        public void SetAssetDirectory(string value)
+        {
+            assetDirectory = value ?? "";
+            ApplyAssetMapping();
+        }
 
         public void LoadComment(string value)
         {
@@ -60,7 +98,29 @@ namespace DocSets
             if (link == null || !ready) return;
             var markdown = DocumentLinkService.ToMarkdown(link);
             if (string.IsNullOrWhiteSpace(markdown)) return;
-            _ = webView.ExecuteScriptAsync("window.docsetsInsertDropped(" + JsonConvert.SerializeObject(markdown) + ")");
+            _ = webView.ExecuteScriptAsync("window.docsetsInsertDropped(" +
+                JsonConvert.SerializeObject(ToEditorMarkdown(markdown)) + ")");
+            FocusEditorFromHost();
+        }
+
+        public void InsertImage(string assetReference, string alternativeText, string requestId = "")
+        {
+            if (!ready || string.IsNullOrWhiteSpace(assetReference)) return;
+            var alt = string.IsNullOrWhiteSpace(alternativeText) ? "Изображение" : alternativeText.Trim();
+            if (!string.IsNullOrWhiteSpace(requestId))
+            {
+                var editorUrl = ToEditorMarkdown("![](" + assetReference + ")");
+                var start = editorUrl.IndexOf('(') + 1;
+                var url = editorUrl.Substring(start, editorUrl.Length - start - 1);
+                _ = webView.ExecuteScriptAsync("window.docsetsCompleteImage(" +
+                    JsonConvert.SerializeObject(requestId) + "," + JsonConvert.SerializeObject(url) + "," +
+                    JsonConvert.SerializeObject(alt) + ")");
+                FocusEditorFromHost();
+                return;
+            }
+            var markdown = "![" + alt.Replace("[", "").Replace("]", "") + "](" + assetReference + ")";
+            _ = webView.ExecuteScriptAsync("window.docsetsInsertDropped(" +
+                JsonConvert.SerializeObject(ToEditorMarkdown(markdown)) + ")");
             FocusEditorFromHost();
         }
 
@@ -79,17 +139,45 @@ namespace DocSets
             if (ready) _ = webView.ExecuteScriptAsync("window.docsetsEditor && window.docsetsEditor.focus()");
         }
 
+        internal async Task SelectAllAndCopyAsync()
+        {
+            if (!ready || webView.CoreWebView2 == null) return;
+            const string script = @"(function(){
+const mode=window.docsetsEditor&&window.docsetsEditor.getCurrentModeEditor();const view=mode&&mode.view;
+if(!view)return false;const end=view.state.doc.content.size;
+view.dispatch(view.state.tr.setSelection(view.state.selection.constructor.create(view.state.doc,0,end)));
+view.focus();return document.execCommand('copy');})()";
+            await webView.ExecuteScriptAsync(script);
+        }
+
+        internal async Task PasteFromClipboardAsync()
+        {
+            if (!ready || webView.CoreWebView2 == null) return;
+            var html = Clipboard.ContainsData(DataFormats.Html)
+                ? ExtractClipboardFragment(Clipboard.GetData(DataFormats.Html) as string)
+                : string.Empty;
+            var plainText = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
+            await webView.ExecuteScriptAsync("window.docsetsPasteHtml(" +
+                JsonConvert.SerializeObject(html) + "," +
+                JsonConvert.SerializeObject(plainText) + ")");
+        }
+
         private async Task InitializeAsync()
         {
             try
             {
-                var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DocSets", "WebView2");
+                var userDataFolder = string.IsNullOrWhiteSpace(webViewUserDataFolder)
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DocSets", "WebView2")
+                    : webViewUserDataFolder;
                 Directory.CreateDirectory(userDataFolder);
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
                 await webView.EnsureCoreWebView2Async(environment);
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                webView.CoreWebView2.AddWebResourceRequestedFilter(
+                    AssetHostPrefix + "*", CoreWebView2WebResourceContext.All);
+                webView.CoreWebView2.WebResourceRequested += OnAssetResourceRequested;
                 webView.CoreWebView2.NavigationCompleted += (_, e) =>
                 {
                     if (!e.IsSuccess) ShowError("Не удалось загрузить TOAST UI Editor: " + e.WebErrorStatus);
@@ -146,21 +234,187 @@ namespace DocSets
                     var droppedText = (string)message["text"];
                     if (!string.IsNullOrWhiteSpace(droppedText)) ExternalSymbolDropRequested?.Invoke(droppedText.Trim());
                     break;
+                case "image":
+                    var data = (string)message["data"] ?? "";
+                    var mime = (string)message["mime"] ?? "";
+                    var name = (string)message["name"] ?? "";
+                    var requestId = (string)message["requestId"] ?? "";
+                    if (!string.IsNullOrWhiteSpace(data)) ImageInsertionRequested?.Invoke(data, mime, name, requestId);
+                    break;
+                case "copyImage":
+                    CopyAssetImageToClipboard((string)message["source"]);
+                    break;
+                case "copyContent":
+                    CopyContentToClipboard((string)message["html"], (string)message["text"]);
+                    break;
+            }
+        }
+
+        private void ApplyAssetMapping()
+        {
+            if (string.IsNullOrWhiteSpace(assetDirectory)) return;
+            Directory.CreateDirectory(assetDirectory);
+        }
+
+        private void OnAssetResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+        {
+            if (webView.CoreWebView2 == null) return;
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(assetDirectory) ||
+                    !Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri) ||
+                    !string.Equals(uri.Host, "docsets.assets", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Response = CreateAssetResponse(null, 404, "Not Found", "text/plain");
+                    return;
+                }
+
+                if (!TryResolveAssetPath(uri, out var fullPath))
+                {
+                    e.Response = CreateAssetResponse(null, 404, "Not Found", "text/plain");
+                    return;
+                }
+
+                // WebView2 читает Response уже после выхода из обработчика. Передача
+                // FileStream через COM иногда ждёт тайм-аут 10–20 секунд. Ресурсы заметок
+                // небольшие, поэтому отдаём независимый буфер в памяти.
+                var stream = new MemoryStream(File.ReadAllBytes(fullPath), writable: false);
+                e.Response = CreateAssetResponse(stream, 200, "OK", GetImageMimeType(fullPath));
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Изображения", "Не удалось загрузить изображение заметки.", exception);
+                e.Response = CreateAssetResponse(null, 500, "Internal Server Error", "text/plain");
+            }
+        }
+
+        private CoreWebView2WebResourceResponse CreateAssetResponse(
+            Stream content, int statusCode, string reasonPhrase, string mimeType)
+        {
+            return webView.CoreWebView2.Environment.CreateWebResourceResponse(
+                content ?? new MemoryStream(Array.Empty<byte>()), statusCode, reasonPhrase,
+                "Content-Type: " + mimeType +
+                "\r\nCache-Control: public, max-age=3600\r\nAccess-Control-Allow-Origin: *");
+        }
+
+        private bool TryResolveAssetPath(Uri uri, out string fullPath)
+        {
+            fullPath = "";
+            if (uri == null || string.IsNullOrWhiteSpace(assetDirectory) ||
+                !string.Equals(uri.Host, "docsets.assets", StringComparison.OrdinalIgnoreCase)) return false;
+
+            var relativePath = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'))
+                .Replace('/', Path.DirectorySeparatorChar);
+            var root = Path.GetFullPath(assetDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
+            return fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath);
+        }
+
+        private void CopyAssetImageToClipboard(string source)
+        {
+            try
+            {
+                if (!Uri.TryCreate(source, UriKind.Absolute, out var uri) ||
+                    !TryResolveAssetPath(uri, out var fullPath)) return;
+
+                using (var image = Image.FromFile(fullPath))
+                using (var bitmap = new Bitmap(image))
+                    Clipboard.SetImage(bitmap);
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Изображения", "Не удалось скопировать изображение заметки.", exception);
+            }
+        }
+
+        private void CopyContentToClipboard(string html, string plainText)
+        {
+            try
+            {
+                var fragment = Regex.Replace(html ?? string.Empty,
+                    "(?<prefix>\\bsrc\\s*=\\s*['\"])(?<url>https://docsets\\.assets/[^'\"]+)(?<suffix>['\"])",
+                    match =>
+                    {
+                        if (!Uri.TryCreate(match.Groups["url"].Value, UriKind.Absolute, out var uri) ||
+                            !TryResolveAssetPath(uri, out var fullPath)) return match.Value;
+                        return match.Groups["prefix"].Value + new Uri(fullPath).AbsoluteUri +
+                            match.Groups["suffix"].Value;
+                    }, RegexOptions.IgnoreCase);
+
+                var data = new DataObject();
+                data.SetData(DataFormats.UnicodeText, plainText ?? string.Empty);
+                data.SetData(DataFormats.Text, plainText ?? string.Empty);
+                data.SetData(DataFormats.Html, BuildClipboardHtml(fragment));
+                Clipboard.SetDataObject(data, true);
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Изображения",
+                    "Не удалось скопировать заметку с изображениями.", exception);
+            }
+        }
+
+        internal static string BuildClipboardHtml(string fragment)
+        {
+            const string headerTemplate =
+                "Version:0.9\r\nStartHTML:{0:D10}\r\nEndHTML:{1:D10}\r\n" +
+                "StartFragment:{2:D10}\r\nEndFragment:{3:D10}\r\n";
+            const string fragmentStart = "<!--StartFragment-->";
+            const string fragmentEnd = "<!--EndFragment-->";
+            var body = "<html><body>" + fragmentStart + (fragment ?? string.Empty) +
+                fragmentEnd + "</body></html>";
+            var emptyHeader = string.Format(headerTemplate, 0, 0, 0, 0);
+            var startHtml = Encoding.UTF8.GetByteCount(emptyHeader);
+            var startFragment = startHtml + Encoding.UTF8.GetByteCount("<html><body>" + fragmentStart);
+            var endFragment = startFragment + Encoding.UTF8.GetByteCount(fragment ?? string.Empty);
+            var endHtml = startHtml + Encoding.UTF8.GetByteCount(body);
+            return string.Format(headerTemplate, startHtml, endHtml, startFragment, endFragment) + body;
+        }
+
+        internal static string ExtractClipboardFragment(string html)
+        {
+            var value = html ?? string.Empty;
+            const string start = "<!--StartFragment-->";
+            const string end = "<!--EndFragment-->";
+            var startIndex = value.IndexOf(start, StringComparison.OrdinalIgnoreCase);
+            var endIndex = value.IndexOf(end, StringComparison.OrdinalIgnoreCase);
+            return startIndex >= 0 && endIndex >= startIndex
+                ? value.Substring(startIndex + start.Length, endIndex - startIndex - start.Length)
+                : value;
+        }
+
+        private static string GetImageMimeType(string path)
+        {
+            switch (Path.GetExtension(path).ToLowerInvariant())
+            {
+                case ".png": return "image/png";
+                case ".jpg":
+                case ".jpeg": return "image/jpeg";
+                case ".gif": return "image/gif";
+                case ".webp": return "image/webp";
+                default: return "application/octet-stream";
             }
         }
 
         private static string ToEditorMarkdown(string markdown)
         {
-            return StoredDocSetsLink.Replace(markdown ?? string.Empty, match =>
+            var converted = StoredDocSetsLink.Replace(markdown ?? string.Empty, match =>
                 "](" + InternalLinkPrefix + match.Groups["kind"].Value.ToLowerInvariant() + "/" +
                 Uri.EscapeDataString(match.Groups["target"].Value) + ")");
+            return Regex.Replace(converted, @"\]\(asset:(?<path>[^\)]+)\)",
+                match => "](" + AssetHostPrefix + match.Groups["path"].Value.TrimStart('/') + ")",
+                RegexOptions.IgnoreCase);
         }
 
         private static string FromEditorMarkdown(string markdown)
         {
-            return EditorDocSetsLink.Replace(markdown ?? string.Empty, match =>
+            var converted = EditorDocSetsLink.Replace(markdown ?? string.Empty, match =>
                 "](" + match.Groups["kind"].Value.ToLowerInvariant() + ":" +
                 Uri.UnescapeDataString(match.Groups["target"].Value) + ")");
+            return Regex.Replace(converted, @"\]\(https://docsets\.assets/(?<path>[^\)]+)\)",
+                match => "](asset:" + match.Groups["path"].Value + ")", RegexOptions.IgnoreCase);
         }
 
         private static string FromEditorLink(string target)
@@ -187,9 +441,16 @@ namespace DocSets
         {
             if (disposing)
             {
-                if (editing) EditingCompleted?.Invoke(this, EventArgs.Empty);
+                HandleCreated -= OnHandleCreated;
+                // Владельцы редактора сохраняют кешированное содержимое до Dispose.
+                // Здесь нельзя запускать обработчики, способные обратиться к уже
+                // завершающему работу WebView2: Visual Studio будет ждать UI-поток.
+                editing = false;
                 if (webView.CoreWebView2 != null)
+                {
                     webView.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+                    webView.CoreWebView2.WebResourceRequested -= OnAssetResourceRequested;
+                }
                 webView.Dispose();
                 status.Dispose();
             }
@@ -223,8 +484,10 @@ html,body,#editor{height:100%;margin:0;overflow:hidden} body{font-family:Segoe U
 <script src='https://uicdn.toast.com/editor-plugin-code-syntax-highlight/latest/toastui-editor-plugin-code-syntax-highlight-all.min.js'></script>
 <script>
 const send=o=>window.chrome.webview.postMessage(o); let changeTimer, settingMarkdown=false;
+const pendingImageCallbacks=new Map();let imageRequestCounter=0;
 const plugin=toastui.Editor.plugin.codeSyntaxHighlight;
-window.docsetsEditor=new toastui.Editor({el:document.querySelector('#editor'),height:'100%',initialEditType:'wysiwyg',previewStyle:'vertical',usageStatistics:false,plugins:[[plugin,{highlighter:Prism}]],toolbarItems:[['heading','bold','italic','strike'],['hr','quote'],['ul','ol','task'],['table','link'],['code','codeblock']]});
+window.docsetsEditor=new toastui.Editor({el:document.querySelector('#editor'),height:'100%',initialEditType:'wysiwyg',previewStyle:'vertical',usageStatistics:false,plugins:[[plugin,{highlighter:Prism}]],hooks:{addImageBlobHook:(blob,callback)=>sendImage(blob,callback)},toolbarItems:[['heading','bold','italic','strike'],['hr','quote'],['ul','ol','task'],['table','link'],['code','codeblock']]});
+window.docsetsCompleteImage=(requestId,url,alt)=>{const callback=pendingImageCallbacks.get(requestId);if(!callback)return;pendingImageCallbacks.delete(requestId);callback(url,alt||'Изображение')};
 let lastEditorHeight=0;const resizeEditor=()=>{const h=Math.max(120,document.documentElement.clientHeight);if(h===lastEditorHeight)return;lastEditorHeight=h;window.docsetsEditor.setHeight(h+'px')};window.addEventListener('resize',resizeEditor);new ResizeObserver(resizeEditor).observe(document.documentElement);requestAnimationFrame(resizeEditor);
 window.docsetsSetMarkdown=value=>{value=value||'';if(window.docsetsEditor.getMarkdown()===value)return;settingMarkdown=true;try{window.docsetsEditor.setMarkdown(value,false)}finally{settingMarkdown=false}};
 window.docsetsEditor.on('change',()=>{if(settingMarkdown)return;clearTimeout(changeTimer);changeTimer=setTimeout(()=>{if(!settingMarkdown)send({type:'change',markdown:window.docsetsEditor.getMarkdown()})},200)});
@@ -256,6 +519,51 @@ function placeCaret(e){
   if(!range)return; const selection=window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
 }
 document.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';placeCaret(e);window.docsetsEditor.focus()},true);
+function isImageFile(file){return !!file&&(/^image\//i.test(file.type||'')||/\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name||''))}
+function sendImage(file,callback){
+  if(!isImageFile(file))return false;
+  const requestId=callback?'image-'+(++imageRequestCounter):'';if(callback)pendingImageCallbacks.set(requestId,callback);
+  const transmit=(blob,name,mime)=>{const reader=new FileReader();reader.onload=()=>{const value=String(reader.result||''),comma=value.indexOf(',');if(comma>=0)send({type:'image',requestId,name:name||'image.png',mime:mime||'image/png',data:value.substring(comma+1)})};reader.readAsDataURL(blob)};
+  if(/^image\/(png|jpeg|gif|webp)$/i.test(file.type||'')){transmit(file,file.name,file.type);return true}
+  createImageBitmap(file).then(bitmap=>{const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close();canvas.toBlob(blob=>{if(blob)transmit(blob,(file.name||'image').replace(/\.[^.]+$/,'')+'.png','image/png')},'image/png')}).catch(()=>{});return true;
+}
+document.addEventListener('copy',e=>{
+  const selection=window.getSelection();if(!selection||selection.rangeCount===0||selection.isCollapsed)return;
+  const container=document.createElement('div');container.appendChild(selection.getRangeAt(0).cloneContents());
+  for(const image of Array.from(container.querySelectorAll('img'))){
+    if(!/^https:\/\/docsets\.assets\//i.test(image.getAttribute('src')||''))image.remove();
+  }
+  const images=Array.from(container.querySelectorAll('img'));
+  if(!images.length)return;
+  if(images.length===1&&!container.textContent.trim()){
+    e.preventDefault();e.stopPropagation();send({type:'copyImage',source:images[0].getAttribute('src')});return;
+  }
+  for(const element of container.querySelectorAll('*'))for(const attribute of Array.from(element.attributes)){
+    const name=attribute.name.toLowerCase(),keep=(element.tagName==='IMG'&&(name==='src'||name==='alt'||name==='width'||name==='height'))||(element.tagName==='A'&&name==='href');if(!keep)element.removeAttribute(attribute.name)
+  }
+  e.preventDefault();e.stopPropagation();send({type:'copyContent',html:container.innerHTML,text:selection.toString()||images.map(x=>x.getAttribute('alt')||'Изображение').join('\n')});
+},true);
+let redispatchingDocSetsPaste=false;
+window.docsetsPasteHtml=(html,text)=>{
+  html=html||'';
+  const converted=html.replace(/file:\/\/\/[^\x22'<>]*\/assets\/(?<path>images\/[^\x22'<>\s]+)/gi,
+    (match,path)=>'https://docsets.assets/'+path);
+  const transfer=new DataTransfer();transfer.setData('text/html',converted);transfer.setData('text/plain',text||'');
+  const active=document.activeElement;
+  const target=(active&&active.closest&&active.closest('.toastui-editor-ww-container'))?active:
+    (document.querySelector('.toastui-editor-ww-container .ProseMirror')||document.querySelector('.toastui-editor-ww-container'));
+  redispatchingDocSetsPaste=true;
+  try{return target&&target.dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}))}
+  finally{redispatchingDocSetsPaste=false}
+};
+document.addEventListener('paste',e=>{
+  if(redispatchingDocSetsPaste)return;
+  const data=e.clipboardData;if(!data)return;
+  const html=data.getData('text/html')||'';
+  if(!/file:\/\/\/[^\x22'<>]*\/assets\/images\//i.test(html))return;
+  e.preventDefault();e.stopImmediatePropagation();
+  window.docsetsPasteHtml(html,data.getData('text/plain')||'');
+},true);
 function safeEditorLink(target){const m=/^(symbol|bookmark|file):([\s\S]+)$/i.exec(target);return m?'https://docsets.local/'+m[1].toLowerCase()+'/'+encodeURIComponent(m[2]):target}
 function needsDropSpace(){
   try{
@@ -322,7 +630,7 @@ function insertDroppedValue(value){
     tr=tr.setSelection(state.selection.constructor.create(tr.doc,start,end)); view.dispatch(tr); view.focus();
   }catch{window.docsetsEditor.insertText(prefix+value)}
 }
-document.addEventListener('drop',e=>{e.preventDefault();placeCaret(e);window.docsetsEditor.focus();let value=e.dataTransfer.getData('text/plain')||e.dataTransfer.getData('text')||'';if(!value&&e.dataTransfer.files&&e.dataTransfer.files.length)value=Array.from(e.dataTransfer.files).map(f=>f.name).join('\n');if(value){const isLink=/^\[[^\]]+\]\(([\s\S]+)\)\s*$/.test(value.trim());if(isLink)insertDroppedValue(value);else send({type:'externalDrop',text:value})}},true);
+document.addEventListener('drop',e=>{e.preventDefault();placeCaret(e);window.docsetsEditor.focus();const files=Array.from(e.dataTransfer.files||[]);const image=files.find(isImageFile);if(image&&sendImage(image))return;let value=e.dataTransfer.getData('text/plain')||e.dataTransfer.getData('text')||'';if(!value&&files.length)value=files.map(f=>f.name).join('\n');if(value){const isLink=/^\[[^\]]+\]\(([\s\S]+)\)\s*$/.test(value.trim());if(isLink)insertDroppedValue(value);else send({type:'externalDrop',text:value})}},true);
 send({type:'ready'});
 </script></body></html>";
     }

@@ -30,6 +30,7 @@
     <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
     <Compile Include="..\DocSets.Core\Services\CodeSourceLocator.cs" Link="Source\CodeSourceLocator.cs" />
     <Compile Include="..\DocSets.Core\Services\SourceReferenceService.cs" Link="Source\SourceReferenceService.cs" />
+    <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
     <Compile Include="..\DocSets.Import\LegacyDocSetConverter.cs" Link="Source\LegacyDocSetConverter.cs" />
     <Compile Include="..\DocSets.Core\Services\BookmarkSearchService.cs" Link="Source\BookmarkSearchService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />

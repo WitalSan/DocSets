@@ -87,6 +87,7 @@
     </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocumentLinks.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\NativeFolderDialog.cs" />
+    <Compile Include="DocSets.UI.WinForms\Forms\OptionalPropertiesPanelController.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\PromptDialog.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\TagManagerDialog.cs">
       <SubType>Form</SubType>

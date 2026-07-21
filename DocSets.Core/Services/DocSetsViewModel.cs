@@ -113,6 +113,14 @@ namespace DocSets
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
         public string SolutionDirectory => store.SolutionDirectory;
+        public string AssetDirectory => store.AssetDirectory;
+
+        public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
+            => store.SaveImageAssetAsync(content, mimeType, originalName);
+
+        public Task<string> NormalizeCommentAssetsAsync(string markdown,
+            CancellationToken cancellationToken = default)
+            => store.NormalizeCommentAssetsAsync(markdown, cancellationToken);
 
         public WorkspaceInfo SelectedWorkspace
         {
@@ -362,7 +370,7 @@ namespace DocSets
             {
                 var preferredSetName = SelectedSet?.Name;
                 var selectedNodePath = BuildNodeIndexPath(SelectedSet?.Children, SelectedNode);
-                var loadedState = await store.LoadAsync();
+                var loadedState = await store.LoadAsync(forceReload: true);
                 ApplyLoadedState(loadedState, preferredSetName, selectedNodePath);
                 return loadedState != null;
             }
@@ -1444,11 +1452,19 @@ namespace DocSets
             }
 
             var usedTagIds = new HashSet<string>(clipboardNodes.SelectMany(x => x.TagIds ?? new List<string>()), StringComparer.OrdinalIgnoreCase);
+            var assetReferences = clipboardNodes.SelectMany(node => store.FindAssetReferences(node.Content))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var envelope = new ClipboardEnvelope
             {
                 Items = clipboardNodes,
                 TagDefinitions = state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList(),
-                SourceContext = store.CurrentSourceContext
+                SourceContext = store.CurrentSourceContext,
+                Assets = assetReferences.Select(reference => new ClipboardAsset
+                {
+                    Reference = reference,
+                    MimeType = store.GetAssetMimeType(reference),
+                    Content = store.ReadAsset(reference)
+                }).ToList()
             };
             return JsonConvert.SerializeObject(envelope, Formatting.Indented);
         }
@@ -1461,6 +1477,12 @@ namespace DocSets
                 return BuildClipboardTree(JsonConvert.DeserializeObject<List<ClipboardNode>>(json));
             var envelope = JsonConvert.DeserializeObject<ClipboardEnvelope>(json) ?? new ClipboardEnvelope();
             tagService.MergeDefinitions(state, envelope.TagDefinitions);
+            foreach (var asset in envelope.Assets ?? new List<ClipboardAsset>())
+            {
+                if (asset?.Content == null || asset.Content.Length == 0) continue;
+                store.SaveImageAssetAsync(asset.Content, asset.MimeType,
+                    System.IO.Path.GetFileName(asset.Reference)).GetAwaiter().GetResult();
+            }
             if (envelope.SourceContext != null)
                 RebaseClipboardNodes(envelope.Items, envelope.SourceContext, store.CurrentSourceContext);
             return BuildClipboardTree(envelope.Items);
@@ -1753,6 +1775,18 @@ namespace DocSets
             public List<TagDefinition> TagDefinitions { get; set; } = new List<TagDefinition>();
             [JsonProperty("sourceContext", NullValueHandling = NullValueHandling.Ignore)]
             public SourceReferenceContext SourceContext { get; set; }
+            [JsonProperty("assets", NullValueHandling = NullValueHandling.Ignore)]
+            public List<ClipboardAsset> Assets { get; set; } = new List<ClipboardAsset>();
+        }
+
+        private sealed class ClipboardAsset
+        {
+            [JsonProperty("reference")]
+            public string Reference { get; set; }
+            [JsonProperty("mimeType")]
+            public string MimeType { get; set; }
+            [JsonProperty("content")]
+            public byte[] Content { get; set; }
         }
         private sealed class ClipboardNode
         {

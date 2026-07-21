@@ -107,6 +107,48 @@
       }
     },
     {
+      "id": "bookmarkpropertiespanel-loadselection",
+      "parent": "default",
+      "name": "BookmarkPropertiesPanel.LoadSelection",
+      "symbol": "DocSets.BookmarkPropertiesPanel.LoadSelection",
+      "project": "DocSets",
+      "path": "DocSets.UI.WinForms\\Forms\\BookmarkPropertiesPanel.cs",
+      "line": 92,
+      "column": 27,
+      "comment": "",
+      "createdAtUtc": "2026-07-21T07:33:59.6479459+00:00",
+      "modifiedAtUtc": "2026-07-21T07:33:59.6479459+00:00",
+      "modifiedInSolution": "DocSets",
+      "editorState": {
+        "caretLineOffset": 26,
+        "caretColumn": 27,
+        "selectionStartColumn": 1,
+        "selectionEndColumn": 1,
+        "firstVisibleLineOffset": -5,
+        "codePreview": "        public void LoadSelection(\r\n            DocumentItem value,\r\n            bool multiple,\r\n            bool allPinned,\r\n            bool anyPinned,\r\n            BookmarkColor? commonColor,\r\n            bool canPin)\r\n        {\r\n            loading = true;\r\n            try\r\n            {\r\n                item = value;\r\n                multipleSelection = multiple;\r\n                loadedAllPinned = value != null && allPinned;\r\n                Enabled = value != null;\r\n                nameTextBox.Text = value?.Name ?? string.Empty;\r\n                folderCheckBox.Checked = value?.NodeType == NodeType.Folder;\r\n                var type = value?.Type ?? BookmarkType.Empty;\r\n                emptyButton.Checked = type == BookmarkType.Empty;\r\n                symbolButton.Checked = type == BookmarkType.Symbol;",
+        "symbolSnapshots": [
+          {
+            "symbol": "DocSets",
+            "name": "DocSets",
+            "kind": "Namespace",
+            "signature": "DocSets"
+          },
+          {
+            "symbol": "DocSets.BookmarkPropertiesPanel",
+            "name": "BookmarkPropertiesPanel",
+            "kind": "NamedType",
+            "signature": "BookmarkPropertiesPanel"
+          },
+          {
+            "symbol": "DocSets.BookmarkPropertiesPanel.LoadSelection",
+            "name": "LoadSelection",
+            "kind": "Method",
+            "signature": "void LoadSelection(DocumentItem value, bool multiple, bool allPinned, bool anyPinned, BookmarkColor? commonColor, bool canPin)"
+          }
+        ]
+      }
+    },
+    {
       "id": "help-project",
       "parent": "",
       "name": "Project Help",
