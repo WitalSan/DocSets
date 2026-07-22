@@ -20,7 +20,9 @@ namespace DocSets.Tests
                 Trace("Запуск процесса.");
                 new ToastClipboardIntegrationTests()
                     .TextAndImageRoundTripThroughWindowsClipboardAndTwoToastEditors();
-                Console.WriteLine("Интеграционный тест TOAST и Clipboard пройден.");
+                new MilkdownClipboardIntegrationTests()
+                    .MarkdownAndImageRoundTripThroughWindowsClipboardAndTwoMilkdownEditors();
+                Console.WriteLine("Интеграционные тесты TOAST, Milkdown и Clipboard пройдены.");
                 Trace("Тест пройден.");
                 return 0;
             }

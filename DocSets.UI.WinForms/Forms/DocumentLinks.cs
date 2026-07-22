@@ -381,6 +381,7 @@ namespace DocSets
         private readonly ToolStripButton symbolButton = new ToolStripButton("Символ");
         private readonly ToolStripButton linkButton = new ToolStripButton("Link");
         private readonly ToolStripButton copyCommentButton = new ToolStripButton();
+        private readonly ToolStripButton saveCommentButton = new ToolStripButton();
         private readonly Panel body = new Panel();
         private readonly RichTextBox preview = new RichTextBox();
         private readonly RichTextBox editor = new RichTextBox();
@@ -409,6 +410,7 @@ namespace DocSets
         private const int ExperimentalTrailingLineCount = 10;
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
+        public event EventHandler SaveRequested;
         public event EventHandler DropFocusRequested;
         public event Action<DocumentLink> LinkActivated;
         public event Action<string, int> ExternalSymbolDropRequested;
@@ -422,6 +424,11 @@ namespace DocSets
             preview.Font = Font;
             editor.Font = Font;
             Dock = DockStyle.Fill; toolbar.GripStyle = ToolStripGripStyle.Hidden;
+            saveCommentButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            saveCommentButton.Image = SaveIconFactory.Create(this, 18);
+            saveCommentButton.Enabled = false;
+            saveCommentButton.ToolTipText = "Сохранить заметку (Ctrl+S)";
+            saveCommentButton.Click += (_, __) => RequestSave();
             previewButton.CheckOnClick = editButton.CheckOnClick = true;
             //toolbar.Items.Add(previewButton); toolbar.Items.Add(editButton);
             //toolbar.Items.Add(new ToolStripSeparator()); toolbar.Items.Add(boldButton); toolbar.Items.Add(italicButton); toolbar.Items.Add(codeButton); toolbar.Items.Add(symbolButton); toolbar.Items.Add(linkButton);
@@ -436,7 +443,7 @@ namespace DocSets
             }
             toolbar.Items.AddRange(new ToolStripItem[]
             {
-                previewButton,editButton, new ToolStripSeparator(),
+                saveCommentButton,new ToolStripSeparator(),previewButton,editButton, new ToolStripSeparator(),
                 copyCommentButton,new ToolStripSeparator(),
                 boldButton, italicButton, codeButton, symbolButton, linkButton,
             });
@@ -501,6 +508,13 @@ namespace DocSets
                 if (resetToPreview) { editor.Visible = false; preview.Visible = true; previewButton.Checked = true; editButton.Checked = false; }
             }
             finally { loading = false; }
+            saveCommentButton.Enabled = false;
+        }
+        public void SetSaveEnabled(bool enabled) => saveCommentButton.Enabled = enabled;
+        internal bool SaveEnabled => saveCommentButton.Enabled;
+        private void RequestSave()
+        {
+            if (saveCommentButton.Enabled) SaveRequested?.Invoke(this, EventArgs.Empty);
         }
         public void ShowPreview(bool focusPreview = false)
         {
@@ -617,6 +631,13 @@ namespace DocSets
         }
         private void PreviewEditorKeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Control && e.KeyCode == Keys.S)
+            {
+                RequestSave();
+                e.SuppressKeyPress = true;
+                e.Handled = true;
+                return;
+            }
             if (e.KeyCode != Keys.Enter && e.KeyCode != Keys.F2) return;
             var position = PreviewToEditorPosition(preview.SelectionStart);
             ShowEditor();
@@ -915,6 +936,7 @@ private void EditorDragEnter(object sender, DragEventArgs e)
         {
             highlightTimer.Stop();
             if (!loading) highlightTimer.Start();
+            if (!loading) saveCommentButton.Enabled = true;
             if (!loading) CommentChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -1028,7 +1050,8 @@ private void EditorDragEnter(object sender, DragEventArgs e)
 
         private void EditorKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Control && e.Alt && e.KeyCode == Keys.B) { WrapSelection("**", "**"); e.SuppressKeyPress = true; }
+            if (e.Control && e.KeyCode == Keys.S) { RequestSave(); e.SuppressKeyPress = true; e.Handled = true; }
+            else if (e.Control && e.Alt && e.KeyCode == Keys.B) { WrapSelection("**", "**"); e.SuppressKeyPress = true; }
             else if (e.Control && e.KeyCode == Keys.I) { WrapSelection("_", "_"); e.SuppressKeyPress = true; }
             else if (e.Control && e.KeyCode == Keys.K) { WrapSelection("[[", "]]", "Symbol"); e.SuppressKeyPress = true; }
             else if (e.Control && e.KeyCode == Keys.Enter) { ShowPreview(true); e.SuppressKeyPress = true; }

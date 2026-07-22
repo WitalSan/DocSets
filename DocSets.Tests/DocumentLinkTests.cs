@@ -119,6 +119,37 @@ namespace DocSets.Tests
                 Assert.Equal("before\n[Run](symbol:A.B.Run)", control.CommentText);
             }
         }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void SaveButtonTracksMarkdownChangesAndCtrlSRequestsSave()
+        {
+            using (var control = new MarkdownCommentControl())
+            {
+                control.LoadComment("исходный текст");
+                Assert.False(control.SaveEnabled);
+                control.ShowEditor();
+                var editor = (System.Windows.Forms.RichTextBox)typeof(MarkdownCommentControl)
+                    .GetField("editor", System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.NonPublic)
+                    .GetValue(control);
+                editor.AppendText(" изменён");
+                Assert.True(control.SaveEnabled);
+
+                var requested = 0;
+                control.SaveRequested += (_, __) => requested++;
+                var args = new System.Windows.Forms.KeyEventArgs(
+                    System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.S);
+                typeof(MarkdownCommentControl)
+                    .GetMethod("EditorKeyDown", System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.NonPublic)
+                    .Invoke(control, new object[] { editor, args });
+
+                Assert.Equal(1, requested);
+                Assert.True(args.SuppressKeyPress);
+                control.SetSaveEnabled(false);
+                Assert.False(control.SaveEnabled);
+            }
+        }
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void DroppedUrlBecomesExternalLink()
         {

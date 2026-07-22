@@ -17,7 +17,9 @@ namespace DocSets
     {
         public event EventHandler CommentEditorFocusRequested;
         public event EventHandler OpenCommentWindowRequested;
+        public event EventHandler OpenMilkdownWindowRequested;
         internal event Action<DocumentItem> CurrentCommentItemChanged;
+        internal event Action<DocumentItem, object> CommentContentChanged;
         internal event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
@@ -195,11 +197,20 @@ namespace DocSets
 
         internal void RefreshCommentAfterExternalEdit(DocumentItem changedItem)
         {
+            NotifyCommentSaved(changedItem, null);
+        }
+
+        internal void NotifyCommentSaved(DocumentItem changedItem, object origin)
+        {
+            if (changedItem == null) return;
             var current = CurrentCommentItem;
-            if (current == null || changedItem == null || !ReferenceEquals(current, changedItem)) return;
-            LoadPropertiesPanel(GetCurrentItem());
-            _tree.Invalidate();
-            RefreshStatus();
+            if (current != null && ReferenceEquals(current, changedItem))
+            {
+                LoadPropertiesPanel(GetCurrentItem());
+                _tree.Invalidate();
+                RefreshStatus();
+            }
+            CommentContentChanged?.Invoke(changedItem, origin);
         }
 
         internal void FocusCommentEditor()
@@ -2070,6 +2081,11 @@ namespace DocSets
                 _experimentalPropertiesSaveTimer.Stop();
                 await SaveExperimentalPropertiesAsync();
             };
+            _experimentalPropertiesPanel.MarkdownSaveRequested += async (_, __) =>
+            {
+                _experimentalPropertiesSaveTimer.Stop();
+                await SaveExperimentalPropertiesAsync();
+            };
             _experimentalPropertiesPanel.ColorChanged += async (_, __) =>
             {
                 var targets = GetSelectedPropertyTargets(GetCurrentItem());
@@ -2210,6 +2226,11 @@ namespace DocSets
             {
                 CommitPendingMarkdownEdit();
                 OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
+            };
+            _experimentalPropertiesPanel.OpenMilkdownWindowRequested += (_, __) =>
+            {
+                CommitPendingMarkdownEdit();
+                OpenMilkdownWindowRequested?.Invoke(this, EventArgs.Empty);
             };
             _experimentalPropertiesPanel.LayoutStateChanged += (_, __) =>
             {
@@ -3089,9 +3110,13 @@ namespace DocSets
                 if (ReferenceEquals(target, _experimentalPropertiesPanel.CurrentItem))
                     changed = _experimentalPropertiesPanel.ApplyToCurrentItem();
 
+                var commentChanged = false;
                 if (commentPending)
-                    changed |= _experimentalPropertiesPanel.ApplyCommittedComment(
+                {
+                    commentChanged = _experimentalPropertiesPanel.ApplyCommittedComment(
                         target, revision, normalizedComment);
+                    changed |= commentChanged;
+                }
 
                 if (!changed)
                 {
@@ -3105,6 +3130,8 @@ namespace DocSets
                 if (commentPending)
                     _experimentalPropertiesPanel.AcceptCommittedComment(
                         target, revision, normalizedComment);
+                if (commentChanged)
+                    NotifyCommentSaved(target, _experimentalPropertiesPanel);
 
                 if (commentOnly) _tree.Invalidate();
                 else RebuildTree();

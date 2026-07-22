@@ -9,9 +9,11 @@ namespace DocSets
     {
         private readonly TextBox editor = new TextBox { Dock = DockStyle.Fill, Multiline = true };
         private bool loading;
+        private bool saveEnabled;
 
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
+        public event EventHandler SaveRequested;
         public event Action<string> LinkActivated;
         public event Action<string> ExternalSymbolDropRequested;
         public event Action<string, string, string, string> ImageInsertionRequested;
@@ -19,7 +21,12 @@ namespace DocSets
         public ToastCommentControl()
         {
             Controls.Add(editor);
-            editor.TextChanged += (_, __) => { if (!loading) CommentChanged?.Invoke(this, EventArgs.Empty); };
+            editor.TextChanged += (_, __) =>
+            {
+                if (loading) return;
+                saveEnabled = true;
+                CommentChanged?.Invoke(this, EventArgs.Empty);
+            };
             editor.LostFocus += (_, __) => EditingCompleted?.Invoke(this, EventArgs.Empty);
         }
 
@@ -31,7 +38,14 @@ namespace DocSets
         {
             loading = true;
             try { editor.Text = value ?? string.Empty; }
-            finally { loading = false; }
+            finally { loading = false; saveEnabled = false; }
+        }
+
+        public void SetSaveEnabled(bool enabled) => saveEnabled = enabled;
+        internal bool SaveEnabled => saveEnabled;
+        internal void RequestSaveForTests()
+        {
+            if (saveEnabled) SaveRequested?.Invoke(this, EventArgs.Empty);
         }
 
         public void InsertResolvedLink(DocumentLink link) { }

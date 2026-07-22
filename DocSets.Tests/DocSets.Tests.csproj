@@ -31,6 +31,7 @@
     <Compile Include="..\DocSets.Core\Services\CodeSourceLocator.cs" Link="Source\CodeSourceLocator.cs" />
     <Compile Include="..\DocSets.Core\Services\SourceReferenceService.cs" Link="Source\SourceReferenceService.cs" />
     <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
+    <Compile Include="..\DocSets.Core\Services\MilkdownMarkdownCodec.cs" Link="Source\MilkdownMarkdownCodec.cs" />
     <Compile Include="..\DocSets.Import\LegacyDocSetConverter.cs" Link="Source\LegacyDocSetConverter.cs" />
     <Compile Include="..\DocSets.Core\Services\BookmarkSearchService.cs" Link="Source\BookmarkSearchService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />
@@ -45,6 +46,7 @@
     <Compile Include="..\DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" Link="Source\CodePreviewHighlighter.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" Link="Source\BreadcrumbToolTip.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\DocumentLinks.cs" Link="Source\DocumentLinks.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs" Link="Source\BookmarkPropertiesPanelExperimental.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\DocSetsLogControl.cs" Link="Source\DocSetsLogControl.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs" Link="Source\DockWorkspaceControl.cs" />

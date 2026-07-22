@@ -36,8 +36,16 @@
     <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Source\DocSetStorageModels.cs" />
     <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
+    <Compile Include="..\DocSets.Core\Services\MilkdownMarkdownCodec.cs" Link="Source\MilkdownMarkdownCodec.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs" Link="Source\ToastCommentControl.cs" />
+    <Compile Include="..\DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs" Link="Source\MilkdownCommentControl.cs" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\index.html" LogicalName="DocSets.Milkdown.index.html" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.js" LogicalName="DocSets.Milkdown.milkdown-editor.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css" LogicalName="DocSets.Milkdown.milkdown-editor.css" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="$(VsIdeDir)Extensions\Microsoft\Web Live Preview\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll">

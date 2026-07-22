@@ -24,6 +24,7 @@ namespace DocSets
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.CommentEditorFocusRequested += OnCommentEditorFocusRequested;
             winFormsControl.OpenCommentWindowRequested += OnOpenCommentWindowRequested;
+            winFormsControl.OpenMilkdownWindowRequested += OnOpenMilkdownWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;
             Focusable = true;
             Child = winFormsControl;
@@ -69,12 +70,20 @@ namespace DocSets
         private bool OnCommentSearchMatchRequested(DocumentItem item, int start, int length, int occurrenceIndex)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
+            if (DocSetsMilkdownCommentToolWindow.TryShowSearchResult(
+                    DocSetsPackage.Instance, item, start, length, occurrenceIndex)) return true;
             return DocSetsCommentToolWindow.TryShowSearchResult(DocSetsPackage.Instance, item, start, length, occurrenceIndex);
         }
         private void OnOpenCommentWindowRequested(object sender, EventArgs e)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             DocSetsCommentToolWindow.Show(DocSetsPackage.Instance, viewModel, winFormsControl);
+        }
+
+        private void OnOpenMilkdownWindowRequested(object sender, EventArgs e)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            DocSetsMilkdownCommentToolWindow.Show(DocSetsPackage.Instance, viewModel, winFormsControl);
         }
 
         private void OnCommentEditorFocusRequested(object sender, EventArgs e)
@@ -107,6 +116,7 @@ namespace DocSets
                 winFormsControl.SaveLocalSettings();
                 winFormsControl.CommentEditorFocusRequested -= OnCommentEditorFocusRequested;
                 winFormsControl.OpenCommentWindowRequested -= OnOpenCommentWindowRequested;
+                winFormsControl.OpenMilkdownWindowRequested -= OnOpenMilkdownWindowRequested;
                 winFormsControl.CommentSearchMatchRequested -= OnCommentSearchMatchRequested;
                 if (solutionEvents != null)
                     solutionEvents.BeforeClosing -= OnSolutionBeforeClosing;

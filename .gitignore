@@ -4,3 +4,4 @@
 /.dotnet_cli
 /DocSets.IntegrationTests/bin*
 **/.dotnet-home
+/DocSets.Web/MilkdownEditor/node_modules/

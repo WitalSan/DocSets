@@ -1,5 +1,4 @@
 using Microsoft.VisualStudio.Shell;
-using Newtonsoft.Json;
 using System;
 using System.Drawing;
 using System.Threading;
@@ -8,34 +7,52 @@ using System.Windows.Forms;
 
 namespace DocSets
 {
-    internal sealed class DocSetsCommentWindowControl : UserControl
+    /// <summary>
+    /// Отдельная экспериментальная сессия Milkdown. Рабочее окно TOAST имеет
+    /// независимый жизненный цикл и этим классом не затрагивается.
+    /// </summary>
+    internal sealed class DocSetsMilkdownCommentWindowControl : UserControl
     {
-        private readonly ToastCommentControl editor = new ToastCommentControl();
+        private readonly MilkdownCommentControl editor = new MilkdownCommentControl();
         private readonly CheckBox followSelection = new CheckBox();
         private readonly Button saveButton = new Button();
         private readonly Label title = new Label();
         private readonly ToolTip toolTip = new ToolTip();
+        private readonly System.Windows.Forms.Timer idleSaveTimer =
+            new System.Windows.Forms.Timer { Interval = 3000 };
+        private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
         private DocSetsViewModel viewModel;
         private DocSetsWinFormsControl source;
         private DocumentItem item;
         private bool dirty;
         private bool switching;
         private long revision;
-        private readonly System.Windows.Forms.Timer idleSaveTimer =
-            new System.Windows.Forms.Timer { Interval = 3000 };
-        private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
 
-        public DocSetsCommentWindowControl()
+        public DocSetsMilkdownCommentWindowControl()
         {
             Dock = DockStyle.Fill;
             editor.ShowSaveToolbar = false;
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty };
+            var root = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = Padding.Empty
+            };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var bar = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Padding = new Padding(3) };
+
+            var bar = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                ColumnCount = 3,
+                Padding = new Padding(3)
+            };
             bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
             followSelection.Appearance = Appearance.Button;
             followSelection.Text = "∞";
             followSelection.TextAlign = ContentAlignment.MiddleCenter;
@@ -133,14 +150,17 @@ namespace DocSets
             _ = SwitchItemAsync(selectedItem);
         }
 
-        internal async Task ShowSearchResultAsync(DocumentItem selectedItem, int start, int length, int occurrenceIndex)
+        internal async Task ShowSearchResultAsync(
+            DocumentItem selectedItem, int start, int length, int occurrenceIndex)
         {
             await SwitchItemAsync(selectedItem);
             var comment = item?.Content ?? string.Empty;
-            if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
+            if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex,
+                    out var visibleText, out var visibleOccurrence)) return;
             editor.HighlightSearchMatch(visibleText, visibleOccurrence);
         }
         internal Task CommitPendingEditAsync() => SaveAsync(forceRead: true);
+
         private void Source_CurrentCommentItemChanged(DocumentItem selectedItem)
         {
             if (followSelection.Checked) _ = SwitchItemAsync(selectedItem);
@@ -196,15 +216,13 @@ namespace DocSets
                 var target = item;
                 if (target == null || viewModel == null || (!dirty && !forceRead)) return;
                 var savingRevision = revision;
-                // TOAST сохраняет собственную редактируемую версию. В модель передаём
-                // отдельный снимок, в котором data:image уже вынесены в assets.
                 var editorValue = readEditor
                     ? await editor.GetCurrentCommentAsync()
                     : editor.CommentText ?? string.Empty;
                 var value = await viewModel.NormalizeCommentAssetsAsync(editorValue);
                 if (!string.Equals(target.Content ?? string.Empty, value, StringComparison.Ordinal))
                 {
-                    viewModel.CaptureUndoState("Изменение заметки", new[] { target });
+                    viewModel.CaptureUndoState("Изменение заметки в Milkdown", new[] { target });
                     target.Content = value;
                     viewModel.MarkBookmarkModified(target);
                     await viewModel.SaveAsync();
@@ -235,11 +253,18 @@ namespace DocSets
             if (link == null) return;
             switch (link.Kind)
             {
-                case DocumentLinkKind.Symbol: await viewModel.OpenSymbolAsync(item, link.Target, link.Project); break;
-                case DocumentLinkKind.File: await viewModel.OpenFileLinkAsync(link.Target, link.SourceId); break;
-                case DocumentLinkKind.Bookmark: await viewModel.OpenBookmarkByIdAsync(link.Target); break;
+                case DocumentLinkKind.Symbol:
+                    await viewModel.OpenSymbolAsync(item, link.Target, link.Project);
+                    break;
+                case DocumentLinkKind.File:
+                    await viewModel.OpenFileLinkAsync(link.Target, link.SourceId);
+                    break;
+                case DocumentLinkKind.Bookmark:
+                    await viewModel.OpenBookmarkByIdAsync(link.Target);
+                    break;
                 case DocumentLinkKind.Url:
-                    if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri)) VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri);
+                    if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri))
+                        VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri);
                     break;
             }
         }

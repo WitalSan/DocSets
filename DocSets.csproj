@@ -79,6 +79,9 @@
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsMilkdownCommentWindowControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsLogControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -95,6 +98,7 @@
     <Compile Include="DocSets.UI.WinForms\Icons\BookmarkColorService.cs" />
     <Compile Include="DocSets.UI.WinForms\Icons\DpiService.cs" />
     <Compile Include="DocSets.UI.WinForms\Icons\IconProvider.cs" />
+    <Compile Include="DocSets.UI.WinForms\Icons\SaveIconFactory.cs" />
     <Compile Include="DocSets.UI.WinForms\Icons\TagIconProvider.cs" />
     <Compile Include="DocSets.UI.WinForms\TreeViewAdv\BookmarkTreeNode.cs" />
     <Compile Include="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
@@ -104,8 +108,12 @@
     <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCommentToolWindow.cs" />
+    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsMilkdownCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="DocSets.Vsix\WinFormsHost\VsMarkdownCommentControl.cs">
@@ -238,8 +246,18 @@
     </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\NvRight.png">
       <LogicalName>DocSets.Icons.NvRight.png</LogicalName>
-    </EmbeddedResource>    <EmbeddedResource Include="-Icons-\PinOverlay.png">
+    </EmbeddedResource>
+    <EmbeddedResource Include="-Icons-\PinOverlay.png">
       <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\index.html">
+      <LogicalName>DocSets.Milkdown.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.js">
+      <LogicalName>DocSets.Milkdown.milkdown-editor.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css">
+      <LogicalName>DocSets.Milkdown.milkdown-editor.css</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

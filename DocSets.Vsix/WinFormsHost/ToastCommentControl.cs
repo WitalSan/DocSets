@@ -16,6 +16,17 @@ namespace DocSets
     internal sealed class ToastCommentControl : UserControl
     {
         private readonly WebView2 webView = new WebView2 { Dock = DockStyle.Fill, AllowExternalDrop = true };
+        private readonly ToolStrip commandBar = new ToolStrip { Dock = DockStyle.Top, GripStyle = ToolStripGripStyle.Hidden };
+        private readonly ToolStripButton saveButton = new ToolStripButton();
+        private readonly TableLayoutPanel layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        private readonly Panel editorHost = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         private readonly Label status = new Label
         {
             Dock = DockStyle.Fill,
@@ -36,6 +47,8 @@ namespace DocSets
 
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
+        public event EventHandler SaveRequested;
+        public event Action<bool> SaveStateChanged;
         public event Action<string> LinkActivated;
         public event Action<string> ExternalSymbolDropRequested;
         public event Action<string, string, string, string> ImageInsertionRequested;
@@ -44,8 +57,19 @@ namespace DocSets
         {
             webViewUserDataFolder = userDataFolder;
             Dock = DockStyle.Fill;
-            Controls.Add(webView);
-            Controls.Add(status);
+            saveButton.DisplayStyle = ToolStripItemDisplayStyle.Image;
+            saveButton.Image = SaveIconFactory.Create(this, 18);
+            saveButton.Enabled = false;
+            saveButton.ToolTipText = "Сохранить заметку (Ctrl+S)";
+            saveButton.Click += (_, __) => RequestSave();
+            commandBar.Items.Add(saveButton);
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            editorHost.Controls.Add(webView);
+            editorHost.Controls.Add(status);
+            layout.Controls.Add(commandBar, 0, 0);
+            layout.Controls.Add(editorHost, 0, 1);
+            Controls.Add(layout);
             status.BringToFront();
             HandleCreated += OnHandleCreated;
         }
@@ -88,9 +112,28 @@ namespace DocSets
         {
             var next = value ?? string.Empty;
             editing = false;
+            SetSaveEnabled(false);
             if (string.Equals(text, next, StringComparison.Ordinal)) return;
             text = next;
             if (ready) _ = SetMarkdownAsync(text);
+        }
+
+        public void SetSaveEnabled(bool enabled)
+        {
+            if (saveButton.Enabled == enabled) return;
+            saveButton.Enabled = enabled;
+            SaveStateChanged?.Invoke(enabled);
+        }
+        public bool ShowSaveToolbar
+        {
+            get => commandBar.Visible;
+            set => commandBar.Visible = value;
+        }
+        internal bool SaveEnabled => saveButton.Enabled;
+
+        private void RequestSave()
+        {
+            if (saveButton.Enabled) SaveRequested?.Invoke(this, EventArgs.Empty);
         }
 
         public void InsertResolvedLink(DocumentLink link)
@@ -219,7 +262,11 @@ view.focus();return document.execCommand('copy');})()";
                     if (loading) return;
                     text = FromEditorMarkdown((string)message["markdown"] ?? string.Empty);
                     editing = true;
+                    SetSaveEnabled(true);
                     CommentChanged?.Invoke(this, EventArgs.Empty);
+                    break;
+                case "save":
+                    RequestSave();
                     break;
                 case "blur":
                     if (!editing) return;
@@ -490,8 +537,11 @@ window.docsetsEditor=new toastui.Editor({el:document.querySelector('#editor'),he
 window.docsetsCompleteImage=(requestId,url,alt)=>{const callback=pendingImageCallbacks.get(requestId);if(!callback)return;pendingImageCallbacks.delete(requestId);callback(url,alt||'Изображение')};
 let lastEditorHeight=0;const resizeEditor=()=>{const h=Math.max(120,document.documentElement.clientHeight);if(h===lastEditorHeight)return;lastEditorHeight=h;window.docsetsEditor.setHeight(h+'px')};window.addEventListener('resize',resizeEditor);new ResizeObserver(resizeEditor).observe(document.documentElement);requestAnimationFrame(resizeEditor);
 window.docsetsSetMarkdown=value=>{value=value||'';if(window.docsetsEditor.getMarkdown()===value)return;settingMarkdown=true;try{window.docsetsEditor.setMarkdown(value,false)}finally{settingMarkdown=false}};
-window.docsetsEditor.on('change',()=>{if(settingMarkdown)return;clearTimeout(changeTimer);changeTimer=setTimeout(()=>{if(!settingMarkdown)send({type:'change',markdown:window.docsetsEditor.getMarkdown()})},200)});
-document.addEventListener('focusout',()=>setTimeout(()=>{if(!document.hasFocus())send({type:'blur'})},0));
+const flushChange=()=>{if(!changeTimer)return;clearTimeout(changeTimer);changeTimer=null;if(!settingMarkdown)send({type:'change',markdown:window.docsetsEditor.getMarkdown()})};
+const notifyBlur=()=>{flushChange();send({type:'blur'})};
+window.docsetsEditor.on('change',()=>{if(settingMarkdown)return;clearTimeout(changeTimer);changeTimer=setTimeout(()=>{changeTimer=null;if(!settingMarkdown)send({type:'change',markdown:window.docsetsEditor.getMarkdown()})},200)});
+document.addEventListener('focusout',()=>setTimeout(()=>{if(!document.hasFocus())notifyBlur()},0));
+window.addEventListener('blur',notifyBlur);
 function linkAtEvent(e){
   const path=e.composedPath?e.composedPath():[];
   const anchor=path.find(x=>x&&x.tagName==='A')||(e.target.closest&&e.target.closest('a'));
@@ -631,6 +681,7 @@ function insertDroppedValue(value){
   }catch{window.docsetsEditor.insertText(prefix+value)}
 }
 document.addEventListener('drop',e=>{e.preventDefault();placeCaret(e);window.docsetsEditor.focus();const files=Array.from(e.dataTransfer.files||[]);const image=files.find(isImageFile);if(image&&sendImage(image))return;let value=e.dataTransfer.getData('text/plain')||e.dataTransfer.getData('text')||'';if(!value&&files.length)value=files.map(f=>f.name).join('\n');if(value){const isLink=/^\[[^\]]+\]\(([\s\S]+)\)\s*$/.test(value.trim());if(isLink)insertDroppedValue(value);else send({type:'externalDrop',text:value})}},true);
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='s'){e.preventDefault();e.stopImmediatePropagation();flushChange();send({type:'save'})}},true);
 send({type:'ready'});
 </script></body></html>";
     }
