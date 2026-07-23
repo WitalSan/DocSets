@@ -2478,9 +2478,11 @@ namespace DocSets
             return SaveCoreAsync();
         }
 
+        public bool CanSave => IsLoaded && store.HasOpenDocument;
+
         private async Task SaveCoreAsync()
         {
-            if (!IsLoaded)
+            if (!CanSave)
             {
                 return;
             }

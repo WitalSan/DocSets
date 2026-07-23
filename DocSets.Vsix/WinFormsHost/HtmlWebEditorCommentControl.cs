@@ -33,6 +33,7 @@ namespace DocSets
         private bool ready;
         private bool loading;
         private string pendingHtml = string.Empty;
+        private string pendingEditingSession;
         private string cachedHtml = string.Empty;
         private string assetDirectory = string.Empty;
         private string initializationStage = "created";
@@ -98,6 +99,38 @@ namespace DocSets
                 JsonConvert.SerializeObject(text ?? string.Empty) + "," +
                 JsonConvert.SerializeObject(language ?? "plaintext") + ")");
 
+        internal Task SimulateHistoryCommandAsync(string command)
+            => webView.ExecuteScriptAsync("window.docsetsTestHistoryCommand(" +
+                JsonConvert.SerializeObject(command ?? "undo") + ")");
+
+        public async Task<string> CaptureEditingSessionAsync()
+        {
+            if (!ready || webView.CoreWebView2 == null) return null;
+            try
+            {
+                var json = await webView.ExecuteScriptAsync(
+                    "window.docsetsExportSession && window.docsetsExportSession()");
+                return string.IsNullOrWhiteSpace(json) || string.Equals(json, "null", StringComparison.Ordinal)
+                    ? null
+                    : json;
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Заметки",
+                    "Не удалось сохранить сессию " + editorName + ".", exception);
+                return null;
+            }
+        }
+
+        public async Task LoadEditingSessionAsync(string value, string session)
+        {
+            pendingHtml = value ?? string.Empty;
+            cachedHtml = pendingHtml;
+            pendingEditingSession = session;
+            SetSaveEnabled(false);
+            if (ready) await SetEditorSessionAsync(pendingHtml, pendingEditingSession);
+        }
+
         public async Task<string> GetCurrentCommentAsync()
         {
             if (!ready || webView.CoreWebView2 == null) return CommentText;
@@ -123,6 +156,7 @@ namespace DocSets
         public void LoadComment(string value)
         {
             pendingHtml = value ?? string.Empty;
+            pendingEditingSession = null;
             cachedHtml = pendingHtml;
             SetSaveEnabled(false);
             if (ready) _ = SetEditorHtmlAsync(pendingHtml);
@@ -254,6 +288,24 @@ namespace DocSets
             finally { loading = false; }
         }
 
+        private async Task SetEditorSessionAsync(string value, string session)
+        {
+            if (!ready || webView.CoreWebView2 == null) return;
+            if (string.IsNullOrWhiteSpace(session))
+            {
+                await SetEditorHtmlAsync(value);
+                return;
+            }
+
+            loading = true;
+            try
+            {
+                await webView.ExecuteScriptAsync("window.docsetsRestoreSession(" +
+                    session + "," + JsonConvert.SerializeObject(value ?? string.Empty) + ")");
+            }
+            finally { loading = false; }
+        }
+
         private void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             JObject message;
@@ -271,11 +323,12 @@ namespace DocSets
                     ready = true;
                     webView.Visible = true;
                     status.Visible = false;
-                    _ = SetEditorHtmlAsync(pendingHtml);
+                    _ = SetEditorSessionAsync(pendingHtml, pendingEditingSession);
                     if (focusWhenReady) BeginInvoke(new Action(FocusEditor));
                     break;
                 case "changed":
                     if (loading) return;
+                    cachedHtml = (string)message["html"] ?? cachedHtml ?? string.Empty;
                     SetSaveEnabled(true);
                     CommentChanged?.Invoke(this, EventArgs.Empty);
                     break;

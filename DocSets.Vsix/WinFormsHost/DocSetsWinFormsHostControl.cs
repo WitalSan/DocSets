@@ -118,6 +118,11 @@ namespace DocSets
         }
         private void OnSolutionBeforeClosing()
         {
+            ThreadHelper.JoinableTaskFactory.Run(async () =>
+            {
+                await DocSetsCommentToolWindow.CommitPendingEditAsync(DocSetsPackage.Instance);
+                await DocSetsJoditCommentToolWindow.CommitPendingEditAsync(DocSetsPackage.Instance);
+            });
             winFormsControl.SaveLocalSettings();
         }
 

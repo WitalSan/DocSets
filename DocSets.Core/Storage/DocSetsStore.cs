@@ -52,6 +52,7 @@ namespace DocSets
         public bool IsSharedWorkspace => isSharedWorkspace;
 
         public string StateFilePath => stateFilePath;
+        public bool HasOpenDocument => currentDocument != null;
         public string AssetDirectory => string.IsNullOrWhiteSpace(activeDocSetDirectory)
             ? "" : Path.Combine(activeDocSetDirectory, "assets");
 

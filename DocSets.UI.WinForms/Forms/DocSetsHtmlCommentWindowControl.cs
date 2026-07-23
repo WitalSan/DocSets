@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,11 +22,16 @@ namespace DocSets
         private readonly ToolTip toolTip = new ToolTip();
         private readonly System.Windows.Forms.Timer idleSaveTimer = new System.Windows.Forms.Timer { Interval = 3000 };
         private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
+        private readonly Dictionary<string, string> editingSessions =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly LinkedList<string> editingSessionOrder = new LinkedList<string>();
+        private const int MaximumEditingSessions = 100;
         private DocSetsViewModel viewModel;
         private DocSetsWinFormsControl source;
         private DocumentItem item;
         private bool dirty;
         private bool switching;
+        private bool shuttingDown;
         private long revision;
 
         protected DocSetsHtmlCommentWindowControl(
@@ -154,6 +160,9 @@ namespace DocSets
 
         internal Task CommitPendingEditAsync() => SaveAsync(forceRead: true);
 
+        internal Task CommitPendingEditBeforeCloseAsync()
+            => SaveAsync(forceRead: true);
+
         internal void FocusEditor()
         {
             if (item?.ContentFormat != ContentFormat.Html) return;
@@ -171,7 +180,8 @@ namespace DocSets
         private void Source_CommentContentChanged(DocumentItem changedItem, object origin)
         {
             if (ReferenceEquals(origin, this) || dirty || item == null || !ReferenceEquals(item, changedItem)) return;
-            ReloadCurrentItem();
+            RemoveEditingSession(item);
+            _ = ReloadCurrentItemAsync();
         }
 
         private void ViewModel_UndoRedoStateRestored(object sender, EventArgs e)
@@ -189,14 +199,18 @@ namespace DocSets
             _ = SwitchItemAsync(source?.CurrentCommentItem);
         }
 
-        private void ReloadCurrentItem()
+        private async Task ReloadCurrentItemAsync()
         {
             switching = true;
             try
             {
                 var html = item?.ContentFormat == ContentFormat.Html ? item.Content ?? string.Empty : string.Empty;
                 editor.Enabled = item?.ContentFormat == ContentFormat.Html;
-                editor.LoadComment(html);
+                var session = GetEditingSession(item);
+                if (session == null)
+                    editor.LoadComment(html);
+                else
+                    await editor.LoadEditingSessionAsync(html, session);
                 title.Text = GetTitle(item);
                 dirty = false;
                 saveButton.Enabled = false;
@@ -211,13 +225,52 @@ namespace DocSets
             {
                 if (!dirty && item?.ContentFormat == ContentFormat.Html &&
                     !string.Equals(editor.CommentText, item.Content ?? string.Empty, StringComparison.Ordinal))
-                    ReloadCurrentItem();
+                    await ReloadCurrentItemAsync();
                 return;
             }
             await SaveAsync();
+            await CaptureCurrentEditingSessionAsync();
             item = selectedItem;
-            ReloadCurrentItem();
+            await ReloadCurrentItemAsync();
         }
+
+        private async Task CaptureCurrentEditingSessionAsync()
+        {
+            var key = GetEditingSessionKey(item);
+            if (key == null || item.ContentFormat != ContentFormat.Html) return;
+            var session = await editor.CaptureEditingSessionAsync();
+            if (string.IsNullOrWhiteSpace(session)) return;
+
+            editingSessions[key] = session;
+            editingSessionOrder.Remove(key);
+            editingSessionOrder.AddLast(key);
+            while (editingSessionOrder.Count > MaximumEditingSessions)
+            {
+                var expired = editingSessionOrder.First.Value;
+                editingSessionOrder.RemoveFirst();
+                editingSessions.Remove(expired);
+            }
+        }
+
+        private string GetEditingSession(DocumentItem value)
+        {
+            var key = GetEditingSessionKey(value);
+            if (key == null || !editingSessions.TryGetValue(key, out var session)) return null;
+            editingSessionOrder.Remove(key);
+            editingSessionOrder.AddLast(key);
+            return session;
+        }
+
+        private void RemoveEditingSession(DocumentItem value)
+        {
+            var key = GetEditingSessionKey(value);
+            if (key == null) return;
+            editingSessions.Remove(key);
+            editingSessionOrder.Remove(key);
+        }
+
+        private static string GetEditingSessionKey(DocumentItem value)
+            => string.IsNullOrWhiteSpace(value?.Id) ? null : value.Id;
 
         private static string GetTitle(DocumentItem value)
         {
@@ -227,19 +280,22 @@ namespace DocSets
                 : value.Name + "  [Markdown — откройте в TOAST]";
         }
 
-        private async Task SaveAsync(bool forceRead = false, bool readEditor = true)
+        private async Task SaveAsync(bool forceRead = false)
         {
+            if (shuttingDown || IsDisposed || viewModel?.CanSave != true) return;
             idleSaveTimer.Stop();
             await saveGate.WaitAsync();
             try
             {
                 var target = item;
                 if (target == null || target.ContentFormat != ContentFormat.Html || viewModel == null ||
+                    !viewModel.CanSave ||
                     (!dirty && !forceRead)) return;
                 var savingRevision = revision;
-                var editorValue = readEditor
-                    ? await editor.GetCurrentCommentAsync()
-                    : editor.CommentText ?? string.Empty;
+                // Актуальный HTML приходит в сообщении changed и хранится локально.
+                // При закрытии Visual Studio нельзя ожидать ExecuteScriptAsync:
+                // WebView2 может ожидать тот же поток UI.
+                var editorValue = editor.CommentText ?? string.Empty;
                 var value = await viewModel.NormalizeCommentAssetsAsync(editorValue);
                 if (!string.Equals(target.Content ?? string.Empty, value, StringComparison.Ordinal))
                 {
@@ -259,7 +315,7 @@ namespace DocSets
             finally
             {
                 saveGate.Release();
-                if (dirty && !IsDisposed) idleSaveTimer.Start();
+                if (dirty && !shuttingDown && !IsDisposed) idleSaveTimer.Start();
             }
         }
 
@@ -301,6 +357,9 @@ namespace DocSets
         {
             if (disposing)
             {
+                if (dirty && item?.ContentFormat == ContentFormat.Html && viewModel?.CanSave == true)
+                    ThreadHelper.JoinableTaskFactory.Run(() => SaveAsync());
+                shuttingDown = true;
                 if (source != null)
                 {
                     source.CurrentCommentItemChanged -= Source_CurrentCommentItemChanged;
@@ -309,11 +368,8 @@ namespace DocSets
                 if (viewModel != null)
                     viewModel.UndoRedoStateRestored -= ViewModel_UndoRedoStateRestored;
                 idleSaveTimer.Stop();
-                if (dirty && item?.ContentFormat == ContentFormat.Html && viewModel != null)
-                    ThreadHelper.JoinableTaskFactory.Run(() => SaveAsync(readEditor: false));
                 editor.Dispose();
                 idleSaveTimer.Dispose();
-                saveGate.Dispose();
                 toolTip.Dispose();
                 saveButton.Image?.Dispose();
             }

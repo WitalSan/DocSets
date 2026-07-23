@@ -342,7 +342,10 @@
 
     editor.events.on('change', () => {
       if (suppressChanges) return;
-      send({ type: 'changed' });
+      // Передаём актуальный снимок вместе с признаком изменения. При закрытии
+      // Visual Studio нельзя синхронно запрашивать DOM WebView2: это приводит
+      // к взаимной блокировке потока UI и процесса браузера.
+      send({ type: 'changed', html: currentHtml() });
       scheduleContentUpdate();
     });
     editor.events.on('blur', () => {
@@ -428,12 +431,80 @@
   window.docsetsSetHtml = html => {
     if (!editor) return false;
     suppressChanges = true;
-    try { editor.value = toEditorHtml(html || ''); }
+    try {
+      editor.value = toEditorHtml(html || '');
+      editor.history.clear();
+    }
     finally { suppressChanges = false; }
     return true;
   };
 
   window.docsetsGetHtml = () => currentHtml();
+
+  window.docsetsExportSession = () => {
+    if (!editor || !editor.history || !editor.history.__stack) return null;
+    const history = editor.history;
+    // После Undo в стеке уже существует ветка Redo. updateStack() сравнивает также
+    // выделение и при малейшем отличии создаёт новую команду, очищая эту ветку.
+    // Незавершённое текущее изменение фиксируем только на вершине истории.
+    if (!history.canRedo()) history.updateStack();
+    const stack = history.__stack;
+    const clone = value => value == null ? null : JSON.parse(JSON.stringify(value));
+    return {
+      version: 1,
+      html: currentHtml(),
+      current: clone(history.snapshot.make()),
+      startValue: clone(history.startValue),
+      updateTick: history.updateTick || 0,
+      stackPosition: stack.stackPosition,
+      commands: (stack.commands || []).map(command => ({
+        oldValue: clone(command.oldValue),
+        newValue: clone(command.newValue),
+        tick: command.tick || 0
+      }))
+    };
+  };
+
+  window.docsetsRestoreSession = (session, expectedHtml) => {
+    if (!editor) return false;
+    const expected = String(expectedHtml || '');
+    if (!session || session.version !== 1 || String(session.html || '') !== expected ||
+        !session.current || !Array.isArray(session.commands)) {
+      window.docsetsSetHtml(expected);
+      return false;
+    }
+
+    suppressChanges = true;
+    try {
+      const history = editor.history;
+      const stack = history.__stack;
+      history.snapshot.restore(session.current);
+      stack.commands = session.commands.map(command => ({
+        oldValue: command.oldValue,
+        newValue: command.newValue,
+        tick: command.tick || 0,
+        undo() { history.snapshot.restore(this.oldValue); },
+        redo() { history.snapshot.restore(this.newValue); }
+      }));
+      stack.stackPosition = Math.max(-1,
+        Math.min(Number(session.stackPosition) || 0, stack.commands.length - 1));
+      history.startValue = session.startValue || session.current;
+      history.updateTick = Number(session.updateTick) || 0;
+      history.fireChangeStack();
+      editor.synchronizeValues();
+    } finally {
+      suppressChanges = false;
+    }
+    return true;
+  };
+
+  window.docsetsTestHistoryCommand = command => {
+    if (!editor) return false;
+    if (String(command || '').toLowerCase() === 'redo') editor.history.redo();
+    else editor.history.undo();
+    editor.synchronizeValues();
+    return true;
+  };
 
   window.docsetsFocusEditor = () => {
     if (!editor) return false;

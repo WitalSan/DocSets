@@ -14,18 +14,20 @@ namespace DocSets
 
         public static void Apply(RichTextBox box, string code, string filePath)
         {
-            if (box == null)
+            if (!CanAccess(box))
             {
                 return;
             }
 
-            code = code ?? string.Empty;
-            var selectionStart = box.SelectionStart;
-            var selectionLength = box.SelectionLength;
-
-            SendMessage(box.Handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+            IntPtr handle = IntPtr.Zero;
             try
             {
+                code = code ?? string.Empty;
+                var selectionStart = box.SelectionStart;
+                var selectionLength = box.SelectionLength;
+                handle = box.Handle;
+                SendMessage(handle, WmSetRedraw, IntPtr.Zero, IntPtr.Zero);
+
                 box.Text = code;
                 box.SelectAll();
                 box.SelectionColor = box.ForeColor;
@@ -44,12 +46,29 @@ namespace DocSets
                     Math.Min(selectionStart, box.TextLength),
                     Math.Min(selectionLength, Math.Max(0, box.TextLength - Math.Min(selectionStart, box.TextLength))));
             }
+            catch (ObjectDisposedException)
+            {
+                // Асинхронное превью может завершиться одновременно с закрытием окна VS.
+            }
+            catch (InvalidOperationException) when (!CanAccess(box))
+            {
+                // Handle уничтожен между проверкой состояния и обновлением RichTextBox.
+            }
             finally
             {
-                SendMessage(box.Handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
-                box.Invalidate();
+                if (handle != IntPtr.Zero)
+                {
+                    SendMessage(handle, WmSetRedraw, new IntPtr(1), IntPtr.Zero);
+                }
+                if (CanAccess(box) && box.IsHandleCreated)
+                {
+                    box.Invalidate();
+                }
             }
         }
+
+        private static bool CanAccess(Control control)
+            => control != null && !control.IsDisposed && !control.Disposing;
 
         private static bool IsCSharp(string filePath)
         {

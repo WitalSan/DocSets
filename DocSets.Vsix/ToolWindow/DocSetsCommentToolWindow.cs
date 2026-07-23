@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms.Integration;
 
 namespace DocSets
@@ -17,6 +18,16 @@ namespace DocSets
             var host = new WindowsFormsHost { Child = control };
             host.LostKeyboardFocus += (_, __) => _ = control.CommitPendingEditAsync();
             Content = host;
+        }
+
+        internal static async Task CommitPendingEditAsync(AsyncPackage package)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var pane = package?.FindToolWindow(
+                typeof(DocSetsCommentToolWindow), 0, false)
+                as DocSetsCommentToolWindow;
+            if (pane != null)
+                await pane.control.CommitPendingEditBeforeCloseAsync();
         }
 
         internal static bool TryShowSearchResult(AsyncPackage package, DocumentItem item, int start, int length, int occurrenceIndex)

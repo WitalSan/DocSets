@@ -45,6 +45,16 @@ namespace DocSets
             currentSource = null;
         }
 
+        internal static async Task CommitPendingEditAsync(AsyncPackage package)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var pane = package?.FindToolWindow(
+                typeof(DocSetsJoditCommentToolWindow), 0, false)
+                as DocSetsJoditCommentToolWindow;
+            if (pane != null)
+                await pane.control.CommitPendingEditBeforeCloseAsync();
+        }
+
         private async Task AttachCurrentContextAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();

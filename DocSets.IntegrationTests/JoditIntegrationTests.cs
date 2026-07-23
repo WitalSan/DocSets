@@ -94,6 +94,52 @@ namespace DocSets.Tests
                         return value.Contains("<table") && value.Contains("OneNote") &&
                                !value.Contains("onenote.png");
                     }, "При смешанном буфере Jodit выбрал изображение вместо HTML.");
+                    editor.LoadComment("<p>Сессия A</p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("Сессия A"),
+                        "Jodit не загрузил первую тестовую сессию.");
+                    await editor.SimulateMixedPasteAsync(
+                        string.Empty, " изменение", string.Empty,
+                        "image/png", "unused.png", "text");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("изменение"),
+                        "Jodit не создал изменение для истории.");
+
+                    var sessionHtml = await editor.GetCurrentCommentAsync();
+                    var session = await editor.CaptureEditingSessionAsync();
+                    Assert.True(!string.IsNullOrWhiteSpace(session));
+
+                    editor.LoadComment("<p>Сессия B</p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("Сессия B"),
+                        "Jodit не переключился на вторую сессию.");
+                    await editor.LoadEditingSessionAsync(sessionHtml, session);
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("изменение"),
+                        "Jodit не восстановил содержимое первой сессии.");
+
+                    await editor.SimulateHistoryCommandAsync("undo");
+                    await editor.SimulateHistoryCommandAsync("undo");
+                    await WaitUntilAsync(async () =>
+                        !(await editor.GetCurrentCommentAsync()).Contains("изменение"),
+                        "Jodit не восстановил Undo первой сессии.");
+
+                    var redoHtml = await editor.GetCurrentCommentAsync();
+                    var redoSession = await editor.CaptureEditingSessionAsync();
+                    editor.LoadComment("<p>Сессия B после Undo</p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("Сессия B после Undo"),
+                        "Jodit не переключился после Undo.");
+                    await editor.LoadEditingSessionAsync(redoHtml, redoSession);
+                    await WaitUntilAsync(async () =>
+                        !(await editor.GetCurrentCommentAsync()).Contains("изменение"),
+                        "Jodit не восстановил сессию с доступным Redo.");
+
+                    await editor.SimulateHistoryCommandAsync("redo");
+                    await editor.SimulateHistoryCommandAsync("redo");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("изменение"),
+                        "Jodit не восстановил Redo первой сессии.");
                 }
             }
             finally

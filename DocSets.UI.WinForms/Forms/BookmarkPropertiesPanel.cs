@@ -324,19 +324,21 @@ namespace DocSets
 
         public void ShowLivePreviewLoading()
         {
+            if (IsDisposed || Disposing) return;
             livePreviewTextBox.Clear();
             livePreviewTextBox.Text = "Загрузка...";
         }
 
         public void ShowLivePreview(string preview)
         {
+            if (IsDisposed || Disposing) return;
             var text = string.IsNullOrEmpty(preview) ? "Превью недоступно." : preview;
             CodePreviewHighlighter.Apply(livePreviewTextBox, text, item?.Path ?? string.Empty);
         }
 
         private void RequestPreviewIfVisible()
         {
-            if (!loading && !multipleSelection && item != null && ReferenceEquals(tabs.SelectedTab, previewTab))
+            if (!IsDisposed && !Disposing && !loading && !multipleSelection && item != null && ReferenceEquals(tabs.SelectedTab, previewTab))
             {
                 PreviewRequested?.Invoke(this, EventArgs.Empty);
             }
@@ -344,6 +346,7 @@ namespace DocSets
 
         private void UpdateCodePreview(DocumentItem value)
         {
+            if (IsDisposed || Disposing) return;
             var state = value?.EditorState;
             var code = state?.HasSelection == true
                 ? state.SelectedText ?? string.Empty

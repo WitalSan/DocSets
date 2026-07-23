@@ -20,6 +20,7 @@ namespace DocSets
         private DocumentItem item;
         private bool dirty;
         private bool switching;
+        private bool shuttingDown;
         private long revision;
         private readonly System.Windows.Forms.Timer idleSaveTimer =
             new System.Windows.Forms.Timer { Interval = 3000 };
@@ -132,6 +133,9 @@ namespace DocSets
             editor.HighlightSearchMatch(visibleText, visibleOccurrence);
         }
         internal Task CommitPendingEditAsync() => SaveAsync(forceRead: true);
+
+        internal Task CommitPendingEditBeforeCloseAsync()
+            => SaveAsync(readEditor: false, forceRead: true);
         private void Source_CurrentCommentItemChanged(DocumentItem selectedItem)
         {
             if (followSelection.Checked) _ = SwitchItemAsync(selectedItem);
@@ -180,12 +184,13 @@ namespace DocSets
 
         private async Task SaveAsync(bool readEditor = true, bool forceRead = false)
         {
+            if (shuttingDown || IsDisposed || viewModel?.CanSave != true) return;
             idleSaveTimer.Stop();
             await saveGate.WaitAsync();
             try
             {
                 var target = item;
-                if (target == null || viewModel == null || (!dirty && !forceRead)) return;
+                if (target == null || viewModel == null || !viewModel.CanSave || (!dirty && !forceRead)) return;
                 var savingRevision = revision;
                 // TOAST сохраняет собственную редактируемую версию. В модель передаём
                 // отдельный снимок, в котором data:image уже вынесены в assets.
@@ -210,7 +215,7 @@ namespace DocSets
             finally
             {
                 saveGate.Release();
-                if (dirty && !IsDisposed)
+                if (dirty && !shuttingDown && !IsDisposed)
                 {
                     idleSaveTimer.Stop();
                     idleSaveTimer.Start();
@@ -249,17 +254,17 @@ namespace DocSets
         {
             if (disposing)
             {
+                if (dirty && item != null && viewModel?.CanSave == true)
+                    ThreadHelper.JoinableTaskFactory.Run(() => SaveAsync(readEditor: false));
+                shuttingDown = true;
                 if (source != null)
                 {
                     source.CurrentCommentItemChanged -= Source_CurrentCommentItemChanged;
                     source.CommentContentChanged -= Source_CommentContentChanged;
                 }
                 idleSaveTimer.Stop();
-                if (dirty && item != null && viewModel != null)
-                    ThreadHelper.JoinableTaskFactory.Run(() => SaveAsync(readEditor: false));
                 editor.Dispose();
                 idleSaveTimer.Dispose();
-                saveGate.Dispose();
                 toolTip.Dispose();
                 saveButton.Image?.Dispose();
             }
