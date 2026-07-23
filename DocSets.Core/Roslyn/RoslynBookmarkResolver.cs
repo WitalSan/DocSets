@@ -330,8 +330,11 @@ namespace DocSets
                 var point = selection.IsEmpty ? selection.ActivePoint : selection.TopPoint;
                 var position = ToTextPosition(text, Math.Max(1, point.Line), Math.Max(1, point.LineCharOffset));
                 var node = root.FindToken(position).Parent;
-                ISymbol symbol = null;
-                for (var current = node; current != null && symbol == null; current = current.Parent)
+                var draggedIdentifier = NormalizeIdentifier(draggedText);
+                ISymbol symbol = FindDraggedSymbol(semanticModel, root, position, draggedIdentifier);
+                for (var current = node;
+                     current != null && symbol == null && draggedIdentifier == null;
+                     current = current.Parent)
                 {
                     var info = semanticModel.GetSymbolInfo(current);
                     symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault();
@@ -341,13 +344,58 @@ namespace DocSets
                 if (symbol is IAliasSymbol alias) symbol = alias.Target;
                 return new ActiveSymbolReference
                 {
-                    Name = string.IsNullOrWhiteSpace(draggedText) ? symbol.Name : draggedText.Trim(),
+                    Name = CreateDisplayName(symbol),
                     Symbol = symbol.ToDisplayString(StoredSymbolFormat),
                     Project = document.Project.Name ?? "",
                     Path = document.FilePath ?? ""
                 };
             }
             catch { return null; }
+        }
+
+        private static ISymbol FindDraggedSymbol(
+            SemanticModel semanticModel, SyntaxNode root, int position, string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return null;
+
+            foreach (var token in root.DescendantTokens()
+                         .Where(candidate => string.Equals(candidate.ValueText, name, StringComparison.Ordinal))
+                         .OrderBy(candidate => Math.Abs(candidate.SpanStart - position)))
+            {
+                var current = token.Parent;
+                while (current != null)
+                {
+                    var info = semanticModel.GetSymbolInfo(current);
+                    var symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault()
+                                 ?? semanticModel.GetDeclaredSymbol(current);
+                    if (symbol != null && string.Equals(symbol.Name, name, StringComparison.Ordinal))
+                        return symbol is IAliasSymbol alias ? alias.Target : symbol;
+                    if (current is MemberDeclarationSyntax || current is LocalFunctionStatementSyntax)
+                        break;
+                    current = current.Parent;
+                }
+            }
+
+            var candidates = semanticModel.LookupSymbols(position, name: name)
+                .Where(candidate => candidate != null && !(candidate is INamespaceSymbol))
+                .ToArray();
+            return candidates.FirstOrDefault(candidate => candidate.Locations.Any(location =>
+                       location.IsInSource && location.SourceTree == root.SyntaxTree))
+                   ?? candidates.FirstOrDefault();
+        }
+
+        private static string NormalizeIdentifier(string value)
+        {
+            var name = (value ?? string.Empty).Trim();
+            if (name.StartsWith("@", StringComparison.Ordinal)) name = name.Substring(1);
+            return IsIdentifier(name) ? name : null;
+        }
+
+        private static bool IsIdentifier(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || !(char.IsLetter(value[0]) || value[0] == '_'))
+                return false;
+            return value.Skip(1).All(character => char.IsLetterOrDigit(character) || character == '_');
         }
 
         public Task<bool> TryOpenBookmarkBySymbolAsync(DocumentItem item)

@@ -132,6 +132,21 @@ namespace DocSets
 
         public SolutionLocalState SolutionState => solutionState;
 
+        public ContentFormat NewNoteContentFormat
+        {
+            get => solutionState.NewNoteContentFormat == ContentFormat.Html
+                ? ContentFormat.Html
+                : ContentFormat.Markdown;
+            set
+            {
+                var normalized = value == ContentFormat.Html ? ContentFormat.Html : ContentFormat.Markdown;
+                if (solutionState.NewNoteContentFormat == normalized) return;
+                solutionState.NewNoteContentFormat = normalized;
+                SaveSolutionState();
+                OnPropertyChanged();
+            }
+        }
+
         public bool IsLoaded
         {
             get => isLoaded;
@@ -688,7 +703,14 @@ namespace DocSets
 
             _ = ExecuteMutationAsync(nameof(AddFolder), () =>
             {
-            var folder = new DocumentItem { Name = name.Trim(), NodeType = NodeType.Folder, Type = BookmarkType.Empty, IsExpanded = true };
+            var folder = new DocumentItem
+            {
+                Name = name.Trim(),
+                NodeType = NodeType.Folder,
+                Type = BookmarkType.Empty,
+                ContentFormat = NewNoteContentFormat,
+                IsExpanded = true
+            };
             if (parent != null && parent.NodeType == NodeType.Folder)
             {
                 parent.Children.Add(folder);
@@ -733,6 +755,7 @@ namespace DocSets
             {
                 await fileTracking.TrackFromActiveDocumentAsync(bookmark);
             }
+            bookmark.ContentFormat = NewNoteContentFormat;
             return bookmark;
         }
 
@@ -916,6 +939,8 @@ namespace DocSets
                     IsExpanded = true
                 };
             }
+
+            folder.ContentFormat = NewNoteContentFormat;
 
             if (target != null && !treeService.ContainsNode(set.Children, target))
             {
@@ -1525,6 +1550,7 @@ namespace DocSets
                 Line = item.Line,
                 Column = item.Column,
                 Content = item.Content ?? string.Empty,
+                ContentFormat = item.ContentFormat,
                 Color = item.Color,
                 TagIds = item.TagIds?.ToList() ?? new List<string>(),
                 EditorState = item.EditorState?.Clone()
@@ -1577,6 +1603,7 @@ namespace DocSets
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
                 Content = source.Content ?? string.Empty,
+                ContentFormat = source.ContentFormat,
                 Color = source.Color,
                 TagIds = source.TagIds?.ToList() ?? new List<string>(),
                 EditorState = source.EditorState?.Clone(),
@@ -1840,6 +1867,10 @@ namespace DocSets
             [JsonProperty("content")]
             public string Content { get; set; }
 
+            [JsonProperty("contentFormat")]
+            [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+            public ContentFormat ContentFormat { get; set; } = ContentFormat.Markdown;
+
             [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
             [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
             public BookmarkColor Color { get; set; }
@@ -1937,6 +1968,27 @@ namespace DocSets
             item = ResolvePin(item);
             if (!IsStoredBookmark(item)) return;
             StampModified(item, ensureCreated: true);
+        }
+
+        /// <summary>
+        /// Изменяет формат только пустой заметки. Операция проходит через общий механизм
+        /// мутаций, поэтому создаёт один Undo и выполняет одно сохранение документа.
+        /// </summary>
+        public Task ChangeEmptyContentFormatAsync(DocumentItem item, ContentFormat format)
+        {
+            item = ResolvePin(item);
+            if (item == null) throw new ArgumentNullException(nameof(item));
+            if (format != ContentFormat.Markdown && format != ContentFormat.Html)
+                throw new ArgumentOutOfRangeException(nameof(format));
+            if (item.ContentFormat == format) return Task.CompletedTask;
+            if (!string.IsNullOrWhiteSpace(item.Content))
+                throw new InvalidOperationException("Формат можно изменить только у пустой заметки.");
+
+            return ExecuteMutationAsync("Изменение формата пустой заметки", () =>
+            {
+                item.ContentFormat = format;
+                MarkBookmarkModified(item);
+            });
         }
 
         private bool IsStoredBookmark(DocumentItem item)

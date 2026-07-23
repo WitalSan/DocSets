@@ -29,6 +29,8 @@ namespace DocSets
     [ProvideToolWindow(typeof(DocSetsToolWindow))]
     [ProvideToolWindow(typeof(DocSetsCommentToolWindow))]
     [ProvideToolWindow(typeof(DocSetsMilkdownCommentToolWindow))]
+    [ProvideToolWindow(typeof(DocSetsCkEditorCommentToolWindow))]
+    [ProvideToolWindow(typeof(DocSetsJoditCommentToolWindow))]
     public sealed class DocSetsPackage : AsyncPackage
     {
         /// <summary>

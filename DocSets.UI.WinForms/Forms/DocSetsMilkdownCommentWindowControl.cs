@@ -114,17 +114,8 @@ namespace DocSets
             };
             editor.ExternalSymbolDropRequested += async text =>
             {
-                if (viewModel == null) return;
-                var symbol = await viewModel.GetActiveSymbolReferenceAsync(text);
-                if (symbol == null || string.IsNullOrWhiteSpace(symbol.Symbol)) return;
-                editor.InsertResolvedLink(new DocumentLink
-                {
-                    Kind = DocumentLinkKind.Symbol,
-                    Caption = string.IsNullOrWhiteSpace(text) ? symbol.Name : text,
-                    Target = symbol.Symbol,
-                    Project = symbol.Project,
-                    SourceId = symbol.SourceId
-                });
+                var link = await DocumentLinkService.ResolveDroppedSymbolAsync(viewModel, text);
+                if (link != null) editor.InsertResolvedLink(link);
             };
             Leave += async (_, __) => await SaveAsync(forceRead: true);
         }

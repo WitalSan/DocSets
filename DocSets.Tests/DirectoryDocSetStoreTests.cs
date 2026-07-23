@@ -271,6 +271,22 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void JsonTransferTransformsHtmlFileLinkForHtmlNotes()
+        {
+            var service = new SourceReferenceService();
+            var repository = Path.Combine(Path.GetTempPath(), "SharedRepository");
+            var source = Context(new SourceReferenceRoot { Id = "default", Root = repository, IsDefault = true });
+            var target = Context(
+                new SourceReferenceRoot { Id = "default", Root = Path.Combine(Path.GetTempPath(), "Other"), IsDefault = true },
+                new SourceReferenceRoot { Id = "shared", Root = repository });
+
+            var html = service.RebaseMarkdownFileLinks(
+                "<p><a href=\"file:lib\\Shared.cs\">Shared</a></p>", source, target);
+
+            Assert.Equal("<p><a href=\"file:shared|lib\\Shared.cs\">Shared</a></p>", html);
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void JsonTransferKeepsAbsolutePathOnlyWhenTargetHasNoMatchingSource()
         {
             var service = new SourceReferenceService();
@@ -372,6 +388,36 @@ namespace DocSets.Tests
             {
                 Id = "docx", ContentFormat = ContentFormat.Docx, ContentPath = "content/docx.docx"
             }).GetAwaiter().GetResult());
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void DocumentRepositoryRoundTripsEmbeddedHtmlWithoutTreatingItAsMarkdown()
+        {
+            WithTemporaryDocSet((store, directory) =>
+            {
+                var manifest = store.CreateAsync(directory, "html", "HTML notes").GetAwaiter().GetResult();
+                manifest.Items.Add(new DocSetItemStorageDto
+                {
+                    Id = "rich-note",
+                    Name = "Rich note",
+                    ContentFormat = ContentFormat.Html,
+                    Content = "<h2>Заголовок</h2><table><tbody><tr><td>Ячейка</td></tr></tbody></table>"
+                });
+                store.SaveAsync(directory, manifest).GetAwaiter().GetResult();
+
+                var repository = new DocSetDocumentRepository(store, null, new RecordingLogger());
+                var document = repository.OpenAsync(directory).GetAwaiter().GetResult();
+                var item = document.State.Sets[0];
+
+                Assert.Equal(ContentFormat.Html, item.ContentFormat);
+                Assert.True(item.Content.Contains("<table>"));
+                item.Content += "<p style=\"color:red\">Текст</p>";
+                repository.SaveAsync(document).GetAwaiter().GetResult();
+
+                var restored = store.OpenAsync(directory).GetAwaiter().GetResult().Items[0];
+                Assert.Equal(ContentFormat.Html, restored.ContentFormat);
+                Assert.True(restored.Content.Contains("color:red"));
+            });
         }
 
         private static void WithTemporaryDocSet(Action<DirectoryDocSetStore, string> action)

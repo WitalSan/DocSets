@@ -40,12 +40,23 @@
     <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs" Link="Source\ToastCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs" Link="Source\MilkdownCommentControl.cs" />
+    <Compile Include="..\DocSets.Vsix\WinFormsHost\CkEditorCommentControl.cs" Link="Source\CkEditorCommentControl.cs" />
+    <Compile Include="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs" Link="Source\JoditCommentControl.cs" />
+    <Compile Include="..\DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" Link="Source\WebEditorExternalDropBridge.cs" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\index.html" LogicalName="DocSets.Milkdown.index.html" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.js" LogicalName="DocSets.Milkdown.milkdown-editor.js" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css" LogicalName="DocSets.Milkdown.milkdown-editor.css" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\CKEditor\index.html" LogicalName="DocSets.CKEditor.index.html" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\CKEditor\ckeditor-editor.js" LogicalName="DocSets.CKEditor.ckeditor-editor.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\CKEditor\ckeditor5.umd.js" LogicalName="DocSets.CKEditor.ckeditor5.umd.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\CKEditor\ckeditor5.css" LogicalName="DocSets.CKEditor.ckeditor5.css" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\index.html" LogicalName="DocSets.Jodit.index.html" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit-editor.js" LogicalName="DocSets.Jodit.jodit-editor.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.js" LogicalName="DocSets.Jodit.jodit.min.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.css" LogicalName="DocSets.Jodit.jodit.min.css" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="$(VsIdeDir)Extensions\Microsoft\Web Live Preview\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll">

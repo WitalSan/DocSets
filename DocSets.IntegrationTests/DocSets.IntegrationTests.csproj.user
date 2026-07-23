@@ -2,6 +2,12 @@
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup />
   <ItemGroup>
+    <Compile Update="..\DocSets.Vsix\WinFormsHost\CkEditorCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Update="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Update="..\DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>

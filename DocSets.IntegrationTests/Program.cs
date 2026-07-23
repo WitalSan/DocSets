@@ -12,17 +12,31 @@ namespace DocSets.Tests
             => File.AppendAllText(TracePath, DateTime.Now.ToString("O") + " " + message + Environment.NewLine);
 
         [STAThread]
-        private static int Main()
+        private static int Main(string[] args)
         {
             try
             {
                 File.WriteAllText(TracePath, string.Empty);
                 Trace("Запуск процесса.");
-                new ToastClipboardIntegrationTests()
-                    .TextAndImageRoundTripThroughWindowsClipboardAndTwoToastEditors();
-                new MilkdownClipboardIntegrationTests()
-                    .MarkdownAndImageRoundTripThroughWindowsClipboardAndTwoMilkdownEditors();
-                Console.WriteLine("Интеграционные тесты TOAST, Milkdown и Clipboard пройдены.");
+                var filter = args != null && args.Length > 0
+                    ? args[0].Trim().ToLowerInvariant()
+                    : "all";
+                if (filter == "all" || filter == "toast")
+                    new ToastClipboardIntegrationTests()
+                        .TextAndImageRoundTripThroughWindowsClipboardAndTwoToastEditors();
+                if (filter == "all" || filter == "milkdown")
+                    new MilkdownClipboardIntegrationTests()
+                        .MarkdownAndImageRoundTripThroughWindowsClipboardAndTwoMilkdownEditors();
+                if (filter == "all" || filter == "ckeditor")
+                    new CkEditorIntegrationTests()
+                        .HtmlTableAndFormattingRoundTripThroughCkEditor();
+                if (filter == "all" || filter == "jodit")
+                    new JoditIntegrationTests()
+                        .HtmlTableFormattingAndAssetLinkRoundTripThroughJodit();
+                if (filter == "all" || filter == "drop")
+                    new ExternalSymbolDropIntegrationTests()
+                        .SameExternalDropPipelineInsertsMarkdownAndHtmlLinks();
+                Console.WriteLine("Интеграционные тесты TOAST, Milkdown, CKEditor, Jodit и Clipboard пройдены.");
                 Trace("Тест пройден.");
                 return 0;
             }

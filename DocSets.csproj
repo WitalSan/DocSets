@@ -82,6 +82,12 @@
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsMilkdownCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCkEditorCommentWindowControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsJoditCommentWindowControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsLogControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -109,6 +115,8 @@
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsMilkdownCommentToolWindow.cs" />
+    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCkEditorCommentToolWindow.cs" />
+    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsJoditCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
       <SubType>UserControl</SubType>
@@ -116,6 +124,13 @@
     <Compile Include="DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.Vsix\WinFormsHost\CkEditorCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.Vsix\WinFormsHost\JoditCommentControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\VsMarkdownCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -258,6 +273,30 @@
     </EmbeddedResource>
     <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css">
       <LogicalName>DocSets.Milkdown.milkdown-editor.css</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\index.html">
+      <LogicalName>DocSets.CKEditor.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\ckeditor-editor.js">
+      <LogicalName>DocSets.CKEditor.ckeditor-editor.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\ckeditor5.umd.js">
+      <LogicalName>DocSets.CKEditor.ckeditor5.umd.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\ckeditor5.css">
+      <LogicalName>DocSets.CKEditor.ckeditor5.css</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\index.html">
+      <LogicalName>DocSets.Jodit.index.html</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\jodit-editor.js">
+      <LogicalName>DocSets.Jodit.jodit-editor.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\jodit.min.js">
+      <LogicalName>DocSets.Jodit.jodit.min.js</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\jodit.min.css">
+      <LogicalName>DocSets.Jodit.jodit.min.css</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

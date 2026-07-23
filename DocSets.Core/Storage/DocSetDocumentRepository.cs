@@ -42,10 +42,10 @@ namespace DocSets
 
         private static void EnsureSupported(ContentFormat format, string contentPath)
         {
-            if (format != ContentFormat.Markdown)
+            if (format != ContentFormat.Markdown && format != ContentFormat.Html)
                 throw new NotSupportedException("Формат содержимого пока не поддерживается: " + format + ".");
             if (!string.IsNullOrWhiteSpace(contentPath))
-                throw new NotSupportedException("Версия формата 1 поддерживает только встроенный Markdown.");
+                throw new NotSupportedException("Версия формата 1 поддерживает только встроенное содержимое.");
         }
     }
 

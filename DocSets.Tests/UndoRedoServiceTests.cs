@@ -1,4 +1,5 @@
 using System;
+using Newtonsoft.Json;
 
 namespace DocSets.Tests
 {
@@ -51,6 +52,36 @@ namespace DocSets.Tests
             Assert.Equal("after", snapshot);
             Assert.SequenceEqual(new[] { "new-item" }, itemIds);
             Assert.Equal("new-set", setId);
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void UndoRestoresContentFormatOfEmptyNote()
+        {
+            var item = new DocumentItem
+            {
+                Id = "note",
+                Name = "Note",
+                Content = string.Empty,
+                ContentFormat = ContentFormat.Markdown
+            };
+            var state = new DocumentSetsState();
+            state.Sets.Add(item);
+            var before = JsonConvert.SerializeObject(state);
+
+            var service = new UndoRedoService();
+            service.Capture("Изменение формата пустой заметки", before, new[] { item.Id }, new[] { item.Id });
+            item.ContentFormat = ContentFormat.Html;
+            var after = JsonConvert.SerializeObject(state);
+            Assert.Equal(ContentFormat.Html,
+                JsonConvert.DeserializeObject<DocumentSetsState>(after).Sets[0].ContentFormat);
+
+            Assert.True(service.TryUndo(after, out var restoredSnapshot));
+            var restored = JsonConvert.DeserializeObject<DocumentSetsState>(restoredSnapshot);
+            Assert.Equal(ContentFormat.Markdown, restored.Sets[0].ContentFormat);
+
+            Assert.True(service.TryRedo(restoredSnapshot, out var redoneSnapshot));
+            var redone = JsonConvert.DeserializeObject<DocumentSetsState>(redoneSnapshot);
+            Assert.Equal(ContentFormat.Html, redone.Sets[0].ContentFormat);
         }
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void CommentUndoRedoSequenceDoesNotCreateExtraOperationsOrNodes()

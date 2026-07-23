@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace DocSets
@@ -45,6 +46,28 @@ namespace DocSets
         private static readonly Regex LinkPattern = new Regex(
             @"\[(?<caption>[^\]]+)\]\((?:(?<kind>symbol|file|bookmark):(?<target>[^\)]+)|(?<url>https?://[^\)]+))\)|\[\[(?<short>[^\]]+)\]\]",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// Разрешает текст, перетащенный из редактора Visual Studio, в каноническую
+        /// ссылку DocSets. Редакторы отличаются только способом вставки результата.
+        /// </summary>
+        public static async Task<DocumentLink> ResolveDroppedSymbolAsync(
+            DocSetsViewModel viewModel, string draggedText)
+        {
+            if (viewModel == null || string.IsNullOrWhiteSpace(draggedText)) return null;
+
+            var symbol = await viewModel.GetActiveSymbolReferenceAsync(draggedText);
+            if (symbol == null || string.IsNullOrWhiteSpace(symbol.Symbol)) return null;
+
+            return new DocumentLink
+            {
+                Kind = DocumentLinkKind.Symbol,
+                Caption = symbol.Name,
+                Target = symbol.Symbol,
+                Project = symbol.Project,
+                SourceId = symbol.SourceId
+            };
+        }
 
         public static string ToMarkdown(DocumentLink link)
         {

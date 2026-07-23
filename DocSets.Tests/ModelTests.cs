@@ -139,6 +139,18 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ContentFirstLineDisplaysHtmlTextInsteadOfMarkup()
+        {
+            var item = new DocumentItem
+            {
+                ContentFormat = ContentFormat.Html,
+                Content = "<h2>Заголовок &amp; текст</h2><p>Следующая строка</p>"
+            };
+
+            Assert.Equal("Заголовок & текст", item.ContentFirstLine);
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void LineAndColumnAreClampedToOne()
         {
             var item = new DocumentItem { Line = -10, Column = 0 };
@@ -190,6 +202,7 @@ namespace DocSets.Tests
                 ExpandedPropertiesSections = new List<string> { "preview", "code" },
                 PropertiesContentTab = "comment",
                 PropertiesDockLayout = "{\"groups\":[]}",
+                NewNoteContentFormat = ContentFormat.Html,
                 FilterColors = new List<BookmarkColor> { BookmarkColor.Red, BookmarkColor.Blue }
             };
             var restored = JsonConvert.DeserializeObject<SolutionLocalState>(JsonConvert.SerializeObject(state));
@@ -198,6 +211,7 @@ namespace DocSets.Tests
             Assert.SequenceEqual(state.ExpandedPropertiesSections, restored.ExpandedPropertiesSections);
             Assert.Equal("comment", restored.PropertiesContentTab);
             Assert.Equal(state.PropertiesDockLayout, restored.PropertiesDockLayout);
+            Assert.Equal(ContentFormat.Html, restored.NewNoteContentFormat);
             Assert.SequenceEqual(state.FilterColors, restored.FilterColors);
         }
 

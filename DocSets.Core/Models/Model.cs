@@ -4,7 +4,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
 namespace DocSets
@@ -63,6 +65,10 @@ namespace DocSets
 
         [JsonProperty("propertiesDockLayout", NullValueHandling = NullValueHandling.Ignore)]
         public string PropertiesDockLayout { get; set; } = "";
+
+        [JsonProperty("newNoteContentFormat")]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ContentFormat NewNoteContentFormat { get; set; } = ContentFormat.Markdown;
 
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
@@ -355,12 +361,15 @@ namespace DocSets
                 Name = item.Name ?? "",
                 NodeType = item.NodeType,
                 Type = item.Type,
+                SourceId = item.SourceId ?? "",
                 Symbol = item.Type == BookmarkType.Symbol ? item.Symbol ?? "" : "",
                 Project = item.Type == BookmarkType.Symbol ? item.Project ?? "" : "",
                 Path = item.Path ?? "",
                 Line = item.Line,
                 Column = item.Column,
                 Comment = item.Content ?? "",
+                ContentFormat = item.ContentFormat,
+                ContentPath = item.ContentPath ?? "",
                 Color = item.Color,
                 CreatedAtUtc = item.CreatedAtUtc,
                 ModifiedAtUtc = item.ModifiedAtUtc,
@@ -419,12 +428,15 @@ namespace DocSets
                 Name = source.Name ?? "",
                 NodeType = source.NodeType == NodeType.Set ? NodeType.Folder : source.NodeType,
                 Type = type,
+                SourceId = source.SourceId ?? "",
                 Symbol = type == BookmarkType.Symbol ? source.Symbol ?? "" : "",
                 Project = type == BookmarkType.Symbol ? source.Project ?? "" : "",
                 Path = source.Path ?? "",
                 Line = source.Line < 1 ? 1 : source.Line,
                 Column = source.Column < 1 ? 1 : source.Column,
                 Content = source.Comment ?? "",
+                ContentFormat = source.ContentFormat,
+                ContentPath = source.ContentPath ?? "",
                 Color = source.Color,
                 CreatedAtUtc = source.CreatedAtUtc,
                 ModifiedAtUtc = source.ModifiedAtUtc,
@@ -541,6 +553,9 @@ namespace DocSets
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public BookmarkType Type { get; set; }
 
+        [JsonProperty("sourceId", NullValueHandling = NullValueHandling.Ignore)]
+        public string SourceId { get; set; }
+
         [JsonProperty("symbol", NullValueHandling = NullValueHandling.Ignore)]
         public string Symbol { get; set; }
 
@@ -558,6 +573,13 @@ namespace DocSets
 
         [JsonProperty("comment", NullValueHandling = NullValueHandling.Ignore)]
         public string Comment { get; set; }
+
+        [JsonProperty("contentFormat")]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ContentFormat ContentFormat { get; set; } = ContentFormat.Markdown;
+
+        [JsonProperty("contentPath", NullValueHandling = NullValueHandling.Ignore)]
+        public string ContentPath { get; set; }
 
         [JsonProperty("color", DefaultValueHandling = DefaultValueHandling.Ignore)]
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
@@ -876,7 +898,11 @@ namespace DocSets
         public ContentFormat ContentFormat
         {
             get => contentFormat;
-            set => SetProperty(ref contentFormat, value);
+            set
+            {
+                if (SetProperty(ref contentFormat, value))
+                    OnPropertyChanged(nameof(ContentFirstLine));
+            }
         }
 
         [JsonProperty("contentPath", NullValueHandling = NullValueHandling.Ignore)]
@@ -918,6 +944,13 @@ namespace DocSets
                 }
 
                 var normalized = Content.Replace("\r\n", "\n").Replace('\r', '\n');
+                if (ContentFormat == ContentFormat.Html)
+                {
+                    normalized = Regex.Replace(normalized,
+                        @"<\s*(?:br\s*/?|/p|/div|/h[1-6]|/li|/tr)\s*>", "\n",
+                        RegexOptions.IgnoreCase);
+                    normalized = WebUtility.HtmlDecode(Regex.Replace(normalized, @"<[^>]+>", string.Empty));
+                }
                 var index = normalized.IndexOf('\n');
                 return index < 0 ? normalized.Trim() : normalized.Substring(0, index).Trim();
             }

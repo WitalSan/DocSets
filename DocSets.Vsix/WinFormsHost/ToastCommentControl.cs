@@ -131,6 +131,12 @@ namespace DocSets
         }
         internal bool SaveEnabled => saveButton.Enabled;
 
+        internal Task<ExternalDropTestResult> SimulateExternalTextDropAsync(string value)
+            => WebEditorExternalDropBridge.SimulateAsync(webView.CoreWebView2, value);
+
+        internal Task SetTestSelectionAsync(int textOffset)
+            => webView.ExecuteScriptAsync("window.docsetsSetTestSelection(" + Math.Max(0, textOffset) + ")");
+
         private void RequestSave()
         {
             if (saveButton.Enabled) SaveRequested?.Invoke(this, EventArgs.Empty);
@@ -215,6 +221,7 @@ view.focus();return document.execCommand('copy');})()";
                 Directory.CreateDirectory(userDataFolder);
                 var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
                 await webView.EnsureCoreWebView2Async(environment);
+                await WebEditorExternalDropBridge.InstallAsync(webView.CoreWebView2);
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
@@ -568,7 +575,6 @@ function placeCaret(e){
   const range=document.caretRangeFromPoint&&document.caretRangeFromPoint(e.clientX,e.clientY);
   if(!range)return; const selection=window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
 }
-document.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';placeCaret(e);window.docsetsEditor.focus()},true);
 function isImageFile(file){return !!file&&(/^image\//i.test(file.type||'')||/\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name||''))}
 function sendImage(file,callback){
   if(!isImageFile(file))return false;
@@ -577,6 +583,8 @@ function sendImage(file,callback){
   if(/^image\/(png|jpeg|gif|webp)$/i.test(file.type||'')){transmit(file,file.name,file.type);return true}
   createImageBitmap(file).then(bitmap=>{const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close();canvas.toBlob(blob=>{if(blob)transmit(blob,(file.name||'image').replace(/\.[^.]+$/,'')+'.png','image/png')},'image/png')}).catch(()=>{});return true;
 }
+document.addEventListener('dragover',e=>{const files=Array.from(e.dataTransfer?.files||[]);if(!files.some(isImageFile))return;e.preventDefault();e.dataTransfer.dropEffect='copy';placeCaret(e);window.docsetsEditor.focus()},true);
+document.addEventListener('drop',e=>{const files=Array.from(e.dataTransfer?.files||[]),image=files.find(isImageFile);if(!image)return;e.preventDefault();e.stopImmediatePropagation();placeCaret(e);window.docsetsEditor.focus();sendImage(image)},true);
 document.addEventListener('copy',e=>{
   const selection=window.getSelection();if(!selection||selection.rangeCount===0||selection.isCollapsed)return;
   const container=document.createElement('div');container.appendChild(selection.getRangeAt(0).cloneContents());
@@ -615,13 +623,20 @@ document.addEventListener('paste',e=>{
   window.docsetsPasteHtml(html,data.getData('text/plain')||'');
 },true);
 function safeEditorLink(target){const m=/^(symbol|bookmark|file):([\s\S]+)$/i.exec(target);return m?'https://docsets.local/'+m[1].toLowerCase()+'/'+encodeURIComponent(m[2]):target}
-function needsDropSpace(){
+function dropSpaces(){
   try{
-    if(window.docsetsEditor.isMarkdownMode()){const selection=window.docsetsEditor.getSelection();return selection&&selection[0]&&selection[0][1]>0}
+    if(window.docsetsEditor.isMarkdownMode()){
+      const selection=window.docsetsEditor.getSelection(),start=selection&&selection[0],end=selection&&selection[1];
+      const lines=window.docsetsEditor.getMarkdown().split('\n'),line=lines[(start?.[0]||1)-1]||'';
+      const from=start?.[1]||0,to=end?.[1]||from,before=line.slice(Math.max(0,from-1),from),after=line.slice(to,to+1);
+      return {prefix:before&&!/\s/.test(before)?' ':'',suffix:after&&!/\s/.test(after)?' ':''}
+    }
     const view=window.docsetsEditor.getCurrentModeEditor()?.view,$from=view?.state.selection.$from;
-    if(!$from||$from.parentOffset===0)return false;
-    const before=$from.parent.textBetween(Math.max(0,$from.parentOffset-1),$from.parentOffset,'','');return before&&!/\s/.test(before)
-  }catch{return false}
+    const $to=view?.state.selection.$to;if(!$from||!$to)return {prefix:'',suffix:''};
+    const before=$from.parent.textBetween(Math.max(0,$from.parentOffset-1),$from.parentOffset,'','');
+    const after=$to.parent.textBetween($to.parentOffset,Math.min($to.parent.content.size,$to.parentOffset+1),'','');
+    return {prefix:before&&!/\s/.test(before)?' ':'',suffix:after&&!/\s/.test(after)?' ':''}
+  }catch{return {prefix:'',suffix:''}}
 }
 window.docsetsHighlightSearch=(value,occurrence)=>{
   value=value||'';occurrence=Math.max(0,occurrence||0);if(!value)return false;
@@ -670,17 +685,24 @@ window.docsetsHighlightSearch=(value,occurrence)=>{
 };window.docsetsInsertDropped=insertDroppedValue;
 function insertDroppedValue(value){
   value=(value||'').replace(/^\s+|\s+$/g,''); if(!value)return;
-  const link=/^\[([^\]]+)\]\(([\s\S]+)\)$/.exec(value),prefix=needsDropSpace()?' ':'';
-  if(!link||window.docsetsEditor.isMarkdownMode()){window.docsetsEditor.insertText(prefix+value);return}
+  const link=/^\[([^\]]+)\]\(([\s\S]+)\)$/.exec(value),spaces=dropSpaces(),prefix=spaces.prefix,suffix=spaces.suffix;
+  if(!link||window.docsetsEditor.isMarkdownMode()){window.docsetsEditor.insertText(prefix+value+suffix);return}
   try{
     const mode=window.docsetsEditor.getCurrentModeEditor(),view=mode&&mode.view;if(!view)throw 0;
     const state=view.state,from=state.selection.from,to=state.selection.to,caption=link[1],url=safeEditorLink(link[2]);
     const start=from+prefix.length,end=start+caption.length,mark=state.schema.marks.link.create({linkUrl:url});
-    let tr=state.tr.insertText(prefix+caption,from,to).addMark(start,end,mark);
+    let tr=state.tr.insertText(prefix+caption+suffix,from,to).addMark(start,end,mark);
     tr=tr.setSelection(state.selection.constructor.create(tr.doc,start,end)); view.dispatch(tr); view.focus();
   }catch{window.docsetsEditor.insertText(prefix+value)}
 }
-document.addEventListener('drop',e=>{e.preventDefault();placeCaret(e);window.docsetsEditor.focus();const files=Array.from(e.dataTransfer.files||[]);const image=files.find(isImageFile);if(image&&sendImage(image))return;let value=e.dataTransfer.getData('text/plain')||e.dataTransfer.getData('text')||'';if(!value&&files.length)value=files.map(f=>f.name).join('\n');if(value){const isLink=/^\[[^\]]+\]\(([\s\S]+)\)\s*$/.test(value.trim());if(isLink)insertDroppedValue(value);else send({type:'externalDrop',text:value})}},true);
+window.docsetsSetTestSelection=offset=>{
+  try{
+    const view=window.docsetsEditor.getCurrentModeEditor()?.view;if(!view)return false;
+    let hit=null;view.state.doc.descendants((node,pos)=>{if(hit!==null||!node.isText)return;hit=pos+Math.min(Math.max(0,offset||0),node.nodeSize)});
+    if(hit===null)return false;const selection=view.state.selection.constructor.create(view.state.doc,hit);
+    view.dispatch(view.state.tr.setSelection(selection));view.focus();return true
+  }catch{return false}
+};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='s'){e.preventDefault();e.stopImmediatePropagation();flushChange();send({type:'save'})}},true);
 send({type:'ready'});
 </script></body></html>";

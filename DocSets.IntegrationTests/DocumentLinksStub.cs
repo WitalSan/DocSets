@@ -21,7 +21,15 @@ namespace DocSets
 
     internal static class DocumentLinkService
     {
-        public static string ToMarkdown(DocumentLink link) => string.Empty;
+        public static string ToMarkdown(DocumentLink link)
+        {
+            var target = link.Target;
+            if (link.Kind == DocumentLinkKind.Symbol && !string.IsNullOrWhiteSpace(link.Project))
+                target = link.Project + "|" + target;
+            if (link.Kind == DocumentLinkKind.Symbol && !string.IsNullOrWhiteSpace(link.SourceId))
+                target = link.SourceId + "|" + target;
+            return "[" + link.Caption + "](" + link.Kind.ToString().ToLowerInvariant() + ":" + target + ")";
+        }
         public static DocumentLinkRenderResult Render(string markdown) => new DocumentLinkRenderResult();
     }
 }

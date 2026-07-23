@@ -18,6 +18,8 @@ namespace DocSets
         public event EventHandler CommentEditorFocusRequested;
         public event EventHandler OpenCommentWindowRequested;
         public event EventHandler OpenMilkdownWindowRequested;
+        public event EventHandler OpenCkEditorWindowRequested;
+        public event EventHandler OpenJoditWindowRequested;
         internal event Action<DocumentItem> CurrentCommentItemChanged;
         internal event Action<DocumentItem, object> CommentContentChanged;
         internal event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
@@ -25,6 +27,7 @@ namespace DocSets
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly Button _openDocSetButton = new Button();
         private readonly Button _createDocSetButton = new Button();
+        private readonly ToolStripDropDownButton _newNoteFormatButton = new ToolStripDropDownButton();
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
@@ -332,6 +335,8 @@ namespace DocSets
             AddTreeActivationModeButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddPropertiesPanelButton();
+            _toolStrip.Items.Add(new ToolStripSeparator());
+            SetupNewNoteFormatButton();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip, 2, 0);
@@ -1230,6 +1235,46 @@ namespace DocSets
             _toolStrip.Items.Add(_findNextButton);
             _toolStrip.Items.Add(_findCounterLabel);
             UpdateFindCounter();
+        }
+
+        private void SetupNewNoteFormatButton()
+        {
+            _newNoteFormatButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _newNoteFormatButton.ToolTipText =
+                "Формат содержимого для новых заметок. Существующие заметки не преобразуются.";
+
+            var markdown = new ToolStripMenuItem("Markdown");
+            var html = new ToolStripMenuItem("HTML (CKEditor)");
+            markdown.Click += (_, __) => SetNewNoteContentFormat(ContentFormat.Markdown);
+            html.Click += (_, __) => SetNewNoteContentFormat(ContentFormat.Html);
+            _newNoteFormatButton.DropDownItems.Add(new ToolStripMenuItem("Формат новых заметок")
+            {
+                Enabled = false
+            });
+            _newNoteFormatButton.DropDownItems.Add(new ToolStripSeparator());
+            _newNoteFormatButton.DropDownItems.Add(markdown);
+            _newNoteFormatButton.DropDownItems.Add(html);
+            _newNoteFormatButton.DropDownOpening += (_, __) =>
+            {
+                markdown.Checked = _viewModel.NewNoteContentFormat == ContentFormat.Markdown;
+                html.Checked = _viewModel.NewNoteContentFormat == ContentFormat.Html;
+            };
+            _toolStrip.Items.Add(_newNoteFormatButton);
+            UpdateNewNoteFormatButton();
+        }
+
+        private void SetNewNoteContentFormat(ContentFormat format)
+        {
+            _viewModel.NewNoteContentFormat = format;
+            UpdateNewNoteFormatButton();
+        }
+
+        private void UpdateNewNoteFormatButton()
+        {
+            _newNoteFormatButton.Text = "Настройки";
+            _newNoteFormatButton.ToolTipText = "Формат новых заметок: " +
+                (_viewModel.NewNoteContentFormat == ContentFormat.Html ? "HTML" : "Markdown") +
+                ". Существующие заметки не преобразуются.";
         }
 
         private void BuildTree()
@@ -2154,21 +2199,14 @@ namespace DocSets
             };
             _experimentalPropertiesPanel.ExternalSymbolDropRequested += async (text, position) =>
             {
-                var symbol = await _viewModel.GetActiveSymbolReferenceAsync(text);
-                if (symbol == null || string.IsNullOrWhiteSpace(symbol.Symbol))
+                var link = await DocumentLinkService.ResolveDroppedSymbolAsync(_viewModel, text);
+                if (link == null)
                 {
                     _statusLabel.Text = "Не удалось определить символ: " + text;
                     _experimentalPropertiesPanel.RequestMarkdownEditorFocus();
                     return;
                 }
-                _experimentalPropertiesPanel.InsertResolvedExternalSymbol(new DocumentLink
-                {
-                    Kind = DocumentLinkKind.Symbol,
-                    Caption = string.IsNullOrWhiteSpace(text) ? symbol.Name : text,
-                    Target = symbol.Symbol,
-                    Project = symbol.Project,
-                    SourceId = symbol.SourceId
-                }, position);
+                _experimentalPropertiesPanel.InsertResolvedExternalSymbol(link, position);
             };
             _experimentalPropertiesPanel.ImageInsertionRequested += async (data, mime, name, requestId) =>
             {
@@ -2231,6 +2269,16 @@ namespace DocSets
             {
                 CommitPendingMarkdownEdit();
                 OpenMilkdownWindowRequested?.Invoke(this, EventArgs.Empty);
+            };
+            _experimentalPropertiesPanel.OpenCkEditorWindowRequested += (_, __) =>
+            {
+                CommitPendingMarkdownEdit();
+                OpenCkEditorWindowRequested?.Invoke(this, EventArgs.Empty);
+            };
+            _experimentalPropertiesPanel.OpenJoditWindowRequested += (_, __) =>
+            {
+                CommitPendingMarkdownEdit();
+                OpenJoditWindowRequested?.Invoke(this, EventArgs.Empty);
             };
             _experimentalPropertiesPanel.LayoutStateChanged += (_, __) =>
             {
@@ -2480,6 +2528,7 @@ namespace DocSets
 
         public void RefreshAll()
         {
+            UpdateNewNoteFormatButton();
             if (_viewModel.IsLoaded && !_localStateRestored)
                 RestoreLocalState();
 

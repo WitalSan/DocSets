@@ -48,6 +48,9 @@ namespace DocSets
         private static readonly Regex FileLinkPattern = new Regex(
             @"(?<prefix>\]\(file:)(?<target>[^\)]+)(?<suffix>\))",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex HtmlFileLinkPattern = new Regex(
+            "(?<prefix>\\bhref\\s*=\\s*['\\\"]file:)(?<target>[^'\\\"]+)(?<suffix>['\\\"])",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public string Resolve(SourceReferenceContext context, string sourceId, string path)
         {
@@ -78,7 +81,14 @@ namespace DocSets
         public string RebaseMarkdownFileLinks(string markdown, SourceReferenceContext sourceContext,
             SourceReferenceContext targetContext)
         {
-            return FileLinkPattern.Replace(markdown ?? "", match =>
+            var result = FileLinkPattern.Replace(markdown ?? "", match =>
+            {
+                ParseTarget(match.Groups["target"].Value, out var sourceId, out var path);
+                Rebase(sourceContext, targetContext, ref sourceId, ref path);
+                var target = string.IsNullOrWhiteSpace(sourceId) ? path : sourceId + "|" + path;
+                return match.Groups["prefix"].Value + target + match.Groups["suffix"].Value;
+            });
+            return HtmlFileLinkPattern.Replace(result, match =>
             {
                 ParseTarget(match.Groups["target"].Value, out var sourceId, out var path);
                 Rebase(sourceContext, targetContext, ref sourceId, ref path);

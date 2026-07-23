@@ -73,9 +73,28 @@ namespace DocSets
             list.Columns.Add("Категория", DpiService.Scale(this, 110));
             list.Columns.Add("Сообщение", DpiService.Scale(this, 600));
             list.DoubleClick += (_, __) => ShowSelectedDetails();
+            list.KeyDown += List_KeyDown;
 
             Controls.Add(list);
             Controls.Add(toolbar);
+        }
+
+        private void List_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Control && (e.KeyCode == Keys.C || e.KeyCode == Keys.Insert))
+            {
+                CopySelection();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (e.Control && e.KeyCode == Keys.A)
+            {
+                foreach (ListViewItem item in list.Items) item.Selected = true;
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
         }
 
         private void Log_EntryAdded(object sender, DocSetsLogEntry entry)
