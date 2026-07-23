@@ -8,6 +8,7 @@
   let contentTimer = 0;
   let requestNumber = 0;
   let pasteOptions = null;
+  let lastPastedPlainText = null;
 
   const send = value => {
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(value);
@@ -108,18 +109,47 @@
     } catch (_) { }
   }
 
-  function insertFormattedHtml(html) {
-    if (!editor) return;
-    editor.s.insertHTML(html || '');
+  function insertHtmlAndSelect(html) {
+    if (!editor) return false;
+    const markerId = 'docsets-insert-' + (++requestNumber);
+    editor.s.insertHTML(
+      '<span data-docsets-insert-start="' + markerId + '"></span>' +
+      (html || '') +
+      '<span data-docsets-insert-end="' + markerId + '"></span>');
+
+    const start = editor.editor.querySelector(
+      '[data-docsets-insert-start="' + markerId + '"]');
+    const end = editor.editor.querySelector(
+      '[data-docsets-insert-end="' + markerId + '"]');
+    if (start && end) {
+      const range = document.createRange();
+      range.setStartAfter(start);
+      range.setEndBefore(end);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      start.remove();
+      end.remove();
+    }
     editor.synchronizeValues();
+    editor.focus();
+    return true;
+  }
+
+  function insertFormattedHtml(html, plainText) {
+    lastPastedPlainText = plainText == null ? null : String(plainText);
+    insertHtmlAndSelect(html);
   }
 
   function insertPlainText(text) {
     if (!editor) return;
     const escape = value => String(value || '').replace(/[&<>"']/g, char =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-    editor.s.insertHTML(escape(text).replace(/\r\n|\r|\n/g, '<br>'));
-    editor.synchronizeValues();
+    lastPastedPlainText = String(text || '');
+    insertHtmlAndSelect(
+      '<span class="docsets-pasted-plain">' +
+      escape(lastPastedPlainText) +
+      '</span>');
   }
 
   const escapeHtml = value => String(value || '').replace(/[&<>"']/g, character =>
@@ -132,8 +162,11 @@
       .replace(/[^a-z0-9_+-]/g, '') || 'plaintext';
     const selection = window.getSelection();
     const code = source == null
-      ? (selection ? selection.toString() : '')
+      ? (lastPastedPlainText != null
+        ? lastPastedPlainText
+        : (selection ? selection.toString() : ''))
       : String(source);
+    lastPastedPlainText = null;
     editor.s.insertHTML(
       '<pre class="docsets-code-block" data-language="' + escapeHtml(normalizedLanguage) + '">' +
       '<code class="language-' + escapeHtml(normalizedLanguage) + '">' +
@@ -232,7 +265,7 @@
     };
 
     const formatted = add('С форматированием', 'Вставить HTML: таблицы, цвета и шрифты', () =>
-      insertFormattedHtml(html));
+      insertFormattedHtml(html, text));
     add('Как изображение', 'Вставить снимок из буфера обмена', () =>
       insertImageFiles(files));
     add('Только текст', 'Удалить всё форматирование', () =>
@@ -298,6 +331,14 @@
     if (status) status.remove();
     const editable = editor.editor;
     editable.tabIndex = 0;
+    editable.addEventListener('mousedown', () => {
+        lastPastedPlainText = null;
+    }, true);
+    editable.addEventListener('beforeinput', event => {
+        if (event.inputType !== 'insertFromPaste') {
+            lastPastedPlainText = null;
+        }
+    }, true);
 
     editor.events.on('change', () => {
       if (suppressChanges) return;
@@ -340,10 +381,11 @@
       }
       // Семантический HTML имеет приоритет над параллельным снимком OneNote.
       // Если HTML отсутствует, изображение проходит через asset-хранилище.
-      if (html || !images.length) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      insertImageFiles(images);
+      if (html) insertFormattedHtml(html, text);
+      else if (images.length) insertImageFiles(images);
+      else insertPlainText(text);
     }, true);
     editable.addEventListener('drop', event => {
       if (!event.dataTransfer || !insertImageFiles(event.dataTransfer.files)) return;
@@ -485,7 +527,13 @@
     const files = [new File([bytes], name || 'clipboard.png', { type: mime || 'image/png' })];
     if (choice === 'image') return insertImageFiles(files);
     if (choice === 'text') { insertPlainText(text); return true; }
-    insertFormattedHtml(html);
+    insertFormattedHtml(html, text);
     return true;
+  };
+
+  window.docsetsTestPasteAndCode = (text, language) => {
+    if (!editor) return false;
+    insertPlainText(text);
+    return insertCodeBlock(language);
   };
 })();

@@ -103,6 +103,11 @@ namespace DocSets
                 JsonConvert.SerializeObject(name ?? "clipboard.png") + "," +
                 JsonConvert.SerializeObject(choice ?? "formatted") + ")");
 
+        internal Task SimulatePlainTextCodePasteAsync(string text, string language)
+            => webView.ExecuteScriptAsync("window.docsetsTestPasteAndCode(" +
+                JsonConvert.SerializeObject(text ?? string.Empty) + "," +
+                JsonConvert.SerializeObject(language ?? "plaintext") + ")");
+
         public async Task<string> GetCurrentCommentAsync()
         {
             if (!ready || webView.CoreWebView2 == null) return CommentText;
