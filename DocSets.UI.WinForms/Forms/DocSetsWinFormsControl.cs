@@ -3815,17 +3815,7 @@ namespace DocSets
             public string GetToolTip(TreeNodeAdv node, NodeControl nodeControl)
             {
                 var item = (node?.Tag as BookmarkTreeNode)?.Item;
-                if (item == null)
-                {
-                    return string.Empty;
-                }
-
-                if (!string.IsNullOrWhiteSpace(item.Content))
-                {
-                    return item.Content;
-                }
-
-                return item.NodeType == NodeType.Folder ? item.Name : item.Display;
+                return BookmarkToolTipFormatter.Format(item);
             }
         }
 

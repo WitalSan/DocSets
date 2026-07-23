@@ -34,6 +34,7 @@
     <Compile Include="..\DocSets.Core\Services\MilkdownMarkdownCodec.cs" Link="Source\MilkdownMarkdownCodec.cs" />
     <Compile Include="..\DocSets.Import\LegacyDocSetConverter.cs" Link="Source\LegacyDocSetConverter.cs" />
     <Compile Include="..\DocSets.Core\Services\BookmarkSearchService.cs" Link="Source\BookmarkSearchService.cs" />
+    <Compile Include="..\DocSets.Core\Services\BookmarkToolTipFormatter.cs" Link="Source\BookmarkToolTipFormatter.cs" />
     <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />
     <Compile Include="..\DocSets.Core\Services\NavigationHistoryService.cs" Link="Source\NavigationHistoryService.cs" />
     <Compile Include="..\DocSets.Core\Services\PinService.cs" Link="Source\PinService.cs" />

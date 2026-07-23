@@ -15,6 +15,46 @@
     .jodit-workplace { min-height: 0 !important; }
     .jodit-wysiwyg, .jodit-source { box-sizing: border-box; overflow: auto !important; }
     .jodit-wysiwyg a[href] { cursor: pointer; }
+    .docsets-code-language {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 3px;
+    }
+    .docsets-code-language select {
+      box-sizing: border-box;
+      max-width: 112px;
+      height: 28px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      font: 12px "Segoe UI", sans-serif;
+      cursor: pointer;
+    }
+    .docsets-code-language select:hover,
+    .docsets-code-language select:focus {
+      border-color: #999;
+      outline: none;
+    }
+    .jodit-wysiwyg pre.docsets-code-block {
+      position: relative;
+      overflow: auto;
+      padding: 22px 12px 10px;
+      border: 1px solid #d0d0d0;
+      border-radius: 3px;
+      background: #f6f8fa;
+      font-family: Consolas, "Courier New", monospace;
+      white-space: pre;
+    }
+    .jodit-wysiwyg pre.docsets-code-block::before {
+      content: attr(data-language);
+      position: absolute;
+      top: 3px;
+      right: 7px;
+      color: #666;
+      font: 11px "Segoe UI", sans-serif;
+      text-transform: uppercase;
+    }
     .docsets-image-pending { color: #666; background: #eee; padding: 2px 6px; }
     .docsets-paste-options {
       position: fixed;

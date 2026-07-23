@@ -122,6 +122,78 @@
     editor.synchronizeValues();
   }
 
+  const escapeHtml = value => String(value || '').replace(/[&<>"']/g, character =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+
+  function insertCodeBlock(language, source) {
+    if (!editor) return false;
+    const normalizedLanguage = String(language || 'plaintext')
+      .toLowerCase()
+      .replace(/[^a-z0-9_+-]/g, '') || 'plaintext';
+    const selection = window.getSelection();
+    const code = source == null
+      ? (selection ? selection.toString() : '')
+      : String(source);
+    editor.s.insertHTML(
+      '<pre class="docsets-code-block" data-language="' + escapeHtml(normalizedLanguage) + '">' +
+      '<code class="language-' + escapeHtml(normalizedLanguage) + '">' +
+      escapeHtml(code || 'код') +
+      '</code></pre><p><br></p>');
+    editor.synchronizeValues();
+    editor.focus();
+    return true;
+  }
+
+  function addCodeLanguageSelector() {
+    const toolbar = editor && editor.container
+      ? editor.container.querySelector('.jodit-toolbar__collection')
+      : null;
+    if (!toolbar) return;
+
+    const wrapper = document.createElement('span');
+    wrapper.className = 'docsets-code-language';
+    wrapper.title = 'Вставить блок кода с указанием языка';
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Язык блока кода');
+    [
+      ['', 'Код…'],
+      ['csharp', 'C#'],
+      ['javascript', 'JavaScript'],
+      ['typescript', 'TypeScript'],
+      ['json', 'JSON'],
+      ['sql', 'SQL'],
+      ['xml', 'XML / HTML'],
+      ['css', 'CSS'],
+      ['python', 'Python'],
+      ['powershell', 'PowerShell'],
+      ['bash', 'Bash'],
+      ['plaintext', 'Обычный текст']
+    ].forEach(([value, caption]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = caption;
+      select.appendChild(option);
+    });
+
+    let savedRange = null;
+    select.addEventListener('pointerdown', () => {
+      const selection = window.getSelection();
+      savedRange = selection && selection.rangeCount
+        ? selection.getRangeAt(0).cloneRange()
+        : null;
+    });
+    select.addEventListener('change', () => {
+      const language = select.value;
+      select.value = '';
+      if (!language) return;
+      restoreRange(savedRange);
+      insertCodeBlock(language);
+      savedRange = null;
+    });
+    wrapper.appendChild(select);
+    toolbar.appendChild(wrapper);
+  }
+
   function closePasteOptions() {
     if (!pasteOptions) return;
     pasteOptions.remove();
@@ -190,13 +262,34 @@
       defaultActionOnPaste: 'insert_as_html',
       uploader: { insertImageAsBase64URI: true },
       buttons: [
-        'undo', 'redo', '|', 'paragraph', 'font', 'fontsize', 'brush', '|',
+        'undo', 'redo', '|', 'paragraph', 'codeLanguage', 'font', 'fontsize', 'brush', '|',
         'bold', 'italic', 'underline', 'strikethrough', 'superscript', 'subscript', 'eraser', '|',
         'ul', 'ol', 'outdent', 'indent', 'align', '|',
         'link', 'image', 'table', 'hr', 'symbols', '|',
         'find', 'selectall', 'source', 'fullsize'
       ],
       controls: {
+        codeLanguage: {
+          text: 'Код',
+          tooltip: 'Вставить блок кода с выбором языка',
+          list: {
+            csharp: 'C#',
+            javascript: 'JavaScript',
+            typescript: 'TypeScript',
+            json: 'JSON',
+            sql: 'SQL',
+            xml: 'XML / HTML',
+            css: 'CSS',
+            python: 'Python',
+            powershell: 'PowerShell',
+            bash: 'Bash',
+            plaintext: 'Обычный текст'
+          },
+          exec(jodit, current, context) {
+            const args = context && context.control && context.control.args;
+            insertCodeBlock(args && args.length ? args[0] : 'plaintext');
+          }
+        },
         source: { tooltip: 'Исходный HTML' }
       }
     });
@@ -222,6 +315,16 @@
         send({ type: 'content', html: currentHtml() });
         send({ type: 'save' });
       }
+    }, true);
+    document.addEventListener('keydown', event => {
+      const key = String(event.key || '').toLowerCase();
+      const undo = ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') ||
+        (event.altKey && !event.ctrlKey && !event.metaKey && key === 'backspace');
+      if (!undo) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      editor.execCommand('undo');
     }, true);
     editable.addEventListener('paste', event => {
       if (!event.clipboardData) return;
@@ -295,6 +398,9 @@
     editor.focus();
     return true;
   };
+
+  window.docsetsInsertCodeBlock = (language, source) =>
+    insertCodeBlock(language, source);
 
   window.docsetsCompleteImage = (requestId, assetUrl) => {
     const marker = document.querySelector('[data-docsets-image-request="' + requestId + '"]');
