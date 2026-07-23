@@ -29,6 +29,25 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void BookmarkCommentUsesTheSameOverviewAsTreeToolTip()
+        {
+            var item = Item(new SymbolSnapshot { Symbol = "A.Run", Signature = "void Run()" });
+            item.ContentFormat = ContentFormat.Html;
+            item.Content = "<h2>Заголовок</h2><script>скрытый текст</script><p>" +
+                new string('x', BookmarkToolTipFormatter.MaximumCharactersPerLine * 6) + "</p>";
+
+            var overview = BookmarkToolTipFormatter.Format(item.Content, item.ContentFormat);
+            var value = BreadcrumbToolTipBuilder.Build(item, "A.Run");
+
+            Assert.True(value.EndsWith(overview));
+            Assert.False(value.Contains("<h2>"));
+            Assert.False(value.Contains("скрытый текст"));
+            Assert.AreEqual(
+                BookmarkToolTipFormatter.MaximumLines,
+                overview.Split(new[] { System.Environment.NewLine }, System.StringSplitOptions.None).Length);
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void CodePreviewIsNotUsedAsFallback()
         {
             var item = new DocumentItem { EditorState = new EditorState { CodePreview = "/// Hidden\r\nvoid Run(int count)" } };
