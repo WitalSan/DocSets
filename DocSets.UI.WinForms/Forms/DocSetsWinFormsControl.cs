@@ -17,7 +17,6 @@ namespace DocSets
     {
         public event EventHandler CommentEditorFocusRequested;
         public event EventHandler OpenCommentWindowRequested;
-        public event EventHandler OpenMilkdownWindowRequested;
         public event EventHandler OpenJoditWindowRequested;
         internal event Action<DocumentItem> CurrentCommentItemChanged;
         internal event Action<DocumentItem, object> CommentContentChanged;
@@ -2263,11 +2262,6 @@ namespace DocSets
             {
                 CommitPendingMarkdownEdit();
                 OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
-            };
-            _experimentalPropertiesPanel.OpenMilkdownWindowRequested += (_, __) =>
-            {
-                CommitPendingMarkdownEdit();
-                OpenMilkdownWindowRequested?.Invoke(this, EventArgs.Empty);
             };
             _experimentalPropertiesPanel.OpenJoditWindowRequested += (_, __) =>
             {

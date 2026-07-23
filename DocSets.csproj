@@ -83,10 +83,9 @@
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsMilkdownCommentWindowControl.cs">
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsHtmlCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsHtmlCommentWindowControl.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsJoditCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -116,16 +115,14 @@
     <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCommentToolWindow.cs" />
-    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsMilkdownCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsJoditCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs">
+    <Compile Include="DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\JoditCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -263,15 +260,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\PinOverlay.png">
       <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\index.html">
-      <LogicalName>DocSets.Milkdown.index.html</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.js">
-      <LogicalName>DocSets.Milkdown.milkdown-editor.js</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css">
-      <LogicalName>DocSets.Milkdown.milkdown-editor.css</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\index.html">
       <LogicalName>DocSets.Jodit.index.html</LogicalName>

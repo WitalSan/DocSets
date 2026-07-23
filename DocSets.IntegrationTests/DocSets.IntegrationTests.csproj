@@ -36,19 +36,14 @@
     <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Source\DocSetStorageModels.cs" />
     <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
-    <Compile Include="..\DocSets.Core\Services\MilkdownMarkdownCodec.cs" Link="Source\MilkdownMarkdownCodec.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs" Link="Source\ToastCommentControl.cs" />
-    <Compile Include="..\DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs" Link="Source\MilkdownCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs" Link="Source\HtmlWebEditorCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs" Link="Source\JoditCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" Link="Source\WebEditorExternalDropBridge.cs" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\index.html" LogicalName="DocSets.Milkdown.index.html" />
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.js" LogicalName="DocSets.Milkdown.milkdown-editor.js" />
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css" LogicalName="DocSets.Milkdown.milkdown-editor.css" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\index.html" LogicalName="DocSets.Jodit.index.html" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit-editor.js" LogicalName="DocSets.Jodit.jodit-editor.js" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.js" LogicalName="DocSets.Jodit.jodit.min.js" />

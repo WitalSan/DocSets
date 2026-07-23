@@ -27,7 +27,6 @@ namespace DocSets
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly Button openCommentWindowButton = new Button();
-        private readonly Button openMilkdownWindowButton = new Button();
         private readonly Button openJoditWindowButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly BreadcrumbToolTipController breadcrumbToolTips;
@@ -64,7 +63,6 @@ namespace DocSets
         public event EventHandler ColorChanged;
         public event EventHandler RefreshCodeRequested;
         public event EventHandler OpenCommentWindowRequested;
-        public event EventHandler OpenMilkdownWindowRequested;
         public event EventHandler OpenJoditWindowRequested;
         public event EventHandler PreviewRequested;
         public event EventHandler PinChanged;
@@ -312,7 +310,6 @@ namespace DocSets
                 codeSymbolLabel.Enabled = value != null && !multiple;
                 refreshCodeButton.Enabled = value != null && !multiple;
                 openCommentWindowButton.Enabled = value != null && !multiple;
-                openMilkdownWindowButton.Enabled = value != null && !multiple;
                 openJoditWindowButton.Enabled = value != null && !multiple;
                 markdownComment.Enabled = value != null && !multiple;
                 markdownComment2.Enabled = value != null && !multiple;
@@ -467,11 +464,10 @@ namespace DocSets
                 AutoSize = false,
                 Height = DpiService.Scale(this, 30),
                 MinimumSize = new Size(0, DpiService.Scale(this, 30)),
-                ColumnCount = 5,
+                ColumnCount = 4,
                 RowCount = 1,
                 Margin = new Padding(0)
             };
-            breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -479,9 +475,8 @@ namespace DocSets
             refreshCodeButton.Margin = new Padding(0, 0, 3, 0);
             breadcrumbRow.Controls.Add(refreshCodeButton, 0, 0);
             breadcrumbRow.Controls.Add(openCommentWindowButton, 1, 0);
-            breadcrumbRow.Controls.Add(openMilkdownWindowButton, 2, 0);
-            breadcrumbRow.Controls.Add(openJoditWindowButton, 3, 0);
-            breadcrumbRow.Controls.Add(codeSymbolLabel, 4, 0);
+            breadcrumbRow.Controls.Add(openJoditWindowButton, 2, 0);
+            breadcrumbRow.Controls.Add(codeSymbolLabel, 3, 0);
             root.Controls.Add(breadcrumbRow, 0, 1);
 
             accordion = new ExperimentalAccordionHost { Dock = DockStyle.Fill };
@@ -535,12 +530,6 @@ namespace DocSets
             openCommentWindowButton.Margin = new Padding(0, 0, 3, 0);
             toolTip.SetToolTip(openCommentWindowButton, "Открыть заметку в отдельном окне");
             openCommentWindowButton.Click += (_, __) => OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
-            openMilkdownWindowButton.Text = "EM";
-            openMilkdownWindowButton.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
-            openMilkdownWindowButton.Size = DpiService.Scale(this, new Size(38, 28));
-            openMilkdownWindowButton.Margin = new Padding(0, 0, 3, 0);
-            toolTip.SetToolTip(openMilkdownWindowButton, "Открыть заметку в экспериментальном Milkdown");
-            openMilkdownWindowButton.Click += (_, __) => OpenMilkdownWindowRequested?.Invoke(this, EventArgs.Empty);
             openJoditWindowButton.Text = "EJ";
             openJoditWindowButton.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
             openJoditWindowButton.Size = DpiService.Scale(this, new Size(38, 28));
@@ -593,7 +582,6 @@ namespace DocSets
             refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, this, 18);
             refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
-            openMilkdownWindowButton.Size = DpiService.Scale(this, new Size(38, 28));
             openJoditWindowButton.Size = DpiService.Scale(this, new Size(38, 28));
             pinCheckBox.Image = IconProvider.Get(AppIcon.PinOverlay, this, 18);
             pinCheckBox.Size = DpiService.Scale(this, new Size(30, 28));
