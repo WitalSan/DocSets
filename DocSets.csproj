@@ -63,7 +63,9 @@
   <ItemGroup>
     <!-- Source trees are included recursively, like SDK-style projects. -->
     <Compile Include="DocSets.Core\**\*.cs" Exclude="DocSets.Core\**\bin\**;DocSets.Core\**\obj\**;DocSets.Core\**\.vs\**" />
-    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkSearchControls.cs"><SubType>UserControl</SubType></Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkSearchControls.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesDialog.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -75,16 +77,16 @@
     </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" />
-    <Compile Include="DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs"><SubType>UserControl</SubType></Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsMilkdownCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCkEditorCommentWindowControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsHtmlCommentWindowControl.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsJoditCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -115,7 +117,6 @@
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsMilkdownCommentToolWindow.cs" />
-    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCkEditorCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsJoditCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
@@ -124,9 +125,7 @@
     <Compile Include="DocSets.Vsix\WinFormsHost\MilkdownCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.Vsix\WinFormsHost\CkEditorCommentControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
+    <Compile Include="DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\JoditCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -273,18 +272,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="DocSets.Vsix\WebAssets\Milkdown\milkdown-editor.css">
       <LogicalName>DocSets.Milkdown.milkdown-editor.css</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\index.html">
-      <LogicalName>DocSets.CKEditor.index.html</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\ckeditor-editor.js">
-      <LogicalName>DocSets.CKEditor.ckeditor-editor.js</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\ckeditor5.umd.js">
-      <LogicalName>DocSets.CKEditor.ckeditor5.umd.js</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\CKEditor\ckeditor5.css">
-      <LogicalName>DocSets.CKEditor.ckeditor5.css</LogicalName>
     </EmbeddedResource>
     <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\index.html">
       <LogicalName>DocSets.Jodit.index.html</LogicalName>

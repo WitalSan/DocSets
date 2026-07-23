@@ -18,7 +18,6 @@ namespace DocSets
         public event EventHandler CommentEditorFocusRequested;
         public event EventHandler OpenCommentWindowRequested;
         public event EventHandler OpenMilkdownWindowRequested;
-        public event EventHandler OpenCkEditorWindowRequested;
         public event EventHandler OpenJoditWindowRequested;
         internal event Action<DocumentItem> CurrentCommentItemChanged;
         internal event Action<DocumentItem, object> CommentContentChanged;
@@ -1244,7 +1243,7 @@ namespace DocSets
                 "Формат содержимого для новых заметок. Существующие заметки не преобразуются.";
 
             var markdown = new ToolStripMenuItem("Markdown");
-            var html = new ToolStripMenuItem("HTML (CKEditor)");
+            var html = new ToolStripMenuItem("HTML (Jodit)");
             markdown.Click += (_, __) => SetNewNoteContentFormat(ContentFormat.Markdown);
             html.Click += (_, __) => SetNewNoteContentFormat(ContentFormat.Html);
             _newNoteFormatButton.DropDownItems.Add(new ToolStripMenuItem("Формат новых заметок")
@@ -2269,11 +2268,6 @@ namespace DocSets
             {
                 CommitPendingMarkdownEdit();
                 OpenMilkdownWindowRequested?.Invoke(this, EventArgs.Empty);
-            };
-            _experimentalPropertiesPanel.OpenCkEditorWindowRequested += (_, __) =>
-            {
-                CommitPendingMarkdownEdit();
-                OpenCkEditorWindowRequested?.Invoke(this, EventArgs.Empty);
             };
             _experimentalPropertiesPanel.OpenJoditWindowRequested += (_, __) =>
             {

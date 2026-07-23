@@ -9,12 +9,11 @@ using System.Windows.Forms;
 namespace DocSets
 {
     /// <summary>
-    /// Отдельная сессия HTML-редактора CKEditor. Markdown-заметки в этом окне
-    /// не преобразуются и не редактируются.
+    /// Общий контрол отдельной сессии HTML-редактора.
     /// </summary>
-    internal class DocSetsCkEditorCommentWindowControl : UserControl
+    internal class DocSetsHtmlCommentWindowControl : UserControl
     {
-        private readonly CkEditorCommentControl editor;
+        private readonly HtmlWebEditorCommentControl editor;
         private readonly string editorName;
         private readonly CheckBox followSelection = new CheckBox();
         private readonly Button saveButton = new Button();
@@ -29,13 +28,8 @@ namespace DocSets
         private bool switching;
         private long revision;
 
-        public DocSetsCkEditorCommentWindowControl()
-            : this(new CkEditorCommentControl(), "CKEditor")
-        {
-        }
-
-        protected DocSetsCkEditorCommentWindowControl(
-            CkEditorCommentControl editorControl, string name)
+        protected DocSetsHtmlCommentWindowControl(
+            HtmlWebEditorCommentControl editorControl, string name)
         {
             editor = editorControl ?? throw new ArgumentNullException(nameof(editorControl));
             editorName = name ?? "HTML-редактор";

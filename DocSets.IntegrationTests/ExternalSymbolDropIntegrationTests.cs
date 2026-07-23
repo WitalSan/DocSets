@@ -43,7 +43,6 @@ namespace DocSets.Tests
             try
             {
                 await TestToastAsync(root);
-                await TestCkEditorAsync(root);
                 await TestJoditAsync(root);
             }
             finally
@@ -76,35 +75,6 @@ namespace DocSets.Tests
                     (await editor.GetCurrentCommentAsync()).Contains(
                         "Before [DocumentItem.Display](symbol:test|DocSets.DocumentItem.Display) After"),
                     "Toast вставил ссылку без требуемых пробелов либо не в формате Markdown.");
-            }
-        }
-
-        private static async Task TestCkEditorAsync(string root)
-        {
-            using (var form = new Form { Width = 800, Height = 500, ShowInTaskbar = false })
-            using (var editor = new CkEditorCommentControl(Path.Combine(root, "CKEditor")) { Dock = DockStyle.Fill })
-            {
-                form.Controls.Add(editor);
-                form.Show();
-                await WaitUntilAsync(() => editor.IsReady, "CKEditor не инициализирован.");
-                editor.LoadComment("<p>BeforeAfter</p>");
-                await WaitUntilAsync(async () => (await editor.GetCurrentCommentAsync()).Contains("BeforeAfter"),
-                    "CKEditor не загрузил исходный HTML.");
-                await editor.SetTestSelectionAsync(6);
-                var received = false;
-                editor.ExternalSymbolDropRequested += text =>
-                {
-                    received = text == "Display";
-                    editor.InsertResolvedLink(CreateLink());
-                };
-                var result = await editor.SimulateExternalTextDropAsync("Display");
-                AssertDropAccepted(result, "CKEditor");
-                await WaitUntilAsync(() => received, "CKEditor не передал Drop в общий C#-конвейер.");
-                await Task.Delay(500);
-                var html = await editor.GetCurrentCommentAsync();
-                Assert.True(html.Contains("Before ") && html.Contains("DocumentItem.Display") &&
-                            html.Contains(" After") && html.Contains("symbol:test|DocSets.DocumentItem.Display"),
-                    "CKEditor не вставил HTML-ссылку с пробелами. Получено: " + html);
             }
         }
 

@@ -26,12 +26,10 @@ namespace DocSets
             winFormsControl.CommentEditorFocusRequested += OnCommentEditorFocusRequested;
             winFormsControl.OpenCommentWindowRequested += OnOpenCommentWindowRequested;
             winFormsControl.OpenMilkdownWindowRequested += OnOpenMilkdownWindowRequested;
-            winFormsControl.OpenCkEditorWindowRequested += OnOpenCkEditorWindowRequested;
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;
             Focusable = true;
             Child = winFormsControl;
-            DocSetsCkEditorCommentToolWindow.RegisterContext(package, viewModel, winFormsControl);
             DocSetsJoditCommentToolWindow.RegisterContext(package, viewModel, winFormsControl);
 
             solutionLoadRetryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -52,7 +50,6 @@ namespace DocSets
             {
                 ThreadHelper.JoinableTaskFactory.Run(viewModel.LoadAsync);
                 winFormsControl.RefreshAll();
-                DocSetsCkEditorCommentToolWindow.RegisterContext(package, viewModel, winFormsControl);
                 DocSetsJoditCommentToolWindow.RegisterContext(package, viewModel, winFormsControl);
 
                 if (!viewModel.IsLoaded)
@@ -91,23 +88,6 @@ namespace DocSets
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             DocSetsMilkdownCommentToolWindow.Show(DocSetsPackage.Instance, viewModel, winFormsControl);
-        }
-
-        private async void OnOpenCkEditorWindowRequested(object sender, EventArgs e)
-        {
-            try
-            {
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                await DocSetsCkEditorCommentToolWindow.ShowAsync(
-                    DocSetsPackage.Instance, viewModel, winFormsControl);
-            }
-            catch (Exception exception)
-            {
-                DocSetsLog.Current.Error("Заметки", "Не удалось открыть CKEditor.", exception);
-                MessageBox.Show(
-                    "Не удалось открыть CKEditor:\r\n" + exception.Message,
-                    "DocSets — CKEditor", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
         }
 
         private async void OnOpenJoditWindowRequested(object sender, EventArgs e)
@@ -158,10 +138,8 @@ namespace DocSets
                 winFormsControl.CommentEditorFocusRequested -= OnCommentEditorFocusRequested;
                 winFormsControl.OpenCommentWindowRequested -= OnOpenCommentWindowRequested;
                 winFormsControl.OpenMilkdownWindowRequested -= OnOpenMilkdownWindowRequested;
-                winFormsControl.OpenCkEditorWindowRequested -= OnOpenCkEditorWindowRequested;
                 winFormsControl.OpenJoditWindowRequested -= OnOpenJoditWindowRequested;
                 winFormsControl.CommentSearchMatchRequested -= OnCommentSearchMatchRequested;
-                DocSetsCkEditorCommentToolWindow.UnregisterContext(winFormsControl);
                 DocSetsJoditCommentToolWindow.UnregisterContext(winFormsControl);
                 if (solutionEvents != null)
                     solutionEvents.BeforeClosing -= OnSolutionBeforeClosing;
@@ -204,8 +182,6 @@ namespace DocSets
                 {
                     await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                     winFormsControl.RefreshAll();
-                    DocSetsCkEditorCommentToolWindow.RegisterContext(
-                        DocSetsPackage.Instance, viewModel, winFormsControl);
                     DocSetsJoditCommentToolWindow.RegisterContext(
                         DocSetsPackage.Instance, viewModel, winFormsControl);
                 }
@@ -221,8 +197,6 @@ namespace DocSets
             ThreadHelper.ThrowIfNotOnUIThread();
             ThreadHelper.JoinableTaskFactory.Run(viewModel.LoadAsync);
             winFormsControl.RefreshAll();
-            DocSetsCkEditorCommentToolWindow.RegisterContext(
-                DocSetsPackage.Instance, viewModel, winFormsControl);
             DocSetsJoditCommentToolWindow.RegisterContext(
                 DocSetsPackage.Instance, viewModel, winFormsControl);
 

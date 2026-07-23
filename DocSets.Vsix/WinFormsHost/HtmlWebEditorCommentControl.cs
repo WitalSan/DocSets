@@ -13,10 +13,9 @@ using System.Windows.Forms;
 namespace DocSets
 {
     /// <summary>
-    /// Изолированный экспериментальный HTML-редактор CKEditor. Он не изменяет
-    /// рабочие реализации Markdown-редакторов и принимает только HTML.
+    /// Общий WebView2-хост HTML-редакторов DocSets.
     /// </summary>
-    internal class CkEditorCommentControl : UserControl
+    internal abstract class HtmlWebEditorCommentControl : UserControl
     {
         private const string AssetHostPrefix = "https://docsets.assets/";
         private readonly WebView2 webView = new WebView2 { Dock = DockStyle.Fill, AllowExternalDrop = true };
@@ -47,16 +46,7 @@ namespace DocSets
         public event Action<string> ExternalSymbolDropRequested;
         public event Action<string, string, string, string> ImageInsertionRequested;
 
-        public CkEditorCommentControl(string userDataFolder = null)
-            : this(
-                "https://docsets-ckeditor.local/",
-                "CKEditor",
-                "WebView2-CKEditor",
-                userDataFolder)
-        {
-        }
-
-        protected CkEditorCommentControl(
+        protected HtmlWebEditorCommentControl(
             string hostPrefix,
             string name,
             string profileName,
@@ -347,17 +337,8 @@ namespace DocSets
                 : CreateResponse(stream, 200, "OK", mime);
         }
 
-        protected virtual bool TryGetEditorResource(string name, out string resource, out string mime)
-        {
-            switch (name)
-            {
-                case "index.html": resource = "DocSets.CKEditor.index.html"; mime = "text/html; charset=utf-8"; return true;
-                case "ckeditor-editor.js": resource = "DocSets.CKEditor.ckeditor-editor.js"; mime = "text/javascript; charset=utf-8"; return true;
-                case "ckeditor5.umd.js": resource = "DocSets.CKEditor.ckeditor5.umd.js"; mime = "text/javascript; charset=utf-8"; return true;
-                case "ckeditor5.css": resource = "DocSets.CKEditor.ckeditor5.css"; mime = "text/css; charset=utf-8"; return true;
-                default: resource = null; mime = null; return false;
-            }
-        }
+        protected abstract bool TryGetEditorResource(
+            string name, out string resource, out string mime);
 
         private void ServeAsset(Uri uri, CoreWebView2WebResourceRequestedEventArgs e)
         {

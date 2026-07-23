@@ -27,16 +27,13 @@ namespace DocSets.Tests
                 if (filter == "all" || filter == "milkdown")
                     new MilkdownClipboardIntegrationTests()
                         .MarkdownAndImageRoundTripThroughWindowsClipboardAndTwoMilkdownEditors();
-                if (filter == "all" || filter == "ckeditor")
-                    new CkEditorIntegrationTests()
-                        .HtmlTableAndFormattingRoundTripThroughCkEditor();
                 if (filter == "all" || filter == "jodit")
                     new JoditIntegrationTests()
                         .HtmlTableFormattingAndAssetLinkRoundTripThroughJodit();
                 if (filter == "all" || filter == "drop")
                     new ExternalSymbolDropIntegrationTests()
                         .SameExternalDropPipelineInsertsMarkdownAndHtmlLinks();
-                Console.WriteLine("Интеграционные тесты TOAST, Milkdown, CKEditor, Jodit и Clipboard пройдены.");
+                Console.WriteLine("Интеграционные тесты TOAST, Milkdown, Jodit и Clipboard пройдены.");
                 Trace("Тест пройден.");
                 return 0;
             }

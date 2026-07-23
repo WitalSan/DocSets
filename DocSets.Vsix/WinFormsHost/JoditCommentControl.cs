@@ -1,10 +1,9 @@
 namespace DocSets
 {
     /// <summary>
-    /// Экспериментальный HTML-редактор Jodit. Использует тот же контракт
-    /// навигации, DragDrop, изображений и сохранения, что и CKEditor.
+    /// Экспериментальный HTML-редактор Jodit.
     /// </summary>
-    internal sealed class JoditCommentControl : CkEditorCommentControl
+    internal sealed class JoditCommentControl : HtmlWebEditorCommentControl
     {
         public JoditCommentControl(string userDataFolder = null)
             : base(
