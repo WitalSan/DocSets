@@ -6,7 +6,20 @@ namespace DocSets.Desktop;
 /// </summary>
 internal sealed class DesktopSolutionContextService : ISolutionContextService
 {
-    private SolutionContext _current = SolutionContext.Unavailable;
+    private readonly SolutionContext _current;
+
+    public DesktopSolutionContextService()
+    {
+        var storageDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DocSets");
+        var sourceDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        _current = new SolutionContext(
+            true,
+            "Desktop",
+            sourceDirectory,
+            Path.Combine(storageDirectory, "desktop.workspace"));
+    }
 
     public SolutionContext Current => _current;
 
@@ -15,22 +28,4 @@ internal sealed class DesktopSolutionContextService : ISolutionContextService
         return Task.FromResult(_current);
     }
 
-    public void SetForDocSet(string docSetDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(docSetDirectory))
-        {
-            _current = SolutionContext.Unavailable;
-            return;
-        }
-
-        var fullPath = Path.GetFullPath(docSetDirectory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var rootDirectory = Path.GetDirectoryName(fullPath) ?? fullPath;
-        var name = Path.GetFileName(rootDirectory);
-        _current = new SolutionContext(
-            true,
-            string.IsNullOrWhiteSpace(name) ? "Desktop" : name,
-            rootDirectory,
-            Path.Combine(rootDirectory, ".docsets-desktop.workspace"));
-    }
 }

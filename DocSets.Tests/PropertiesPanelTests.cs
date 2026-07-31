@@ -179,6 +179,40 @@ namespace DocSets.Tests
                 Assert.Equal(1, dock.GroupCount);
             }
         }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ExternalPanelsMenuCanRestoreHiddenDockPanel()
+        {
+            using (var panel = new BookmarkPropertiesPanelExperimental())
+            using (var menu = new ContextMenuStrip())
+            {
+                var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
+                dock.HidePanel("preview");
+                var activationRequested = false;
+
+                panel.PopulatePanelsMenu(menu.Items, () => activationRequested = true);
+                var preview = menu.Items["preview"] as ToolStripMenuItem;
+                if (preview == null)
+                {
+                    foreach (ToolStripItem item in menu.Items)
+                    {
+                        if (string.Equals(item.Tag as string, "preview", StringComparison.OrdinalIgnoreCase))
+                        {
+                            preview = item as ToolStripMenuItem;
+                            break;
+                        }
+                    }
+                }
+
+                Assert.NotNull(preview);
+                Assert.False(preview.Checked);
+                preview.PerformClick();
+                Assert.True(activationRequested);
+                Assert.True(dock.IsPanelVisible("preview"));
+                Assert.Equal("preview", dock.SelectedPanelId);
+            }
+        }
+
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void SplitterRatioIgnoresTransientTinySize()
         {

@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework">
@@ -25,42 +26,7 @@
     <ProjectReference Include="..\DocSets.Model\DocSets.Model.csproj" />
     <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
     <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />
+    <ProjectReference Include="..\DocSets.UI.WinForms\DocSets.UI.WinForms.csproj" />
     <Compile Include="..\DocSets.Import\LegacyDocSetConverter.cs" Link="Source\LegacyDocSetConverter.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Icons\DpiService.cs" Link="Source\DpiService.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Icons\IconProvider.cs" Link="Source\IconProvider.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Icons\BookmarkColorService.cs" Link="Source\BookmarkColorService.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" Link="Source\CodePreviewHighlighter.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" Link="Source\BreadcrumbToolTip.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkBreadcrumb.cs" Link="Source\BookmarkBreadcrumb.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\DocumentLinks.cs" Link="Source\DocumentLinks.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs" Link="Source\BookmarkPropertiesPanelExperimental.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\DocSetsLogControl.cs" Link="Source\DocSetsLogControl.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs" Link="Source\DockWorkspaceControl.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="..\-Icons-\Folder.png" Link="Resources\Folder.png">
-      <LogicalName>DocSets.Icons.Folder.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\PinOverlay.png" Link="Resources\PinOverlay.png">
-      <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\Copy.png" Link="Resources\Copy.png">
-      <LogicalName>DocSets.Icons.Copy.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\NvUp.png" Link="Resources\NvUp.png">
-      <LogicalName>DocSets.Icons.NvUp.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\NvDown.png" Link="Resources\NvDown.png">
-      <LogicalName>DocSets.Icons.NvDown.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\NvLeft.png" Link="Resources\NvLeft.png">
-      <LogicalName>DocSets.Icons.NvLeft.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\-Icons-\NvRight.png" Link="Resources\NvRight.png">
-      <LogicalName>DocSets.Icons.NvRight.png</LogicalName>
-    </EmbeddedResource>    <EmbeddedResource Include="..\-Icons-\Sync.png" Link="Resources\Sync.png">
-      <LogicalName>DocSets.Icons.Sync.png</LogicalName>
-    </EmbeddedResource>
   </ItemGroup>
 </Project>

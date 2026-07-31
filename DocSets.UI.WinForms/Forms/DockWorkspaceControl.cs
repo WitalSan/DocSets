@@ -172,18 +172,32 @@ namespace DocSets
 
         private void BuildPanelsMenu()
         {
-            panelsButton.DropDownItems.Clear();
+            PopulatePanelsMenu(panelsButton.DropDownItems);
+        }
+
+        public void PopulatePanelsMenu(ToolStripItemCollection items, Action beforePanelActivation = null)
+        {
+            if (items == null) throw new ArgumentNullException(nameof(items));
+            items.Clear();
             foreach (var registration in registrations.Values)
             {
                 var visible = IsPanelVisible(registration.Id);
                 var item = new ToolStripMenuItem(registration.Title) { Checked = visible, Tag = registration.Id };
-                item.Click += (_, __) => ActivatePanel(registration.Id);
-                panelsButton.DropDownItems.Add(item);
+                item.Click += (_, __) =>
+                {
+                    beforePanelActivation?.Invoke();
+                    ActivatePanel(registration.Id);
+                };
+                items.Add(item);
             }
-            panelsButton.DropDownItems.Add(new ToolStripSeparator());
+            items.Add(new ToolStripSeparator());
             var reset = new ToolStripMenuItem("Сбросить расположение");
-            reset.Click += (_, __) => ResetLayout();
-            panelsButton.DropDownItems.Add(reset);
+            reset.Click += (_, __) =>
+            {
+                beforePanelActivation?.Invoke();
+                ResetLayout();
+            };
+            items.Add(reset);
         }
 
         private void Rebuild()

@@ -114,6 +114,8 @@ namespace DocSets
         public string CaptureDockLayout() => dockWorkspace.CaptureLayout();
         public void RestoreDockLayout(string json) => dockWorkspace.RestoreLayout(json);
         public void ResetDockLayout() => dockWorkspace.ResetLayout();
+        public void PopulatePanelsMenu(ToolStripItemCollection items, Action beforePanelActivation = null)
+            => dockWorkspace.PopulatePanelsMenu(items, beforePanelActivation);
         public void LoadItem(DocumentItem value, bool isPinned = false)
         {
             LoadSelection(value, false, isPinned, isPinned, value?.Color, value != null);

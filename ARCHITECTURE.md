@@ -93,47 +93,38 @@ WebView2 Runtime. Редактор не знает о DTE, Roslyn и соста�
 
 ### VSIX (`net472`)
 
-Содержит только интеграцию с Visual Studio и существующий UI расширения:
+Содержит интеграцию с Visual Studio и размещает общий UI расширения:
 
 - `AsyncPackage`, команды и Tool Window;
 - `RoslynBookmarkResolver`;
 - `EditorStateService` и `FileBookmarkTrackingService`;
-- адаптер хранилища `DocSetsStore`;
-- `DocSetsViewModel` и текущий WinForms-интерфейс.
+- реализации узких сервисов Visual Studio;
+- composition root, создающий общий `DocSetsViewModel` и `DocSetsWinFormsControl`.
 
 ### DocSets.Desktop (`net8.0-windows`)
 
 Самостоятельное приложение содержит:
 
-- главное окно на DockPanelSuite;
-- дерево, свойства, поиск, код, preview, заметку и лог;
+- лёгкую оболочку `MainForm` над общим `DocSetsWinFormsControl`;
+- Desktop-реализации узких внешних сервисов;
+- то же дерево, свойства, поиск, код, preview, заметку и лог, что и VSIX;
 - открытие, создание и сохранение каталога `*.DocSets`;
-- локальные настройки окна и раскладки;
-- ScintillaNET для просмотра кода;
+- локальные настройки окна и раскладки общего контрола;
 - общий Jodit-редактор заметок.
 
 ## 3. Инверсия платформенных зависимостей
 
-Платформенные операции описаны интерфейсами в `DocSets.Core/Abstractions`.
-Главный контракт — `IDocSetsHostService`. Он предоставляет прикладному слою:
+Платформенные операции описаны узкими интерфейсами в
+`DocSets.Core/Abstractions`: `IDocSetWorkspaceService`,
+`ISolutionContextService`, `IUserDialogService`, `IClipboardService`,
+`INavigationService`, `IActiveDocumentService`, `IPreviewService` и
+`IEditorTrackingService`. Интерфейса, дублирующего API ViewModel, и единого
+«гигантского» host-service нет.
 
-- загрузку и сохранение документа;
-- сведения о текущем source/workspace;
-- переход к файлу или символу;
-- получение активного символа и preview;
-- работу с assets;
-- локальное состояние пользователя;
-- показ информационного сообщения.
-
-Отслеживание положения закладок выделено в `IEditorTrackingService`.
-
-VSIX-композиция создаёт `DocSetsStore` и `FileBookmarkTrackingService`, после чего
-передаёт их в `DocSetsViewModel` через конструктор. `DocSetsViewModel` больше не
-создаёт Visual Studio-сервисы внутри себя.
-
-Для Desktop платформенными аналогами служат `DesktopDocumentSession` и панели
-главного окна. По мере переноса общего контроллера они должны реализовать те же
-узкие контракты, а неподдерживаемые IDE-функции — явно сообщать о недоступности.
+Обе композиции создают один тип `DocSetsViewModel`, передавая разные реализации
+этих сервисов через конструктор. ViewModel и общий UI не создают Visual Studio-
+сервисы внутри себя. Неподдерживаемые в Desktop IDE-функции представлены
+явными Desktop-реализациями с безопасным ограниченным поведением.
 
 ## 4. Runtime-композиция
 
@@ -143,8 +134,8 @@ VSIX-композиция создаёт `DocSetsStore` и `FileBookmarkTracking
 DocSetsPackage
   └─ DocSetsToolWindow
       └─ DocSetsWinFormsHostControl (composition root)
-          ├─ DocSetsStore : IDocSetsHostService
-          ├─ FileBookmarkTrackingService : IEditorTrackingService
+          ├─ DocSetWorkspaceService : IDocSetWorkspaceService
+          ├─ VisualStudio*Service / FileBookmarkTrackingService
           ├─ DocSetsViewModel
           └─ DocSetsWinFormsControl
 ```
@@ -154,14 +145,10 @@ DocSetsPackage
 ```text
 Program
   └─ MainForm (composition root)
-      ├─ DesktopDocumentSession
-      ├─ DirectoryDocSetStore / DocSetDocumentRepository
-      ├─ TreeToolWindow
-      ├─ PropertiesToolWindow
-      ├─ SearchToolWindow
-      ├─ CodeDocument / PreviewDocument
-      ├─ NoteDocument (DocSets.Editor.Jodit)
-      └─ LogToolWindow
+      ├─ DocSetWorkspaceService : IDocSetWorkspaceService
+      ├─ Desktop*Service
+      ├─ DocSetsViewModel
+      └─ DocSetsWinFormsControl
 ```
 
 DI-контейнер пока не нужен: зависимости явно собираются в composition root каждой
@@ -192,25 +179,16 @@ Example.DocSets/
 
 ## 6. Состояние переиспользования UI
 
-Бизнес-логика, сериализация и Jodit уже являются отдельными сборками.
-`Aga.Controls` переведён на SDK-style и собирается для `net472` и
-`net8.0-windows` без изменения публичного интерфейса. Текущее сложное дерево VSIX
-пока физически находится в `DocSets.UI.WinForms` и связано с `DocSetsViewModel` и
-несколькими API Visual Studio. Desktop сейчас использует самостоятельную панель
-дерева поверх той же доменной модели.
+Бизнес-логика, сериализация и Jodit являются отдельными сборками. `Aga.Controls`
+переведён на SDK-style и собирается для `net472` и `net8.0-windows` без изменения
+публичного интерфейса. `DocSets.UI.WinForms` также является настоящей multi-target
+сборкой и содержит единственный `DocSetsWinFormsControl`, дерево `TreeViewAdv`,
+панели и UI-команды. VSIX и Desktop ссылаются на эту сборку как на проект; linked
+files и копий Desktop-панелей больше нет.
 
-Следующий архитектурный шаг:
-
-1. выделить интерфейс контроллера дерева без типов Visual Studio;
-2. заменить обращения UI к `ThreadHelper` и VS-диалогам интерфейсами;
-3. перенести общий WinForms-контрол и Aga-адаптеры в отдельную multi-target
-   UI-сборку;
-4. подключить один и тот же контрол к VSIX и Desktop;
-5. удалить оставшиеся `Compile/Link` из тестовых проектов после появления общей
-   UI-сборки и отдельной сборки тестовых утилит.
-
-До выполнения этого шага нельзя считать визуальный слой полностью общим. При этом
-новую бизнес-логику уже нельзя добавлять непосредственно в VSIX-контрол.
+Единственный `DocSetsViewModel` находится в `DocSets.Core`. Различия сред
+локализованы в реализациях узких сервисов и composition root. Внешний Jodit-
+редактор использует тот же ViewModel и тот же контрол связи с выбранной заметкой.
 
 ## 7. Правила развития
 

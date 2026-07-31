@@ -9,5 +9,6 @@ namespace DocSets
     {
         Task OpenBookmarkAsync(DocumentItem item);
         Task<bool> OpenSymbolAsync(string symbol, string project);
+        Task OpenUrlAsync(string url);
     }
 }

@@ -16,7 +16,7 @@ namespace DocSets
         }
 
         public string Prompt(string caption, string label, string initialValue = "")
-            => PromptDialog.Ask(_ownerAccessor(), caption, label, initialValue);
+            => PromptDialog.Ask(null, caption, label, initialValue);
 
         public bool Confirm(string message, string caption)
             => MessageBox.Show(

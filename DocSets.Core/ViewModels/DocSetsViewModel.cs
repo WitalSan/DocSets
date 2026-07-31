@@ -161,6 +161,15 @@ namespace DocSets
             CancellationToken cancellationToken = default)
             => _workspace.NormalizeCommentAssetsAsync(markdown, cancellationToken);
 
+        public string Prompt(string caption, string label, string initialValue = "")
+            => _dialogs.Prompt(caption, label, initialValue);
+
+        public void ShowError(string message, string caption = "DocSets")
+            => _dialogs.ShowError(message, caption);
+
+        public Task OpenUrlAsync(string url)
+            => _navigation.OpenUrlAsync(url);
+
         public WorkspaceInfo SelectedWorkspace
         {
             get => _selectedWorkspace;

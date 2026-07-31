@@ -1,6 +1,5 @@
 using Aga.Controls.Tree;
 using Aga.Controls.Tree.NodeControls;
-using Microsoft.VisualStudio.Shell;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -13,12 +12,12 @@ using WpfCommand = System.Windows.Input.ICommand;
 
 namespace DocSets
 {
-    internal sealed class DocSetsWinFormsControl : UserControl
+    public sealed class DocSetsWinFormsControl : UserControl
     {
         public event EventHandler OpenJoditWindowRequested;
-        internal event Action<DocumentItem> CurrentCommentItemChanged;
-        internal event Action<DocumentItem, object> CommentContentChanged;
-        internal event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
+        public event Action<DocumentItem> CurrentCommentItemChanged;
+        public event Action<DocumentItem, object> CommentContentChanged;
+        public event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly Button _openDocSetButton = new Button();
@@ -57,6 +56,7 @@ namespace DocSets
         private CancellationTokenSource _previewCancellation;
         private CancellationTokenSource _experimentalPreviewCancellation;
         private readonly ToolStripButton _togglePropertiesButton = new ToolStripButton("Свойства");
+        private readonly ToolStripDropDownButton _panelsButton = new ToolStripDropDownButton("Панели");
         private bool _disposingProperties;
         private readonly Label _statusLabel = new Label();
         private readonly TextBox _filterTextBox = new TextBox();
@@ -192,7 +192,7 @@ namespace DocSets
             layoutDpiAtLoad = targetDpi;
             PerformLayout();
         }
-        internal DocumentItem CurrentCommentItem => _viewModel.ResolvePin(GetCurrentItem());
+        public DocumentItem CurrentCommentItem => _viewModel.ResolvePin(GetCurrentItem());
 
         internal void RefreshCommentAfterExternalEdit(DocumentItem changedItem)
         {
@@ -219,7 +219,7 @@ namespace DocSets
             _experimentalPropertiesPanel.FocusCommentEditor();
         }
 
-        internal Task CommitPendingCommentAsync()
+        public Task CommitPendingCommentAsync()
             => _experimentalPropertiesPanel.CommitPendingCommentAsync();
 
         public System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
@@ -334,6 +334,7 @@ namespace DocSets
             AddTreeActivationModeButtons();
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddPropertiesPanelButton();
+            AddPanelsButton();
             _toolStrip.Items.Add(new ToolStripSeparator());
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
@@ -1488,7 +1489,7 @@ namespace DocSets
             var add = new ToolStripMenuItem("Add new tag...");
             add.Click += async (_, __) =>
             {
-                var name = PromptDialog.Ask(System.Windows.Application.Current?.MainWindow, "Новый тег", "Название:");
+                var name = _viewModel.Prompt("Новый тег", "Название:");
                 if (string.IsNullOrWhiteSpace(name)) return;
                 try { var tag = await _viewModel.AddTagAsync(name); await _viewModel.ToggleTagAsync(tag.Id); RebuildTree(); }
                 catch (Exception ex) { MessageBox.Show(ex.GetBaseException().Message, "Теги", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -1921,8 +1922,7 @@ namespace DocSets
                 "Выберите каталог для нового DocSet",
                 _viewModel.SolutionDirectory);
             if (string.IsNullOrWhiteSpace(parentPath)) return;
-            var name = PromptDialog.Ask(System.Windows.Application.Current?.MainWindow,
-                "Новый DocSet", "Название:", "New");
+            var name = _viewModel.Prompt("Новый DocSet", "Название:", "New");
             if (string.IsNullOrWhiteSpace(name)) return;
             var safeName = string.Concat(name.Trim().Select(character =>
                 System.IO.Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
@@ -2362,8 +2362,6 @@ namespace DocSets
 
         public void SaveLocalSettings()
         {
-            ThreadHelper.JoinableTaskFactory.Run(
-                async () => await _experimentalPropertiesPanel.CommitPendingCommentAsync());
             CaptureRenderedViewState();
             SaveLocalState();
         }
@@ -2808,7 +2806,7 @@ namespace DocSets
             LoadPropertiesPanel(GetCurrentItem());
         }
 
-        internal System.Threading.Tasks.Task FindBookmarksFromEditorAsync()
+        public System.Threading.Tasks.Task FindBookmarksFromEditorAsync()
         {
             return FindBookmarksInCurrentSetAsync();
         }
@@ -3200,6 +3198,19 @@ namespace DocSets
             _togglePropertiesButton.ToolTipText = "Показать или скрыть панель свойств";
             _togglePropertiesButton.Click += (_, __) => SetPropertiesPanelVisible(_togglePropertiesButton.Checked);
             _toolStrip.Items.Add(_togglePropertiesButton);
+        }
+
+        private void AddPanelsButton()
+        {
+            _panelsButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
+            _panelsButton.ToolTipText = "Показать, скрыть или сбросить расположение панелей";
+            _panelsButton.DropDownOpening += (_, __) =>
+            {
+                _experimentalPropertiesPanel.PopulatePanelsMenu(
+                    _panelsButton.DropDownItems,
+                    () => SetPropertiesPanelVisible(true));
+            };
+            _toolStrip.Items.Add(_panelsButton);
         }
 
         private void SetPropertiesPanelVisible(bool visible)

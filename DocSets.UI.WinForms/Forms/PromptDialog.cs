@@ -1,49 +1,74 @@
-﻿using System.Windows;
-using System.Windows.Controls;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace DocSets
 {
-    internal sealed class PromptDialog : Window
+    public sealed class PromptDialog : Form
     {
-        private readonly TextBox textBox;
+        private readonly TextBox _valueTextBox;
 
-        public string Value => textBox.Text;
-
-        public PromptDialog(string title, string label, string value = "")
+        private PromptDialog(string caption, string label, string value)
         {
-            Title = title;
-            Width = 360;
-            Height = 150;
-            WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            ResizeMode = ResizeMode.NoResize;
+            Text = caption ?? "DocSets";
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MinimizeBox = false;
+            MaximizeBox = false;
+            ShowInTaskbar = false;
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(420, 122);
 
-            var root = new Grid { Margin = new Thickness(10) };
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            root.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 6) });
-            textBox = new TextBox { Text = value, MinWidth = 320 };
-            Grid.SetRow(textBox, 1);
-            root.Children.Add(textBox);
-
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
-            var ok = new Button { Content = "OK", Width = 75, IsDefault = true, Margin = new Thickness(0, 0, 6, 0) };
-            ok.Click += (_, __) => DialogResult = true;
-            var cancel = new Button { Content = "Cancel", Width = 75, IsCancel = true };
-            buttons.Children.Add(ok);
-            buttons.Children.Add(cancel);
-            Grid.SetRow(buttons, 2);
-            root.Children.Add(buttons);
-
-            Content = root;
-            Loaded += (_, __) => { textBox.Focus(); textBox.SelectAll(); };
+            var labelControl = new Label
+            {
+                AutoSize = true,
+                Location = new Point(12, 14),
+                Text = label ?? string.Empty
+            };
+            _valueTextBox = new TextBox
+            {
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Location = new Point(15, 38),
+                Width = 390,
+                Text = value ?? string.Empty
+            };
+            var okButton = new Button
+            {
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+                DialogResult = DialogResult.OK,
+                Location = new Point(249, 82),
+                Size = new Size(75, 27),
+                Text = "OK"
+            };
+            var cancelButton = new Button
+            {
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+                DialogResult = DialogResult.Cancel,
+                Location = new Point(330, 82),
+                Size = new Size(75, 27),
+                Text = "Отмена"
+            };
+            AcceptButton = okButton;
+            CancelButton = cancelButton;
+            Controls.Add(labelControl);
+            Controls.Add(_valueTextBox);
+            Controls.Add(okButton);
+            Controls.Add(cancelButton);
         }
 
-        public static string Ask(Window owner, string title, string label, string value = "")
+        public static string Ask(
+            IWin32Window owner, string caption, string label, string value = "")
         {
-            var dialog = new PromptDialog(title, label, value) { Owner = owner };
-            return dialog.ShowDialog() == true ? dialog.Value?.Trim() : null;
+            using (var dialog = new PromptDialog(caption, label, value))
+            {
+                dialog.Shown += (_, __) =>
+                {
+                    dialog._valueTextBox.SelectAll();
+                    dialog._valueTextBox.Focus();
+                };
+                return dialog.ShowDialog(owner) == DialogResult.OK
+                    ? dialog._valueTextBox.Text
+                    : null;
+            }
         }
     }
 }

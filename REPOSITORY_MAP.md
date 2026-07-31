@@ -83,9 +83,9 @@ Aga.Controls (.NET Framework 4.7.2)
 └── Windows Forms / System.Drawing
 ```
 
-Папки `DocSets.Core`, `DocSets.UI.WinForms` и `DocSets.Vsix` являются логическими
-слоями, но компилируются в одну сборку `DocSets.dll`. Физически изолирована только
-библиотека `Aga.Controls`.
+`DocSets.Core`, `DocSets.UI.WinForms` и `DocSets.Vsix` являются отдельными
+проектами. Core собирается для `netstandard2.0`, UI и Aga.Controls — для
+`net472` и `net8.0-windows`, VSIX содержит оболочку Visual Studio.
 
 ## Запуск расширения
 
@@ -198,7 +198,7 @@ DocumentSetsState.Root
 | `DocSetsToolWindowCommand` | Команды меню/редактора Visual Studio |
 | `DocSetsWinFormsHostControl` | Создание UI, lifecycle, polling |
 | `DocSetsWinFormsControl` | Отрисовка дерева, ввод, меню, drag-and-drop, локальное UI-состояние |
-| `DocSetsViewModel` | Команды, выбор, Visual Studio integration и persistence orchestration |
+| `DocSetsViewModel` | Общие команды, выбор и orchestration хранилища через узкие host-сервисы |
 | `DocumentTreeService` | Поиск, обход, вставка и планы перемещения дерева |
 | `NavigationHistoryService` | Дедупликация, лимит и импорт/экспорт History |
 | `PinService` | Создание, разрешение и миграция Pin-ссылок |
@@ -240,10 +240,11 @@ DocumentSetsState.Root
 
 ## Текущие архитектурные ограничения
 
-- `DocSetsViewModel` и `DocSetsWinFormsControl` являются крупнейшими компонентами
-  и концентрируют несколько ответственностей.
-- Слои Core/UI/VSIX не разделены сборками и интерфейсами.
-- Автоматических тестовых проектов в solution нет.
+- `DocSetsViewModel` и `DocSetsWinFormsControl` остаются крупнейшими компонентами,
+  однако существуют в единственном экземпляре для VSIX и Desktop.
+- Платформенные различия разделены узкими интерфейсами в Core и реализациями в
+  оболочках VSIX/Desktop.
+- Модульные и интеграционные тестовые проекты включены в solution.
 - Workspace synchronization выполняет полный reload без merge конфликтов.
 - Открытие symbol-закладки может сканировать документы и syntax nodes solution.
 - Асинхронные обработчики команд и таймеров требуют осторожного контроля ошибок

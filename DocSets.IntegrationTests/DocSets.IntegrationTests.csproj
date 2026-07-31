@@ -29,9 +29,7 @@
     <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
     <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />
     <ProjectReference Include="..\DocSets.Editor.Jodit\DocSets.Editor.Jodit.csproj" />
-    <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkBreadcrumb.cs" Link="Source\BookmarkBreadcrumb.cs" />
-    <Compile Include="..\DocSets.UI.WinForms\Icons\DpiService.cs" Link="Source\DpiService.cs" />
+    <ProjectReference Include="..\DocSets.UI.WinForms\DocSets.UI.WinForms.csproj" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
   </ItemGroup>
 </Project>

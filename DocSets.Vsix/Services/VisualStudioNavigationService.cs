@@ -60,5 +60,12 @@ namespace DocSets
         {
             return _roslyn.TryOpenSymbolAsync(symbol, project);
         }
+
+        public Task OpenUrlAsync(string url)
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri);
+            return Task.CompletedTask;
+        }
     }
 }

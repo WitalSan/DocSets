@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net472;net8.0-windows</TargetFrameworks>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <LangVersion>9</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>DocSets</RootNamespace>
+    <AssemblyName>DocSets.UI.WinForms</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
+    <ProjectReference Include="..\Aga.Controls\Aga.Controls.csproj" />
+    <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />
+    <ProjectReference Include="..\DocSets.Editor.Jodit\DocSets.Editor.Jodit.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\-Icons-\*.png"
+                      Link="Resources\%(Filename)%(Extension)"
+                      LogicalName="DocSets.Icons.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>DocSets.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>DocSets.IntegrationTests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -14,7 +12,7 @@ namespace DocSets
     /// <summary>
     /// Общий контрол отдельной сессии HTML-редактора.
     /// </summary>
-    internal class DocSetsHtmlCommentWindowControl : UserControl
+    public class DocSetsHtmlCommentWindowControl : UserControl
     {
         private readonly HtmlWebEditorCommentControl editor;
         private readonly string editorName;
@@ -143,7 +141,7 @@ namespace DocSets
             Leave += async (_, __) => await SaveAsync(forceRead: true);
         }
 
-        internal async Task AttachAsync(
+        public async Task AttachAsync(
             DocSetsViewModel model, DocSetsWinFormsControl owner, DocumentItem selectedItem)
         {
             if (!ReferenceEquals(viewModel, model))
@@ -184,12 +182,12 @@ namespace DocSets
                 : "Показать панель инструментов редактора");
         }
 
-        internal Task CommitPendingEditAsync() => SaveAsync(forceRead: true);
+        public Task CommitPendingEditAsync() => SaveAsync(forceRead: true);
 
-        internal Task CommitPendingEditBeforeCloseAsync()
+        public Task CommitPendingEditBeforeCloseAsync()
             => SaveAsync(forceRead: true);
 
-        internal void FocusEditor()
+        public void FocusEditor()
         {
             if (item == null) return;
             Select();
@@ -198,7 +196,7 @@ namespace DocSets
             editor.FocusEditor();
         }
 
-        internal void ShowSearchResult(int start, int length, int occurrenceIndex)
+        public void ShowSearchResult(int start, int length, int occurrenceIndex)
         {
             var content = item?.Content ?? string.Empty;
             if (start < 0 || start >= content.Length || length <= 0) return;
@@ -421,7 +419,7 @@ namespace DocSets
                     break;
                 case DocumentLinkKind.Url:
                     if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri))
-                        VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri);
+                        await viewModel.OpenUrlAsync(uri.AbsoluteUri);
                     break;
             }
         }
@@ -440,8 +438,6 @@ namespace DocSets
         {
             if (disposing)
             {
-                if (dirty && item?.ContentFormat == ContentFormat.Html && viewModel?.CanSave == true)
-                    ThreadHelper.JoinableTaskFactory.Run(() => SaveAsync());
                 shuttingDown = true;
                 if (source != null)
                 {
