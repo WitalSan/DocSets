@@ -46,6 +46,10 @@ namespace DocSets
         public string AssetDirectory => string.IsNullOrWhiteSpace(_activeDocSetDirectory)
             ? "" : Path.Combine(_activeDocSetDirectory, "assets");
 
+        public string ActiveDocSetDirectory => _activeDocSetDirectory;
+
+        public string ActiveDocSetName => _currentDocument?.Manifest?.Name ?? "";
+
         public string CurrentWorkspaceRelativePath => ToSolutionRelativePath(_activeDocSetDirectory);
 
         public SourceReferenceContext CurrentSourceContext

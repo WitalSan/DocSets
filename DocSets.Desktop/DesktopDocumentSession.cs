@@ -1,28 +1,40 @@
 using System.ComponentModel;
-using System.Security.Cryptography;
 
 namespace DocSets.Desktop;
 
+/// <summary>
+/// Связывает существующий Desktop UI с общим workspace-сервисом.
+/// После перехода Desktop на общую ViewModel этот адаптер будет удалён.
+/// </summary>
 internal sealed class DesktopDocumentSession
 {
-    private readonly IDocSetStore store = new DirectoryDocSetStore();
-    private readonly IDocSetDocumentRepository repository = new DocSetDocumentRepository();
+    private readonly DesktopSolutionContextService _solutionContext = new();
+    private readonly IDocSetWorkspaceService _workspace;
+    private DocumentSetsState _state;
 
-    public DocSetDocument Document { get; private set; }
+    public DesktopDocumentSession()
+    {
+        _workspace = new DocSetWorkspaceService(_solutionContext);
+    }
+
+    public DocumentSetsState State => _state;
     public bool IsDirty { get; private set; }
-    public string DirectoryPath => Document?.DirectoryPath ?? "";
-    public string Name => Document?.Manifest?.Name ?? "";
-    public string AssetDirectory => string.IsNullOrWhiteSpace(DirectoryPath)
-        ? ""
-        : Path.Combine(DirectoryPath, "assets");
+    public string DirectoryPath => _workspace.ActiveDocSetDirectory;
+    public string Name => _workspace.ActiveDocSetName;
+    public string AssetDirectory => _workspace.AssetDirectory;
 
     public event EventHandler DocumentChanged;
     public event EventHandler DirtyChanged;
 
     public async Task OpenAsync(string directoryPath)
     {
+        var fullPath = NormalizeDirectory(directoryPath);
         DetachItems();
-        Document = await repository.OpenAsync(NormalizeDirectory(directoryPath));
+        _solutionContext.SetForDocSet(fullPath);
+        if (!await _workspace.OpenDocSetAsync(fullPath))
+            throw new InvalidOperationException("Не удалось открыть DocSet: " + fullPath);
+        _state = await _workspace.LoadAsync()
+            ?? throw new InvalidDataException("DocSet не содержит состояния.");
         AttachItems();
         SetDirty(false);
         DocumentChanged?.Invoke(this, EventArgs.Empty);
@@ -31,34 +43,41 @@ internal sealed class DesktopDocumentSession
     public async Task CreateAsync(string directoryPath, string name)
     {
         var fullPath = NormalizeDirectory(directoryPath);
-        await store.CreateAsync(fullPath, CreateId(name), name);
-        await OpenAsync(fullPath);
+        DetachItems();
+        _solutionContext.SetForDocSet(fullPath);
+        if (!await _workspace.CreateDocSetAsync(fullPath, name))
+            throw new InvalidOperationException("Не удалось создать DocSet: " + fullPath);
+        _state = await _workspace.LoadAsync()
+            ?? throw new InvalidDataException("Созданный DocSet не содержит состояния.");
+        AttachItems();
+        SetDirty(false);
+        DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public async Task SaveAsync()
     {
-        if (Document == null) return;
-        await repository.SaveAsync(Document);
+        if (_state == null) return;
+        await _workspace.SaveAsync(_state);
         SetDirty(false);
     }
 
     public void Close()
     {
         DetachItems();
-        Document = null;
+        _state = null;
         SetDirty(false);
         DocumentChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void MarkDirty()
     {
-        if (Document != null) SetDirty(true);
+        if (_state != null) SetDirty(true);
     }
 
     public IEnumerable<DocumentItem> AllItems()
     {
-        if (Document == null) yield break;
-        foreach (var root in Document.State.Sets)
+        if (_state == null) yield break;
+        foreach (var root in _state.Sets)
             foreach (var item in Enumerate(root))
                 yield return item;
     }
@@ -66,16 +85,10 @@ internal sealed class DesktopDocumentSession
     public DocumentItem FindById(string id) => AllItems().FirstOrDefault(item =>
         string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
 
-    public async Task<string> SaveImageAsync(string base64, string mime, string originalName)
+    public async Task<string> SaveImageAsync(string base64, string mimeType, string originalName)
     {
-        var bytes = Convert.FromBase64String(base64 ?? "");
-        var extension = MimeExtension(mime, originalName);
-        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        var relative = "images/" + hash + extension;
-        var path = Path.Combine(AssetDirectory, relative.Replace('/', Path.DirectorySeparatorChar));
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        if (!File.Exists(path)) await File.WriteAllBytesAsync(path, bytes);
-        return "asset:" + relative;
+        var content = Convert.FromBase64String(base64 ?? "");
+        return await _workspace.SaveImageAssetAsync(content, mimeType, originalName);
     }
 
     public static string NormalizeDirectory(string path)
@@ -104,34 +117,15 @@ internal sealed class DesktopDocumentSession
         foreach (var item in AllItems()) item.PropertyChanged -= ItemPropertyChanged;
     }
 
-    private void ItemPropertyChanged(object sender, PropertyChangedEventArgs e) => MarkDirty();
+    private void ItemPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        MarkDirty();
+    }
 
     private void SetDirty(bool value)
     {
         if (IsDirty == value) return;
         IsDirty = value;
         DirtyChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private static string CreateId(string name)
-    {
-        var value = new string((name ?? "docset").Trim().ToLowerInvariant()
-            .Select(character => char.IsLetterOrDigit(character) ? character : '-')
-            .ToArray()).Trim('-');
-        return string.IsNullOrWhiteSpace(value) ? "docset-" + Guid.NewGuid().ToString("N") : value;
-    }
-
-    private static string MimeExtension(string mime, string originalName)
-    {
-        var extension = Path.GetExtension(originalName ?? "");
-        if (!string.IsNullOrWhiteSpace(extension) && extension.Length <= 8) return extension.ToLowerInvariant();
-        return (mime ?? "").ToLowerInvariant() switch
-        {
-            "image/jpeg" => ".jpg",
-            "image/gif" => ".gif",
-            "image/webp" => ".webp",
-            "image/svg+xml" => ".svg",
-            _ => ".png"
-        };
     }
 }

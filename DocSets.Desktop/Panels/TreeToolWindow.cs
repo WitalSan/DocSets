@@ -34,15 +34,15 @@ internal sealed class TreeToolWindow : DesktopDockContent
     public event EventHandler<DocumentItem> DeleteRequested;
     public DocumentItem SelectedItem => tree.SelectedNode?.Tag as DocumentItem;
 
-    public void LoadDocument(DocSetDocument document, DesktopSettings settings)
+    public void LoadDocument(DocumentSetsState state, string name, DesktopSettings settings)
     {
         tree.BeginUpdate();
         tree.Nodes.Clear();
-        if (document != null)
+        if (state != null)
         {
-            var root = new TreeNode(document.Manifest.Name) { Tag = null, Name = "__root" };
+            var root = new TreeNode(name) { Tag = null, Name = "__root" };
             tree.Nodes.Add(root);
-            foreach (var item in document.State.Sets) root.Nodes.Add(CreateNode(item, settings));
+            foreach (var item in state.Sets) root.Nodes.Add(CreateNode(item, settings));
             root.Expand();
             SelectById(settings?.SelectedItemId);
         }

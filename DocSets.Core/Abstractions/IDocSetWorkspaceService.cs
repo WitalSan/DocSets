@@ -11,6 +11,8 @@ namespace DocSets
     {
         string StateFilePath { get; }
         string AssetDirectory { get; }
+        string ActiveDocSetDirectory { get; }
+        string ActiveDocSetName { get; }
         string CurrentWorkspaceRelativePath { get; }
         bool IsSharedWorkspace { get; }
         bool HasOpenDocSet { get; }

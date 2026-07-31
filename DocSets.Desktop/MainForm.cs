@@ -265,7 +265,7 @@ internal sealed class MainForm : Form
 
     private void BindDocument()
     {
-        tree.LoadDocument(session.Document, settings);
+        tree.LoadDocument(session.State, session.Name, settings);
         note.SetAssetDirectory(session.AssetDirectory);
         preview.SetAssetDirectory(session.AssetDirectory);
         if (tree.SelectedItem == null) SelectItem(null);
@@ -285,12 +285,12 @@ internal sealed class MainForm : Form
 
     private void DeleteItem(DocumentItem item)
     {
-        if (item == null || session.Document == null) return;
+        if (item == null || session.State == null) return;
         if (MessageBox.Show(this, $"Удалить «{item.Name}»?", "DocSets",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        if (!Remove(session.Document.State.Sets, item)) return;
+        if (!Remove(session.State.Sets, item)) return;
         session.MarkDirty();
-        tree.LoadDocument(session.Document, settings);
+        tree.LoadDocument(session.State, session.Name, settings);
     }
 
     private static bool Remove(IList<DocumentItem> items, DocumentItem target)
@@ -389,7 +389,7 @@ internal sealed class MainForm : Form
         var name = string.IsNullOrWhiteSpace(session.Name) ? "DocSets" : session.Name + " — DocSets";
         Text = session.IsDirty ? "* " + name : name;
         dirtyStatus.Text = session.IsDirty ? "Изменён" : "";
-        documentStatus.Text = session.Document == null ? "DocSet не открыт" : session.DirectoryPath;
+        documentStatus.Text = session.State == null ? "DocSet не открыт" : session.DirectoryPath;
     }
 
     private void OnFormClosing(object sender, FormClosingEventArgs e)
