@@ -31,7 +31,8 @@ namespace DocSets
         {
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            Text = "Инициализация TOAST UI Editor…"
+            Text = "Инициализация TOAST UI Editor…",
+            Cursor = Cursors.Hand
         };
         private const string InternalLinkPrefix = "https://docsets.local/";
         private const string AssetHostPrefix = "https://docsets.assets/";
@@ -71,6 +72,7 @@ namespace DocSets
             layout.Controls.Add(editorHost, 0, 1);
             Controls.Add(layout);
             status.BringToFront();
+            status.Click += (_, __) => RetryInitialization();
             HandleCreated += OnHandleCreated;
         }
 
@@ -240,6 +242,18 @@ view.focus();return document.execCommand('copy');})()";
             }
         }
 
+        private void RetryInitialization()
+        {
+            if (IsDisposed || Disposing || ready) return;
+            status.Text = "Повторная инициализация TOAST UI Editor…";
+            status.Visible = true;
+            status.BringToFront();
+            if (webView.CoreWebView2 != null)
+                webView.NavigateToString(EditorHtml);
+            else if (!initializing)
+                _ = InitializeAsync();
+        }
+
         private async Task SetMarkdownAsync(string value)
         {
             if (!ready) return;
@@ -264,6 +278,14 @@ view.focus();return document.execCommand('copy');})()";
                     ready = true;
                     status.Visible = false;
                     _ = SetMarkdownAsync(text);
+                    break;
+                case "initError":
+                    ShowError("TOAST UI Editor не загрузился: " +
+                        ((string)message["message"] ?? "неизвестная ошибка") +
+                        "\r\n\r\nНажмите, чтобы повторить.");
+                    DocSetsLog.Current.Error("Заметки",
+                        "TOAST UI Editor не загрузился: " +
+                        ((string)message["message"] ?? "неизвестная ошибка"));
                     break;
                 case "change":
                     if (loading) return;
@@ -516,7 +538,7 @@ view.focus();return document.execCommand('copy');})()";
         private const string EditorHtml = @"<!doctype html>
 <html><head><meta charset='utf-8'>
 <meta name='color-scheme' content='light dark'>
-<link rel='stylesheet' href='https://uicdn.toast.com/editor/latest/toastui-editor.min.css'>
+<link rel='stylesheet' href='https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css'>
 <link rel='stylesheet' href='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css'>
 <style>
 html,body,#editor{height:100%;margin:0;overflow:hidden} body{font-family:Segoe UI,sans-serif}
@@ -530,12 +552,22 @@ html,body,#editor{height:100%;margin:0;overflow:hidden} body{font-family:Segoe U
 .ProseMirror ::selection,.ProseMirror::selection{background:#3390ff!important;color:#fff!important}
 @media(prefers-color-scheme:dark){body{background:#1e1e1e}.toastui-editor-defaultUI{filter:invert(.88) hue-rotate(180deg)}}
 </style></head><body><div id='editor'></div>
-<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js'></script>
-<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js'></script>
-<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js'></script>
-<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js'></script>
-<script src='https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js'></script>
-<script src='https://uicdn.toast.com/editor-plugin-code-syntax-highlight/latest/toastui-editor-plugin-code-syntax-highlight-all.min.js'></script>
+<script>
+let docsetsInitErrorSent=false;
+function docsetsInitError(message){
+  if(docsetsInitErrorSent)return;docsetsInitErrorSent=true;
+  window.chrome.webview.postMessage({type:'initError',message:String(message||'не удалось загрузить внешние ресурсы')});
+}
+window.addEventListener('error',e=>docsetsInitError(e.message||('не загружен ресурс: '+(e.target&&e.target.src||''))),true);
+window.addEventListener('unhandledrejection',e=>docsetsInitError(e.reason&&e.reason.message||e.reason||'ошибка JavaScript'));
+setTimeout(()=>{if(!window.docsetsEditor)docsetsInitError('превышено время ожидания CDN-ресурсов')},12000);
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js' onerror='docsetsInitError(""Prism не загружен"")'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js' onerror='docsetsInitError(""Prism C# не загружен"")'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js' onerror='docsetsInitError(""Prism JSON не загружен"")'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js' onerror='docsetsInitError(""Prism SQL не загружен"")'></script>
+<script src='https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js' onerror='docsetsInitError(""TOAST UI Editor не загружен"")'></script>
+<script src='https://uicdn.toast.com/editor-plugin-code-syntax-highlight/3.1.0/toastui-editor-plugin-code-syntax-highlight-all.min.js' onerror='docsetsInitError(""плагин подсветки TOAST не загружен"")'></script>
 <script>
 const send=o=>window.chrome.webview.postMessage(o); let changeTimer, settingMarkdown=false;
 const pendingImageCallbacks=new Map();let imageRequestCounter=0;

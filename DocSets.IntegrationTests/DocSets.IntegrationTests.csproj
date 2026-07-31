@@ -40,6 +40,8 @@
     <Compile Include="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs" Link="Source\ToastCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs" Link="Source\HtmlWebEditorCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs" Link="Source\JoditCommentControl.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkBreadcrumb.cs" Link="Source\BookmarkBreadcrumb.cs" />
+    <Compile Include="..\DocSets.UI.WinForms\Icons\DpiService.cs" Link="Source\DpiService.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" Link="Source\WebEditorExternalDropBridge.cs" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
   </ItemGroup>

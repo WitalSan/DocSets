@@ -18,7 +18,7 @@ namespace DocSets
         private readonly string editorName;
         private readonly CheckBox followSelection = new CheckBox();
         private readonly Button saveButton = new Button();
-        private readonly Label title = new Label();
+        private readonly BookmarkBreadcrumb title = new BookmarkBreadcrumb();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly System.Windows.Forms.Timer idleSaveTimer = new System.Windows.Forms.Timer { Interval = 3000 };
         private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
@@ -32,6 +32,7 @@ namespace DocSets
         private bool dirty;
         private bool switching;
         private bool shuttingDown;
+        private bool formatPromptActive;
         private long revision;
 
         protected DocSetsHtmlCommentWindowControl(
@@ -71,10 +72,12 @@ namespace DocSets
             saveButton.Size = DpiService.Scale(this, new Size(32, 27));
             saveButton.Enabled = false;
             toolTip.SetToolTip(saveButton, "Сохранить HTML-заметку (Ctrl+S)");
-            title.Dock = DockStyle.Fill;
-            title.TextAlign = ContentAlignment.MiddleLeft;
-            title.AutoEllipsis = true;
-            title.Padding = new Padding(6, 0, 0, 0);
+            title.ItemSelected += (_, e) =>
+            {
+                var symbol = e.Item?.Value as string;
+                if (!string.IsNullOrWhiteSpace(symbol) && viewModel != null)
+                    _ = viewModel.OpenSymbolAsync(item, symbol, item?.Project);
+            };
             bar.Controls.Add(followSelection, 0, 0);
             bar.Controls.Add(saveButton, 1, 0);
             bar.Controls.Add(title, 2, 0);
@@ -92,15 +95,7 @@ namespace DocSets
                 idleSaveTimer.Stop();
                 await SaveAsync();
             };
-            editor.CommentChanged += (_, __) =>
-            {
-                if (switching || item?.ContentFormat != ContentFormat.Html) return;
-                dirty = true;
-                revision++;
-                saveButton.Enabled = true;
-                idleSaveTimer.Stop();
-                idleSaveTimer.Start();
-            };
+            editor.CommentChanged += async (_, __) => await OnEditorCommentChangedAsync();
             editor.EditingCompleted += async (_, __) => await SaveAsync();
             editor.SaveRequested += async (_, __) => await SaveAsync(forceRead: true);
             editor.SaveStateChanged += enabled => saveButton.Enabled = enabled && item?.ContentFormat == ContentFormat.Html;
@@ -165,7 +160,7 @@ namespace DocSets
 
         internal void FocusEditor()
         {
-            if (item?.ContentFormat != ContentFormat.Html) return;
+            if (item == null) return;
             Select();
             Focus();
             editor.Enabled = true;
@@ -204,14 +199,16 @@ namespace DocSets
             switching = true;
             try
             {
-                var html = item?.ContentFormat == ContentFormat.Html ? item.Content ?? string.Empty : string.Empty;
-                editor.Enabled = item?.ContentFormat == ContentFormat.Html;
-                var session = GetEditingSession(item);
+                var html = item?.Content ?? string.Empty;
+                editor.Enabled = item != null;
+                var session = item?.ContentFormat == ContentFormat.Html
+                    ? GetEditingSession(item)
+                    : null;
                 if (session == null)
                     editor.LoadComment(html);
                 else
                     await editor.LoadEditingSessionAsync(html, session);
-                title.Text = GetTitle(item);
+                UpdateTitle();
                 dirty = false;
                 saveButton.Enabled = false;
             }
@@ -223,7 +220,7 @@ namespace DocSets
             selectedItem = viewModel?.ResolvePin(selectedItem) ?? selectedItem;
             if (ReferenceEquals(item, selectedItem))
             {
-                if (!dirty && item?.ContentFormat == ContentFormat.Html &&
+                if (!dirty && item != null &&
                     !string.Equals(editor.CommentText, item.Content ?? string.Empty, StringComparison.Ordinal))
                     await ReloadCurrentItemAsync();
                 return;
@@ -274,19 +271,63 @@ namespace DocSets
 
         private static string GetTitle(DocumentItem value)
         {
-            if (value == null) return "Заметка не выбрана";
-            return value.ContentFormat == ContentFormat.Html
-                ? value.Name + "  [HTML]"
-                : value.Name + "  [Markdown — откройте в TOAST]";
+            return value?.Name ?? "Заметка не выбрана";
+        }
+
+        private void UpdateTitle()
+        {
+            title.SetItems(BreadcrumbToolTipBuilder.BuildItems(item));
+        }
+
+        private async Task OnEditorCommentChangedAsync()
+        {
+            if (switching || item == null) return;
+            if (item.ContentFormat != ContentFormat.Html)
+            {
+                if (formatPromptActive) return;
+                formatPromptActive = true;
+                idleSaveTimer.Stop();
+                try
+                {
+                    var result = MessageBox.Show(
+                        "Формат этой заметки не соответствует редактору Jodit.\r\n\r\n" +
+                        "Изменить формат заметки на HTML и продолжить редактирование?\r\n" +
+                        "Содержимое автоматически не преобразуется.",
+                        "DocSets — формат заметки",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (result != DialogResult.Yes)
+                    {
+                        await ReloadCurrentItemAsync();
+                        return;
+                    }
+
+                    await viewModel.ChangeContentFormatAsync(item, ContentFormat.Html);
+                    source?.NotifyCommentSaved(item, this);
+                    UpdateTitle();
+                }
+                finally
+                {
+                    formatPromptActive = false;
+                }
+            }
+
+            dirty = true;
+            revision++;
+            saveButton.Enabled = true;
+            idleSaveTimer.Stop();
+            idleSaveTimer.Start();
         }
 
         private async Task SaveAsync(bool forceRead = false)
         {
-            if (shuttingDown || IsDisposed || viewModel?.CanSave != true) return;
+            if (shuttingDown || formatPromptActive || IsDisposed ||
+                viewModel?.CanSave != true) return;
             idleSaveTimer.Stop();
             await saveGate.WaitAsync();
             try
             {
+                if (formatPromptActive) return;
                 var target = item;
                 if (target == null || target.ContentFormat != ContentFormat.Html || viewModel == null ||
                     !viewModel.CanSave ||

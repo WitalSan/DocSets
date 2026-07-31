@@ -75,6 +75,7 @@
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkPropertiesPanelExperimental.cs">
       <SubType>UserControl</SubType>
     </Compile>
+    <Compile Include="DocSets.UI.WinForms\Forms\BookmarkBreadcrumb.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\BreadcrumbToolTip.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\CodePreviewHighlighter.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs">

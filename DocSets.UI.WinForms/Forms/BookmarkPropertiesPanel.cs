@@ -21,11 +21,10 @@ namespace DocSets
         private readonly TextBox commentTextBox = new TextBox();
         private readonly RichTextBox codeTextBox = new RichTextBox();
         private readonly RichTextBox livePreviewTextBox = new RichTextBox();
-        private readonly LinkLabel codeSymbolLabel = new LinkLabel();
+        private readonly BookmarkBreadcrumb codeSymbolLabel = new BookmarkBreadcrumb();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
-        private readonly BreadcrumbToolTipController breadcrumbToolTips;
         private readonly TabControl tabs = new TabControl();
         private readonly TabPage previewTab = new TabPage("Preview");
         private readonly Panel detailsHost = new Panel();
@@ -46,7 +45,6 @@ namespace DocSets
 
         public BookmarkPropertiesPanel()
         {
-            breadcrumbToolTips = new BreadcrumbToolTipController(codeSymbolLabel, toolTip);
             Dock = DockStyle.Fill;
             BuildLayout();
             WireChanges(detailsHost);
@@ -190,18 +188,9 @@ namespace DocSets
             colorRow.Controls.Add(pinCheckBox);
             root.Controls.Add(colorRow, 0, 0);
 
-            codeSymbolLabel.AutoSize = true;
-            codeSymbolLabel.Dock = DockStyle.Fill;
-            codeSymbolLabel.Font = new Font("Consolas", 10F, FontStyle.Bold);
-            codeSymbolLabel.LinkColor = Color.FromArgb(86, 156, 214);
-            codeSymbolLabel.ActiveLinkColor = Color.FromArgb(220, 220, 170);
-            codeSymbolLabel.VisitedLinkColor = codeSymbolLabel.LinkColor;
-            codeSymbolLabel.LinkBehavior = LinkBehavior.HoverUnderline;
-            codeSymbolLabel.Padding = new Padding(3, 3, 3, 5);
-            codeSymbolLabel.AutoEllipsis = true;
-            codeSymbolLabel.LinkClicked += (_, e) =>
+            codeSymbolLabel.ItemSelected += (_, e) =>
             {
-                if (e.Link?.LinkData is string symbol)
+                if (e.Item?.Value is string symbol)
                 {
                     SymbolLinkClicked?.Invoke(symbol);
                 }
@@ -381,27 +370,7 @@ namespace DocSets
 
         private void UpdateCodeSymbolLinks(DocumentItem value)
         {
-            var text = FormatCodeSymbol(value);
-            codeSymbolLabel.Links.Clear();
-            breadcrumbToolTips.Clear();
-            if (value == null || value.Type == BookmarkType.File || string.IsNullOrWhiteSpace(value.Symbol))
-            {
-                codeSymbolLabel.Text = text;
-                return;
-            }
-
-            var parts = value.Symbol.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
-            codeSymbolLabel.Text = string.Join(".", parts);
-            var displayOffset = 0;
-            var symbolParts = new List<string>();
-            foreach (var part in parts)
-            {
-                symbolParts.Add(part);
-                var symbolPath = string.Join(".", symbolParts);
-                codeSymbolLabel.Links.Add(displayOffset, part.Length, symbolPath);
-                breadcrumbToolTips.Set(symbolPath, BreadcrumbToolTipBuilder.Build(value, symbolPath));
-                displayOffset += part.Length + 1;
-            }
+            codeSymbolLabel.SetItems(BreadcrumbToolTipBuilder.BuildItems(value));
         }
 
         private Control CreateDetailsLayout()

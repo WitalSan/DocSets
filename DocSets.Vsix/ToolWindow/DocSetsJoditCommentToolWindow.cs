@@ -72,25 +72,6 @@ namespace DocSets
             if (package == null || viewModel == null || source == null) return;
             var item = viewModel.ResolvePin(source.CurrentCommentItem) ?? source.CurrentCommentItem;
             if (item == null) return;
-            if (item.ContentFormat != ContentFormat.Html)
-            {
-                if (!string.IsNullOrWhiteSpace(item.Content))
-                {
-                    MessageBox.Show(
-                        "Эта заметка хранится в Markdown. Jodit её не преобразует.\r\n\r\n" +
-                        "Выберите HTML как формат новых заметок и создайте новую закладку.",
-                        "DocSets — Jodit", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                if (MessageBox.Show(
-                        "Заметка пуста. Назначить ей формат HTML и открыть в Jodit?\r\n\r\n" +
-                        "Формат можно безопасно изменить только пока содержимое пустое.",
-                        "DocSets — Jodit", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                    return;
-                await viewModel.ChangeEmptyContentFormatAsync(item, ContentFormat.Html);
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                source.NotifyCommentSaved(item, null);
-            }
 
             var pane = package.FindToolWindow(typeof(DocSetsJoditCommentToolWindow), 0, true)
                 as DocSetsJoditCommentToolWindow;

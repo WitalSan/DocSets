@@ -121,6 +121,7 @@ namespace DocSets
             Dock = DockStyle.Fill;
             BuildLayout();
             _experimentalPropertiesPanel.AttachSearchTab(_searchPanel);
+            _ = _experimentalPropertiesPanel.AttachJoditAsync(_viewModel, this);
             BuildTree();
             BuildMenus();
             _viewModel.TreeChanged += ViewModel_TreeChanged;
@@ -2109,6 +2110,11 @@ namespace DocSets
             _experimentalPropertiesSaveTimer.Tick += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
+                if (_experimentalPropertiesPanel.FormatChangePromptActive)
+                {
+                    _experimentalPropertiesSaveTimer.Start();
+                    return;
+                }
                 await SaveExperimentalPropertiesAsync();
             };
             _experimentalPropertiesPanel.ItemChanged += (_, __) =>
@@ -2221,6 +2227,7 @@ namespace DocSets
             };
             _experimentalPropertiesPanel.Leave += async (_, __) =>
             {
+                if (_experimentalPropertiesPanel.FormatChangePromptActive) return;
                 _experimentalPropertiesSaveTimer.Stop();
                 var undoDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
@@ -2475,6 +2482,7 @@ namespace DocSets
 
         private void CommitPendingMarkdownEdit()
         {
+            if (_experimentalPropertiesPanel.FormatChangePromptActive) return;
             if (!_experimentalPropertiesPanel.MarkdownEditPending) return;
             _experimentalPropertiesSaveTimer.Stop();
             var description = _experimentalPropertiesPanel.GetPendingChangeDescription();

@@ -13,7 +13,7 @@ namespace DocSets
         private readonly ToastCommentControl editor = new ToastCommentControl();
         private readonly CheckBox followSelection = new CheckBox();
         private readonly Button saveButton = new Button();
-        private readonly Label title = new Label();
+        private readonly BookmarkBreadcrumb title = new BookmarkBreadcrumb();
         private readonly ToolTip toolTip = new ToolTip();
         private DocSetsViewModel viewModel;
         private DocSetsWinFormsControl source;
@@ -21,6 +21,7 @@ namespace DocSets
         private bool dirty;
         private bool switching;
         private bool shuttingDown;
+        private bool formatPromptActive;
         private long revision;
         private readonly System.Windows.Forms.Timer idleSaveTimer =
             new System.Windows.Forms.Timer { Interval = 3000 };
@@ -48,10 +49,12 @@ namespace DocSets
             saveButton.Enabled = false;
             saveButton.Margin = new Padding(3, 0, 3, 0);
             toolTip.SetToolTip(saveButton, "Сохранить заметку (Ctrl+S)");
-            title.Dock = DockStyle.Fill;
-            title.TextAlign = ContentAlignment.MiddleLeft;
-            title.AutoEllipsis = true;
-            title.Padding = new Padding(6, 0, 0, 0);
+            title.ItemSelected += (_, e) =>
+            {
+                var symbol = e.Item?.Value as string;
+                if (!string.IsNullOrWhiteSpace(symbol) && viewModel != null)
+                    _ = viewModel.OpenSymbolAsync(item, symbol, item?.Project);
+            };
             bar.Controls.Add(followSelection, 0, 0);
             bar.Controls.Add(saveButton, 1, 0);
             bar.Controls.Add(title, 2, 0);
@@ -69,14 +72,7 @@ namespace DocSets
                 idleSaveTimer.Stop();
                 await SaveAsync();
             };
-            editor.CommentChanged += (_, __) =>
-            {
-                if (switching) return;
-                dirty = true;
-                revision++;
-                idleSaveTimer.Stop();
-                idleSaveTimer.Start();
-            };
+            editor.CommentChanged += async (_, __) => await OnEditorCommentChangedAsync();
             editor.EditingCompleted += async (_, __) => await SaveAsync();
             editor.SaveRequested += async (_, __) => await SaveAsync();
             editor.SaveStateChanged += enabled => saveButton.Enabled = enabled;
@@ -154,7 +150,7 @@ namespace DocSets
             try
             {
                 editor.LoadComment(item?.Content ?? string.Empty);
-                title.Text = item?.Name ?? "Заметка не выбрана";
+                UpdateTitle();
                 dirty = false;
             }
             finally { switching = false; }
@@ -176,7 +172,7 @@ namespace DocSets
             {
                 editor.Enabled = item != null;
                 editor.LoadComment(item?.Content ?? string.Empty);
-                title.Text = item?.Name ?? "Заметка не выбрана";
+                UpdateTitle();
                 dirty = false;
             }
             finally { switching = false; }
@@ -184,11 +180,13 @@ namespace DocSets
 
         private async Task SaveAsync(bool readEditor = true, bool forceRead = false)
         {
-            if (shuttingDown || IsDisposed || viewModel?.CanSave != true) return;
+            if (shuttingDown || formatPromptActive || IsDisposed ||
+                viewModel?.CanSave != true) return;
             idleSaveTimer.Stop();
             await saveGate.WaitAsync();
             try
             {
+                if (formatPromptActive) return;
                 var target = item;
                 if (target == null || viewModel == null || !viewModel.CanSave || (!dirty && !forceRead)) return;
                 var savingRevision = revision;
@@ -221,6 +219,50 @@ namespace DocSets
                     idleSaveTimer.Start();
                 }
             }
+        }
+
+        private void UpdateTitle()
+        {
+            title.SetItems(BreadcrumbToolTipBuilder.BuildItems(item));
+        }
+
+        private async Task OnEditorCommentChangedAsync()
+        {
+            if (switching || item == null) return;
+            if (item.ContentFormat != ContentFormat.Markdown)
+            {
+                if (formatPromptActive) return;
+                formatPromptActive = true;
+                idleSaveTimer.Stop();
+                try
+                {
+                    var result = MessageBox.Show(
+                        "Формат этой заметки не соответствует редактору TOAST.\r\n\r\n" +
+                        "Изменить формат заметки на Markdown и продолжить редактирование?\r\n" +
+                        "Содержимое автоматически не преобразуется.",
+                        "DocSets — формат заметки",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (result != DialogResult.Yes)
+                    {
+                        ReloadCurrentItem();
+                        return;
+                    }
+
+                    await viewModel.ChangeContentFormatAsync(item, ContentFormat.Markdown);
+                    source?.NotifyCommentSaved(item, this);
+                    UpdateTitle();
+                }
+                finally
+                {
+                    formatPromptActive = false;
+                }
+            }
+
+            dirty = true;
+            revision++;
+            idleSaveTimer.Stop();
+            idleSaveTimer.Start();
         }
 
         private async Task ActivateLinkAsync(string target)

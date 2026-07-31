@@ -23,17 +23,18 @@ namespace DocSets
         private readonly TextBox commentTextBox = new TextBox();
         private readonly RichTextBox codeTextBox = new RichTextBox();
         private readonly RichTextBox livePreviewTextBox = new RichTextBox();
-        private readonly LinkLabel codeSymbolLabel = new LinkLabel();
+        private readonly BookmarkBreadcrumb codeSymbolLabel = new BookmarkBreadcrumb();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
         private readonly Button openCommentWindowButton = new Button();
         private readonly Button openJoditWindowButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
-        private readonly BreadcrumbToolTipController breadcrumbToolTips;
         private readonly DockWorkspaceControl dockWorkspace = new DockWorkspaceControl();
         private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
         private readonly MarkdownCommentControl markdownComment2 = new MarkdownCommentControl(experimentalDragDrop: true);
         private readonly ToastCommentControl markdownComment3 = new ToastCommentControl();
+        private readonly DocSetsJoditCommentWindowControl joditComment =
+            new DocSetsJoditCommentWindowControl();
         private readonly DocSetsLogControl logControl = new DocSetsLogControl();
         private ExperimentalAccordionHost accordion;
         private ExperimentalAccordionSection commentSection;
@@ -58,6 +59,8 @@ namespace DocSets
         private MarkdownCommentControl focusMarkdownComment;
         private MarkdownCommentControl pendingExternalDropComment;
         private bool pendingToastDrop;
+        private bool formatPromptActive;
+        private DocSetsViewModel attachedViewModel;
 
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
@@ -77,7 +80,6 @@ namespace DocSets
 
         public BookmarkPropertiesPanelExperimental()
         {
-            breadcrumbToolTips = new BreadcrumbToolTipController(codeSymbolLabel, toolTip);
             Dock = DockStyle.Fill;
             BuildLayout();
             WireChanges(detailsHost);
@@ -131,6 +133,11 @@ namespace DocSets
             markdownComment3.CommentChanged += (_, __) =>
             {
                 if (loading) return;
+                if (item != null && item.ContentFormat != ContentFormat.Markdown)
+                {
+                    _ = HandleToastFormatMismatchAsync();
+                    return;
+                }
                 commentRevision++;
                 markdownCommentDirty = false;
                 markdownComment3Dirty = false;
@@ -138,8 +145,16 @@ namespace DocSets
                 markdownComment3Dirty = true;
                 Changed(markdownComment3, EventArgs.Empty);
             };
-            markdownComment3.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
-            markdownComment3.SaveRequested += (_, __) => MarkdownSaveRequested?.Invoke(this, EventArgs.Empty);
+            markdownComment3.EditingCompleted += (_, __) =>
+            {
+                if (!formatPromptActive)
+                    MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
+            };
+            markdownComment3.SaveRequested += (_, __) =>
+            {
+                if (!formatPromptActive)
+                    MarkdownSaveRequested?.Invoke(this, EventArgs.Empty);
+            };
             markdownComment3.LinkActivated += ActivateToastLink;
             markdownComment3.ExternalSymbolDropRequested += text =>
             {
@@ -162,6 +177,7 @@ namespace DocSets
         public bool RequestedPinState => !loadedAllPinned;
         public BookmarkColor SelectedColor => selectedColor;
         public bool MarkdownEditPending => markdownCommentDirty || markdownComment3Dirty;
+        public bool FormatChangePromptActive => formatPromptActive;
         public long CommentRevision => commentRevision;
 
         public Task<string> GetCurrentCommentAsync()
@@ -221,6 +237,50 @@ namespace DocSets
         {
             if (searchControl == null || dockWorkspace.ContainsPanel("search")) return;
             dockWorkspace.Register("search", "Поиск", searchControl);
+        }
+
+        public Task AttachJoditAsync(DocSetsViewModel viewModel, DocSetsWinFormsControl owner)
+        {
+            attachedViewModel = viewModel;
+            return joditComment.AttachAsync(viewModel, owner, owner?.CurrentCommentItem);
+        }
+
+        private async Task HandleToastFormatMismatchAsync()
+        {
+            if (formatPromptActive || item == null || attachedViewModel == null) return;
+            formatPromptActive = true;
+            try
+            {
+                var result = MessageBox.Show(
+                    "Формат этой заметки не соответствует редактору TOAST.\r\n\r\n" +
+                    "Изменить формат заметки на Markdown и продолжить редактирование?\r\n" +
+                    "Содержимое автоматически не преобразуется.",
+                    "DocSets — формат заметки",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (result != DialogResult.Yes)
+                {
+                    loading = true;
+                    try
+                    {
+                        markdownComment3.LoadComment(item.Content ?? string.Empty);
+                        markdownComment3.SetSaveEnabled(false);
+                    }
+                    finally { loading = false; }
+                    return;
+                }
+
+                await attachedViewModel.ChangeContentFormatAsync(item, ContentFormat.Markdown);
+                commentRevision++;
+                markdownCommentDirty = false;
+                markdownComment3Dirty = true;
+                dirtyMarkdownComment = null;
+                Changed(markdownComment3, EventArgs.Empty);
+            }
+            finally
+            {
+                formatPromptActive = false;
+            }
         }
 
         public void ShowSearchTab() => dockWorkspace.ActivatePanel("search");
@@ -439,19 +499,9 @@ namespace DocSets
             colorRow.Controls.Add(CreatePalette());
             root.Controls.Add(colorRow, 0, 0);
 
-            codeSymbolLabel.AutoSize = false;
-            codeSymbolLabel.Dock = DockStyle.Fill;
-            codeSymbolLabel.TextAlign = ContentAlignment.MiddleLeft;
-            codeSymbolLabel.Font = new Font("Consolas", 10F, FontStyle.Bold);
-            codeSymbolLabel.LinkColor = Color.FromArgb(86, 156, 214);
-            codeSymbolLabel.ActiveLinkColor = Color.FromArgb(220, 220, 170);
-            codeSymbolLabel.VisitedLinkColor = codeSymbolLabel.LinkColor;
-            codeSymbolLabel.LinkBehavior = LinkBehavior.HoverUnderline;
-            codeSymbolLabel.Padding = new Padding(3, 3, 3, 5);
-            codeSymbolLabel.AutoEllipsis = true;
-            codeSymbolLabel.LinkClicked += (_, e) =>
+            codeSymbolLabel.ItemSelected += (_, e) =>
             {
-                if (e.Link?.LinkData is string symbol)
+                if (e.Item?.Value is string symbol)
                 {
                     SymbolLinkClicked?.Invoke(symbol);
                 }
@@ -569,7 +619,9 @@ namespace DocSets
             dockWorkspace.Register("code", "Код", codeRoot);
             dockWorkspace.Register("preview", "Preview", livePreviewTextBox);
             dockWorkspace.Register("comment2", "Заметка-2", markdownComment2);
-            dockWorkspace.Register("comment3", "Заметка", markdownComment3);
+            dockWorkspace.Register("comment3", "Заметка [TOAST]", markdownComment3);
+            dockWorkspace.Register("commentJodit", "Заметка [Jodit]", joditComment,
+                visibleByDefault: false);
             dockWorkspace.Register("log", "Лог", logControl, visibleByDefault: false);
             root.Controls.Add(dockWorkspace, 0, 2);
         }
@@ -630,7 +682,7 @@ namespace DocSets
         private void BreadcrumbMouseDown(object sender, MouseEventArgs e)
         {
             breadcrumbDragStart = e.Location;
-            var symbol = FindBreadcrumbLink(e.Location)?.LinkData as string;
+            var symbol = codeSymbolLabel.GetItemAt(e.Location)?.Value as string;
             if (!string.IsNullOrWhiteSpace(symbol))
             {
                 breadcrumbDragLink = new DocumentLink { Kind = DocumentLinkKind.Symbol,
@@ -652,20 +704,6 @@ namespace DocSets
             var link = breadcrumbDragLink; breadcrumbDragLink = null;
             codeSymbolLabel.DoDragDrop(DocumentLinkService.CreateDataObject(link), DragDropEffects.Copy);
         }
-
-        private LinkLabel.Link FindBreadcrumbLink(Point point)
-        {
-            foreach (LinkLabel.Link link in codeSymbolLabel.Links)
-            {
-                var before = link.Start == 0 ? string.Empty : codeSymbolLabel.Text.Substring(0, link.Start);
-                var value = codeSymbolLabel.Text.Substring(link.Start, link.Length);
-                var x = codeSymbolLabel.Padding.Left + TextRenderer.MeasureText(before, codeSymbolLabel.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
-                var width = TextRenderer.MeasureText(value, codeSymbolLabel.Font, Size.Empty, TextFormatFlags.NoPadding).Width;
-                if (point.X >= x && point.X <= x + width) return link;
-            }
-            return null;
-        }
-
 
         public void RefreshCodePreview()
         {
@@ -726,32 +764,17 @@ namespace DocSets
                 return string.Format("{0} : {1}", fileName, Math.Max(1, value.Line));
             }
 
+            if (value.Type == BookmarkType.Empty)
+            {
+                return value.Name ?? string.Empty;
+            }
+
             return (value.Symbol ?? string.Empty);
         }
 
         private void UpdateCodeSymbolLinks(DocumentItem value)
         {
-            var text = FormatCodeSymbol(value);
-            codeSymbolLabel.Links.Clear();
-            breadcrumbToolTips.Clear();
-            if (value == null || value.Type == BookmarkType.File || string.IsNullOrWhiteSpace(value.Symbol))
-            {
-                codeSymbolLabel.Text = text;
-                return;
-            }
-
-            var parts = value.Symbol.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
-            codeSymbolLabel.Text = string.Join(".", parts);
-            var displayOffset = 0;
-            var symbolParts = new List<string>();
-            foreach (var part in parts)
-            {
-                symbolParts.Add(part);
-                var symbolPath = string.Join(".", symbolParts);
-                codeSymbolLabel.Links.Add(displayOffset, part.Length, symbolPath);
-                breadcrumbToolTips.Set(symbolPath, BreadcrumbToolTipBuilder.Build(value, symbolPath));
-                displayOffset += part.Length + 1;
-            }
+            codeSymbolLabel.SetItems(BreadcrumbToolTipBuilder.BuildItems(value));
         }
 
         private Control CreateDetailsLayout()

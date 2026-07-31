@@ -7,51 +7,64 @@ using System.Windows.Forms;
 
 namespace DocSets
 {
-    internal sealed class BreadcrumbToolTipController
-    {
-        private readonly LinkLabel label;
-        private readonly ToolTip toolTip;
-        private readonly Dictionary<string, string> texts = new Dictionary<string, string>(StringComparer.Ordinal);
-        private string currentKey;
-
-        public BreadcrumbToolTipController(LinkLabel label, ToolTip toolTip)
-        {
-            this.label = label; this.toolTip = toolTip;
-            label.MouseMove += OnMouseMove;
-            label.MouseLeave += (_, __) => { currentKey = null; toolTip.Hide(label); };
-        }
-
-        public void Clear() { texts.Clear(); currentKey = null; toolTip.SetToolTip(label, null); }
-        public void Set(string symbol, string text) { if (!string.IsNullOrWhiteSpace(symbol) && !string.IsNullOrWhiteSpace(text)) texts[symbol] = text.Trim(); }
-
-        private void OnMouseMove(object sender, MouseEventArgs e)
-        {
-            var link = FindLink(e.Location); var key = link?.LinkData as string;
-            if (string.Equals(key, currentKey, StringComparison.Ordinal)) return;
-            currentKey = key;
-            toolTip.Hide(label);
-            if (key != null && texts.TryGetValue(key, out var text)) toolTip.Show(text, label, e.X + DpiService.Scale(label, 12), e.Y + DpiService.Scale(label, 18), 30000);
-        }
-
-        private LinkLabel.Link FindLink(Point point)
-        {
-            foreach (LinkLabel.Link link in label.Links)
-            {
-                var before = link.Start <= 0 ? "" : label.Text.Substring(0, link.Start);
-                var value = label.Text.Substring(link.Start, link.Length);
-                var x = label.Padding.Left + Measure(before);
-                var width = Math.Max(1, Measure(value));
-                if (point.X >= x && point.X <= x + width && point.Y >= label.Padding.Top && point.Y <= label.Height - label.Padding.Bottom) return link;
-            }
-            return null;
-        }
-
-        private int Measure(string text) => TextRenderer.MeasureText(text ?? "", label.Font, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
-    }
-
     internal static class BreadcrumbToolTipBuilder
     {
         private const string Separator = "────────────────";
+
+        public static BreadcrumbItem[] BuildItems(DocumentItem item)
+        {
+            if (item == null)
+                return new[] { new BreadcrumbItem { Text = "Заметка не выбрана" } };
+
+            if (item.Type == BookmarkType.Empty)
+                return new[]
+                {
+                    new BreadcrumbItem
+                    {
+                        Text = item.Name ?? string.Empty,
+                        Comment = BookmarkToolTipFormatter.Format(item.Content, item.ContentFormat)
+                    }
+                };
+
+            if (item.Type == BookmarkType.File)
+            {
+                var fileName = System.IO.Path.GetFileName(item.Path ?? string.Empty);
+                if (string.IsNullOrWhiteSpace(fileName))
+                    fileName = item.Name ?? item.Path ?? string.Empty;
+                return new[]
+                {
+                    new BreadcrumbItem
+                    {
+                        Text = string.Format("{0} : {1}", fileName, Math.Max(1, item.Line)),
+                        Comment = BookmarkToolTipFormatter.Format(item.Content, item.ContentFormat)
+                    }
+                };
+            }
+
+            var result = new List<BreadcrumbItem>();
+            var path = new List<string>();
+            foreach (var part in (item.Symbol ?? string.Empty)
+                .Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                path.Add(part);
+                var symbol = string.Join(".", path);
+                result.Add(new BreadcrumbItem
+                {
+                    Text = part,
+                    Comment = Build(item, symbol),
+                    Value = symbol,
+                    Selectable = true
+                });
+            }
+            if (result.Count == 0)
+                result.Add(new BreadcrumbItem
+                {
+                    Text = item.Name ?? string.Empty,
+                    Comment = BookmarkToolTipFormatter.Format(item.Content, item.ContentFormat)
+                });
+            return result.ToArray();
+        }
+
         public static string Build(DocumentItem item, string symbolPath)
         {
             var bookmarkComment = item == null

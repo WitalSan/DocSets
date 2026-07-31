@@ -1991,6 +1991,25 @@ namespace DocSets
             });
         }
 
+        /// <summary>
+        /// Явно изменяет формат заметки без преобразования её содержимого.
+        /// Подтверждение смены формата непустой заметки выполняет вызывающий интерфейс.
+        /// </summary>
+        public Task ChangeContentFormatAsync(DocumentItem item, ContentFormat format)
+        {
+            item = ResolvePin(item);
+            if (item == null) throw new ArgumentNullException(nameof(item));
+            if (format != ContentFormat.Markdown && format != ContentFormat.Html)
+                throw new ArgumentOutOfRangeException(nameof(format));
+            if (item.ContentFormat == format) return Task.CompletedTask;
+
+            return ExecuteMutationAsync("Изменение формата заметки", () =>
+            {
+                item.ContentFormat = format;
+                MarkBookmarkModified(item);
+            });
+        }
+
         private bool IsStoredBookmark(DocumentItem item)
         {
             return item != null && !item.IsLocalOnly && item.NodeType == NodeType.Item &&
