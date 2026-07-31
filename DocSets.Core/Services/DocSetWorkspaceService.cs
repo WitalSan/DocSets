@@ -8,78 +8,78 @@ using Newtonsoft.Json;
 
 namespace DocSets
 {
-    internal sealed class DocSetsStore : IDocSetsHostService
+    public sealed class DocSetWorkspaceService : IDocSetWorkspaceService
     {
         private readonly ISolutionContextService _solutionContext;
 
-        private string solutionDirectory = "";
-        private string solutionFilePath = "";
-        private string storageDirectory = "";
-        private string stateFilePath = "";
-        private bool isSharedWorkspace;
-        private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
-        private DateTime lastKnownWriteTimeUtc = DateTime.MinValue;
-        private long lastKnownLength = -1;
-        private string lastSavedStateJson = "";
-        private readonly DirectoryDocSetStore directoryStore = new DirectoryDocSetStore();
-        private readonly DocSetDocumentRepository documentRepository = new DocSetDocumentRepository();
-        private readonly JsonDocSetsWorkspaceStore workspaceStore = new JsonDocSetsWorkspaceStore();
-        private DocSetsWorkspaceLocation workspaceLocation;
-        private DocSetsWorkspaceManager workspaceManager;
-        private DocSetDocument currentDocument;
-        private string activeDocSetDirectory = "";
-        private IReadOnlyList<CodeSourceStatus> sourceStatuses = Array.Empty<CodeSourceStatus>();
-        private readonly CodeSourceLocator sourceLocator = new CodeSourceLocator();
-        private readonly AssetStorageService assetStorage = new AssetStorageService();
+        private string _solutionDirectory = "";
+        private string _solutionFilePath = "";
+        private string _storageDirectory = "";
+        private string _stateFilePath = "";
+        private bool _isSharedWorkspace;
+        private readonly SemaphoreSlim _saveGate = new SemaphoreSlim(1, 1);
+        private DateTime _lastKnownWriteTimeUtc = DateTime.MinValue;
+        private long _lastKnownLength = -1;
+        private string _lastSavedStateJson = "";
+        private readonly DirectoryDocSetStore _directoryStore = new DirectoryDocSetStore();
+        private readonly DocSetDocumentRepository _documentRepository = new DocSetDocumentRepository();
+        private readonly JsonDocSetsWorkspaceStore _workspaceStore = new JsonDocSetsWorkspaceStore();
+        private DocSetsWorkspaceLocation _workspaceLocation;
+        private DocSetsWorkspaceManager _workspaceManager;
+        private DocSetDocument _currentDocument;
+        private string _activeDocSetDirectory = "";
+        private IReadOnlyList<CodeSourceStatus> _sourceStatuses = Array.Empty<CodeSourceStatus>();
+        private readonly CodeSourceLocator _sourceLocator = new CodeSourceLocator();
+        private readonly AssetStorageService _assetStorage = new AssetStorageService();
 
-        public DocSetsStore(ISolutionContextService solutionContext)
+        public DocSetWorkspaceService(ISolutionContextService solutionContext)
         {
             _solutionContext = solutionContext ?? throw new ArgumentNullException(nameof(solutionContext));
         }
 
-        public string StorageDirectory => storageDirectory;
+        public string StorageDirectory => _storageDirectory;
 
-        public bool IsSharedWorkspace => isSharedWorkspace;
+        public bool IsSharedWorkspace => _isSharedWorkspace;
 
-        public string StateFilePath => stateFilePath;
-        public bool HasOpenDocSet => currentDocument != null;
-        public string AssetDirectory => string.IsNullOrWhiteSpace(activeDocSetDirectory)
-            ? "" : Path.Combine(activeDocSetDirectory, "assets");
+        public string StateFilePath => _stateFilePath;
+        public bool HasOpenDocSet => _currentDocument != null;
+        public string AssetDirectory => string.IsNullOrWhiteSpace(_activeDocSetDirectory)
+            ? "" : Path.Combine(_activeDocSetDirectory, "assets");
 
-        public string CurrentWorkspaceRelativePath => ToSolutionRelativePath(activeDocSetDirectory);
+        public string CurrentWorkspaceRelativePath => ToSolutionRelativePath(_activeDocSetDirectory);
 
         public SourceReferenceContext CurrentSourceContext
-            => SourceReferenceContext.Create(sourceStatuses, sourceLocator);
+            => SourceReferenceContext.Create(_sourceStatuses, _sourceLocator);
 
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
         {
-            if (string.IsNullOrWhiteSpace(activeDocSetDirectory))
+            if (string.IsNullOrWhiteSpace(_activeDocSetDirectory))
                 throw new InvalidOperationException("DocSet не открыт.");
-            return assetStorage.SaveImageAsync(activeDocSetDirectory, content, mimeType, originalName);
+            return _assetStorage.SaveImageAsync(_activeDocSetDirectory, content, mimeType, originalName);
         }
 
         public Task<string> NormalizeCommentAssetsAsync(string markdown,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(activeDocSetDirectory))
+            if (string.IsNullOrWhiteSpace(_activeDocSetDirectory))
                 throw new InvalidOperationException("DocSet не открыт.");
-            return assetStorage.ImportEmbeddedImagesAsync(
-                activeDocSetDirectory, markdown, cancellationToken);
+            return _assetStorage.ImportEmbeddedImagesAsync(
+                _activeDocSetDirectory, markdown, cancellationToken);
         }
 
         public IReadOnlyList<string> FindAssetReferences(string markdown)
-            => assetStorage.FindReferences(markdown);
+            => _assetStorage.FindReferences(markdown);
 
         public byte[] ReadAsset(string assetReference)
-            => assetStorage.Read(activeDocSetDirectory, assetReference);
+            => _assetStorage.Read(_activeDocSetDirectory, assetReference);
 
         public string GetAssetMimeType(string assetReference)
-            => assetStorage.GetMimeType(assetReference);
+            => _assetStorage.GetMimeType(assetReference);
 
         public async Task<IReadOnlyList<WorkspaceInfo>> GetWorkspacesAsync()
         {
             if (!await EnsureInitializedAsync()) return Array.Empty<WorkspaceInfo>();
-            return workspaceManager.ResolveOpenDocSets()
+            return _workspaceManager.ResolveOpenDocSets()
                 .Select(CreateWorkspaceInfo)
                 .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -90,7 +90,7 @@ namespace DocSets
             if (!await EnsureInitializedAsync() || string.IsNullOrWhiteSpace(relativePath)) return false;
             var fullPath = Path.GetFullPath(Path.IsPathRooted(relativePath)
                 ? relativePath
-                : Path.Combine(solutionDirectory, relativePath));
+                : Path.Combine(_solutionDirectory, relativePath));
             return await OpenDocSetCoreAsync(fullPath, true);
         }
 
@@ -107,7 +107,7 @@ namespace DocSets
             var displayName = string.IsNullOrWhiteSpace(name)
                 ? Path.GetFileNameWithoutExtension(fullPath)
                 : name.Trim();
-            await directoryStore.CreateAsync(fullPath, CreateReadableId(displayName), displayName);
+            await _directoryStore.CreateAsync(fullPath, CreateReadableId(displayName), displayName);
             return await OpenDocSetCoreAsync(fullPath, true);
         }
 
@@ -118,23 +118,23 @@ namespace DocSets
                 return null;
             }
 
-            if (string.IsNullOrWhiteSpace(activeDocSetDirectory)) return null;
+            if (string.IsNullOrWhiteSpace(_activeDocSetDirectory)) return null;
 
             // Восстановление рабочего пространства и команды открытия уже загрузили
             // документ в OpenDocSetCoreAsync. Повторно читаем его только при обнаружении
             // внешнего изменения на диске.
-            if (currentDocument != null && !forceReload)
+            if (_currentDocument != null && !forceReload)
             {
-                return currentDocument.State;
+                return _currentDocument.State;
             }
 
             try
             {
-                currentDocument = await documentRepository.OpenAsync(activeDocSetDirectory);
-                ConfigureActiveDocument(currentDocument);
-                lastSavedStateJson = SerializeState(currentDocument.State);
+                _currentDocument = await _documentRepository.OpenAsync(_activeDocSetDirectory);
+                ConfigureActiveDocument(_currentDocument);
+                _lastSavedStateJson = SerializeState(_currentDocument.State);
                 RememberCurrentFileStamp();
-                return currentDocument.State;
+                return _currentDocument.State;
             }
             catch
             {
@@ -151,29 +151,29 @@ namespace DocSets
                 return;
             }
 
-            if (!await EnsureInitializedAsync() || currentDocument == null)
+            if (!await EnsureInitializedAsync() || _currentDocument == null)
             {
                 return;
             }
 
-            await saveGate.WaitAsync();
+            await _saveGate.WaitAsync();
             try
             {
                 await NormalizeEmbeddedImagesAsync(state);
                 var stateJson = SerializeState(state);
-                if (string.Equals(stateJson, lastSavedStateJson, StringComparison.Ordinal))
+                if (string.Equals(stateJson, _lastSavedStateJson, StringComparison.Ordinal))
                 {
                     return;
                 }
 
-                currentDocument.ReplaceState(state);
-                await documentRepository.SaveAsync(currentDocument);
-                lastSavedStateJson = SerializeState(state);
+                _currentDocument.ReplaceState(state);
+                await _documentRepository.SaveAsync(_currentDocument);
+                _lastSavedStateJson = SerializeState(state);
                 RememberCurrentFileStamp();
             }
             finally
             {
-                saveGate.Release();
+                _saveGate.Release();
             }
         }
 
@@ -186,14 +186,14 @@ namespace DocSets
 
             if (!File.Exists(StateFilePath))
             {
-                return lastKnownWriteTimeUtc != DateTime.MinValue || lastKnownLength >= 0;
+                return _lastKnownWriteTimeUtc != DateTime.MinValue || _lastKnownLength >= 0;
             }
 
             try
             {
                 var info = new FileInfo(StateFilePath);
-                return info.LastWriteTimeUtc != lastKnownWriteTimeUtc ||
-                       info.Length != lastKnownLength;
+                return info.LastWriteTimeUtc != _lastKnownWriteTimeUtc ||
+                       info.Length != _lastKnownLength;
             }
             catch
             {
@@ -205,16 +205,16 @@ namespace DocSets
         {
             if (string.IsNullOrWhiteSpace(StateFilePath) || !File.Exists(StateFilePath))
             {
-                lastKnownWriteTimeUtc = DateTime.MinValue;
-                lastKnownLength = -1;
+                _lastKnownWriteTimeUtc = DateTime.MinValue;
+                _lastKnownLength = -1;
                 return;
             }
 
             try
             {
                 var info = new FileInfo(StateFilePath);
-                lastKnownWriteTimeUtc = info.LastWriteTimeUtc;
-                lastKnownLength = info.Length;
+                _lastKnownWriteTimeUtc = info.LastWriteTimeUtc;
+                _lastKnownLength = info.Length;
             }
             catch
             {
@@ -222,29 +222,29 @@ namespace DocSets
             }
         }
 
-        internal async Task<bool> EnsureInitializedAsync()
+        public async Task<bool> EnsureInitializedAsync()
         {
             var context = await _solutionContext.GetCurrentAsync();
             if (context == null || !context.IsAvailable) { ClearSolutionState(); return false; }
 
             var normalizedSolutionFile = Path.GetFullPath(context.FilePath);
-            if (string.Equals(normalizedSolutionFile, solutionFilePath, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(normalizedSolutionFile, _solutionFilePath, StringComparison.OrdinalIgnoreCase)) return true;
 
-            solutionFilePath = normalizedSolutionFile;
-            solutionDirectory = context.Directory;
-            lastKnownWriteTimeUtc = DateTime.MinValue;
-            lastKnownLength = -1;
-            workspaceLocation = DocSetsWorkspaceLocation.ForSolution(solutionFilePath);
-            var workspace = await workspaceStore.LoadAsync(workspaceLocation);
-            workspaceManager = new DocSetsWorkspaceManager(workspaceLocation, workspace);
-            currentDocument = null;
-            lastSavedStateJson = "";
-            activeDocSetDirectory = "";
-            stateFilePath = "";
-            storageDirectory = "";
-            isSharedWorkspace = false;
+            _solutionFilePath = normalizedSolutionFile;
+            _solutionDirectory = context.Directory;
+            _lastKnownWriteTimeUtc = DateTime.MinValue;
+            _lastKnownLength = -1;
+            _workspaceLocation = DocSetsWorkspaceLocation.ForSolution(_solutionFilePath);
+            var workspace = await _workspaceStore.LoadAsync(_workspaceLocation);
+            _workspaceManager = new DocSetsWorkspaceManager(_workspaceLocation, workspace);
+            _currentDocument = null;
+            _lastSavedStateJson = "";
+            _activeDocSetDirectory = "";
+            _stateFilePath = "";
+            _storageDirectory = "";
+            _isSharedWorkspace = false;
 
-            var activePath = workspaceManager.ResolveActiveDocSet();
+            var activePath = _workspaceManager.ResolveActiveDocSet();
             if (!string.IsNullOrWhiteSpace(activePath) && Directory.Exists(activePath))
             {
                 try
@@ -262,14 +262,14 @@ namespace DocSets
         private async Task<bool> OpenDocSetCoreAsync(string directoryPath, bool saveWorkspace)
         {
             var fullPath = Path.GetFullPath(directoryPath);
-            var document = await documentRepository.OpenAsync(fullPath);
+            var document = await _documentRepository.OpenAsync(fullPath);
             if (await NormalizeEmbeddedImagesAsync(document.State, fullPath))
-                await documentRepository.SaveAsync(document);
-            currentDocument = document;
+                await _documentRepository.SaveAsync(document);
+            _currentDocument = document;
             ConfigureActiveDocument(document);
-            lastSavedStateJson = SerializeState(document.State);
-            workspaceManager.Open(fullPath, true);
-            if (saveWorkspace) await workspaceStore.SaveAsync(workspaceLocation, workspaceManager.Workspace);
+            _lastSavedStateJson = SerializeState(document.State);
+            _workspaceManager.Open(fullPath, true);
+            if (saveWorkspace) await _workspaceStore.SaveAsync(_workspaceLocation, _workspaceManager.Workspace);
             RememberCurrentFileStamp();
             return true;
         }
@@ -279,13 +279,13 @@ namespace DocSets
         {
             if (documentState == null) return false;
             var directory = string.IsNullOrWhiteSpace(docSetDirectory)
-                ? activeDocSetDirectory : docSetDirectory;
+                ? _activeDocSetDirectory : docSetDirectory;
             if (string.IsNullOrWhiteSpace(directory)) return false;
 
             var changed = false;
             foreach (var item in EnumerateItems(documentState.Sets))
             {
-                var normalized = await assetStorage.ImportEmbeddedImagesAsync(directory, item.Content);
+                var normalized = await _assetStorage.ImportEmbeddedImagesAsync(directory, item.Content);
                 if (string.Equals(item.Content ?? string.Empty, normalized, StringComparison.Ordinal)) continue;
                 item.Content = normalized;
                 changed = true;
@@ -305,12 +305,12 @@ namespace DocSets
 
         private void ConfigureActiveDocument(DocSetDocument document)
         {
-            activeDocSetDirectory = document.DirectoryPath;
-            stateFilePath = Path.Combine(activeDocSetDirectory, DirectoryDocSetStore.ManifestFileName);
-            sourceStatuses = sourceLocator.LocateAll(activeDocSetDirectory, document.Sources);
-            var primarySource = sourceStatuses.FirstOrDefault(x => x.RootExists);
-            storageDirectory = primarySource?.ResolvedRoot ?? activeDocSetDirectory;
-            isSharedWorkspace = !IsPathInside(solutionDirectory, activeDocSetDirectory);
+            _activeDocSetDirectory = document.DirectoryPath;
+            _stateFilePath = Path.Combine(_activeDocSetDirectory, DirectoryDocSetStore.ManifestFileName);
+            _sourceStatuses = _sourceLocator.LocateAll(_activeDocSetDirectory, document.Sources);
+            var primarySource = _sourceStatuses.FirstOrDefault(x => x.RootExists);
+            _storageDirectory = primarySource?.ResolvedRoot ?? _activeDocSetDirectory;
+            _isSharedWorkspace = !IsPathInside(_solutionDirectory, _activeDocSetDirectory);
         }
 
         private WorkspaceInfo CreateWorkspaceInfo(string directoryPath)
@@ -353,8 +353,8 @@ namespace DocSets
         {
             get
             {
-                var solutionName = Path.GetFileNameWithoutExtension(solutionFilePath) ?? "solution";
-                return Path.Combine(solutionDirectory, ".vs", "DockSets", solutionName + ".json");
+                var solutionName = Path.GetFileNameWithoutExtension(_solutionFilePath) ?? "solution";
+                return Path.Combine(_solutionDirectory, ".vs", "DockSets", solutionName + ".json");
             }
         }
 
@@ -390,10 +390,10 @@ namespace DocSets
 
         private string ToSolutionRelativePath(string fullPath)
         {
-            if (string.IsNullOrWhiteSpace(fullPath) || string.IsNullOrWhiteSpace(solutionDirectory)) return "";
+            if (string.IsNullOrWhiteSpace(fullPath) || string.IsNullOrWhiteSpace(_solutionDirectory)) return "";
             try
             {
-                var baseUri = new Uri(AppendDirectorySeparator(solutionDirectory));
+                var baseUri = new Uri(AppendDirectorySeparator(_solutionDirectory));
                 return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(Path.GetFullPath(fullPath))).ToString())
                     .Replace('/', Path.DirectorySeparatorChar);
             }
@@ -402,24 +402,24 @@ namespace DocSets
 
         private void ClearSolutionState()
         {
-            solutionDirectory = "";
-            solutionFilePath = "";
-            storageDirectory = "";
-            stateFilePath = "";
-            activeDocSetDirectory = "";
-            currentDocument = null;
-            lastSavedStateJson = "";
-            workspaceLocation = null;
-            workspaceManager = null;
-            sourceStatuses = Array.Empty<CodeSourceStatus>();
-            isSharedWorkspace = false;
-            lastKnownWriteTimeUtc = DateTime.MinValue;
-            lastKnownLength = -1;
+            _solutionDirectory = "";
+            _solutionFilePath = "";
+            _storageDirectory = "";
+            _stateFilePath = "";
+            _activeDocSetDirectory = "";
+            _currentDocument = null;
+            _lastSavedStateJson = "";
+            _workspaceLocation = null;
+            _workspaceManager = null;
+            _sourceStatuses = Array.Empty<CodeSourceStatus>();
+            _isSharedWorkspace = false;
+            _lastKnownWriteTimeUtc = DateTime.MinValue;
+            _lastKnownLength = -1;
         }
 
         private string ToRelativePath(string fullPath)
         {
-            if (string.IsNullOrWhiteSpace(storageDirectory) ||
+            if (string.IsNullOrWhiteSpace(_storageDirectory) ||
                 string.IsNullOrWhiteSpace(fullPath))
             {
                 return fullPath ?? "";
@@ -427,7 +427,7 @@ namespace DocSets
 
             try
             {
-                var storageUri = new Uri(AppendDirectorySeparator(storageDirectory));
+                var storageUri = new Uri(AppendDirectorySeparator(_storageDirectory));
                 var fileUri = new Uri(Path.GetFullPath(fullPath));
 
                 return Uri.UnescapeDataString(
@@ -442,35 +442,35 @@ namespace DocSets
             }
         }
 
-        internal string ToSourceRelativePath(string fullPath, out string sourceId)
+        public string MakeSourceRelativePath(string fullPath, out string sourceId)
         {
-            var source = sourceLocator.FindForFile(sourceStatuses, fullPath);
-            var defaultSource = sourceLocator.GetDefault(sourceStatuses);
+            var source = _sourceLocator.FindForFile(_sourceStatuses, fullPath);
+            var defaultSource = _sourceLocator.GetDefault(_sourceStatuses);
             sourceId = source == null || ReferenceEquals(source, defaultSource)
                 ? ""
                 : source.Source.Id ?? "";
             return source == null
                 ? ToRelativePath(fullPath)
-                : sourceLocator.MakeRelativePath(source, fullPath);
+                : _sourceLocator.MakeRelativePath(source, fullPath);
         }
 
         public string ToFullPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path) ||
                 Path.IsPathRooted(path) ||
-                string.IsNullOrWhiteSpace(storageDirectory))
+                string.IsNullOrWhiteSpace(_storageDirectory))
             {
                 return path;
             }
 
-            return Path.GetFullPath(Path.Combine(storageDirectory, path));
+            return Path.GetFullPath(Path.Combine(_storageDirectory, path));
         }
 
-        internal string ToFullPath(DocumentItem item)
+        public string ResolvePath(DocumentItem item)
         {
             return item == null
                 ? ""
-                : sourceLocator.ResolveItemPath(sourceStatuses, item.SourceId, item.Path, storageDirectory);
+                : _sourceLocator.ResolveItemPath(_sourceStatuses, item.SourceId, item.Path, _storageDirectory);
         }
 
         private static string AppendDirectorySeparator(string path)

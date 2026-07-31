@@ -19,7 +19,7 @@ namespace DocSets
 
     internal sealed class DocSetsViewModel : NotifyObject
     {
-        private readonly IDocSetsHostService store;
+        private readonly IDocSetWorkspaceService _workspace;
         private readonly IEditorTrackingService fileTracking;
         private readonly IUserDialogService _dialogs;
         private readonly IClipboardService _clipboard;
@@ -61,7 +61,7 @@ namespace DocSets
         private readonly AsyncLocal<int> mutationNesting = new AsyncLocal<int>();
 
         public DocSetsViewModel(
-            IDocSetsHostService store,
+            IDocSetWorkspaceService workspace,
             IEditorTrackingService fileTracking,
             IUserDialogService dialogs,
             IClipboardService clipboard,
@@ -70,7 +70,7 @@ namespace DocSets
             IPreviewService preview,
             ISolutionContextService solutionContext)
         {
-            this.store = store ?? throw new ArgumentNullException(nameof(store));
+            _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
             _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
             _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
@@ -126,14 +126,14 @@ namespace DocSets
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
         public string SolutionDirectory => _solutionContext.Current.Directory;
-        public string AssetDirectory => store.AssetDirectory;
+        public string AssetDirectory => _workspace.AssetDirectory;
 
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
-            => store.SaveImageAssetAsync(content, mimeType, originalName);
+            => _workspace.SaveImageAssetAsync(content, mimeType, originalName);
 
         public Task<string> NormalizeCommentAssetsAsync(string markdown,
             CancellationToken cancellationToken = default)
-            => store.NormalizeCommentAssetsAsync(markdown, cancellationToken);
+            => _workspace.NormalizeCommentAssetsAsync(markdown, cancellationToken);
 
         public WorkspaceInfo SelectedWorkspace
         {
@@ -326,8 +326,8 @@ namespace DocSets
         public async Task LoadAsync()
         {
             await RefreshWorkspacesAsync();
-            solutionState = store.LoadSolutionState() ?? new SolutionLocalState();
-            var loadedState = await store.LoadAsync();
+            solutionState = _workspace.LoadSolutionState() ?? new SolutionLocalState();
+            var loadedState = await _workspace.LoadAsync();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
             ClearUndoHistory();
             await RefreshWorkspacesAsync();
@@ -335,10 +335,10 @@ namespace DocSets
 
         public async Task SelectWorkspaceAsync(WorkspaceInfo workspace)
         {
-            if (workspace == null || string.Equals(workspace.RelativePath, store.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase)) return;
+            if (workspace == null || string.Equals(workspace.RelativePath, _workspace.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase)) return;
             await SaveAsync();
-            if (!await store.SelectWorkspaceAsync(workspace.RelativePath)) return;
-            var loadedState = await store.LoadAsync() ?? new DocumentSetsState();
+            if (!await _workspace.SelectWorkspaceAsync(workspace.RelativePath)) return;
+            var loadedState = await _workspace.LoadAsync() ?? new DocumentSetsState();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
             ClearUndoHistory();
             await RefreshWorkspacesAsync();
@@ -348,8 +348,8 @@ namespace DocSets
         {
             if (string.IsNullOrWhiteSpace(directoryPath)) return false;
             if (IsLoaded) await SaveAsync();
-            if (!await store.OpenDocSetAsync(directoryPath)) return false;
-            ApplyLoadedState(await store.LoadAsync(), preferredSetName: null, selectedNodePath: null);
+            if (!await _workspace.OpenDocSetAsync(directoryPath)) return false;
+            ApplyLoadedState(await _workspace.LoadAsync(), preferredSetName: null, selectedNodePath: null);
             ClearUndoHistory();
             await RefreshWorkspacesAsync();
             return true;
@@ -359,8 +359,8 @@ namespace DocSets
         {
             if (string.IsNullOrWhiteSpace(directoryPath)) return false;
             if (IsLoaded) await SaveAsync();
-            if (!await store.CreateDocSetAsync(directoryPath, name)) return false;
-            ApplyLoadedState(await store.LoadAsync(), preferredSetName: null, selectedNodePath: null);
+            if (!await _workspace.CreateDocSetAsync(directoryPath, name)) return false;
+            ApplyLoadedState(await _workspace.LoadAsync(), preferredSetName: null, selectedNodePath: null);
             ClearUndoHistory();
             await RefreshWorkspacesAsync();
             return true;
@@ -368,16 +368,16 @@ namespace DocSets
 
         private async Task RefreshWorkspacesAsync()
         {
-            workspaces = await store.GetWorkspacesAsync();
-            SelectedWorkspace = workspaces.FirstOrDefault(x => string.Equals(x.RelativePath, store.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase));
-            if (SelectedWorkspace == null && !string.IsNullOrWhiteSpace(store.CurrentWorkspaceRelativePath))
+            workspaces = await _workspace.GetWorkspacesAsync();
+            SelectedWorkspace = workspaces.FirstOrDefault(x => string.Equals(x.RelativePath, _workspace.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase));
+            if (SelectedWorkspace == null && !string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRelativePath))
             {
-                var path = store.CurrentWorkspaceRelativePath;
+                var path = _workspace.CurrentWorkspaceRelativePath;
                 var fileName = System.IO.Path.GetFileName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar));
                 var name = fileName.EndsWith(DirectoryDocSetStore.DirectorySuffix, StringComparison.OrdinalIgnoreCase)
                     ? fileName.Substring(0, fileName.Length - DirectoryDocSetStore.DirectorySuffix.Length)
                     : fileName;
-                SelectedWorkspace = new WorkspaceInfo { Name = name, RelativePath = path, FullPath = store.StateFilePath };
+                SelectedWorkspace = new WorkspaceInfo { Name = name, RelativePath = path, FullPath = _workspace.StateFilePath };
                 workspaces = workspaces.Concat(new[] { SelectedWorkspace }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
             }
             OnPropertyChanged(nameof(Workspaces));
@@ -386,7 +386,7 @@ namespace DocSets
         public async Task<bool> ReloadIfWorkspaceChangedAsync()
         {
             if (!IsLoaded || isReloadingExternalChanges || Volatile.Read(ref activeSaveCount) > 0 ||
-                !await store.HasExternalChangesAsync())
+                !await _workspace.HasExternalChangesAsync())
             {
                 return false;
             }
@@ -396,7 +396,7 @@ namespace DocSets
             {
                 var preferredSetName = SelectedSet?.Name;
                 var selectedNodePath = BuildNodeIndexPath(SelectedSet?.Children, SelectedNode);
-                var loadedState = await store.LoadAsync(forceReload: true);
+                var loadedState = await _workspace.LoadAsync(forceReload: true);
                 ApplyLoadedState(loadedState, preferredSetName, selectedNodePath);
                 return loadedState != null;
             }
@@ -524,11 +524,11 @@ namespace DocSets
                     ? Enumerable.Empty<DocumentItem>()
                     : new[] { restoredNode });
 
-                StorageText = string.IsNullOrWhiteSpace(store.StateFilePath)
+                StorageText = string.IsNullOrWhiteSpace(_workspace.StateFilePath)
                     ? "DocSets: откройте solution (.sln)"
-                    : store.IsSharedWorkspace
-                        ? $"DocSet (внешний): {store.StateFilePath}"
-                        : $"DocSet: {store.StateFilePath}";
+                    : _workspace.IsSharedWorkspace
+                        ? $"DocSet (внешний): {_workspace.StateFilePath}"
+                        : $"DocSet: {_workspace.StateFilePath}";
             }
             finally
             {
@@ -1483,18 +1483,18 @@ namespace DocSets
             }
 
             var usedTagIds = new HashSet<string>(clipboardNodes.SelectMany(x => x.TagIds ?? new List<string>()), StringComparer.OrdinalIgnoreCase);
-            var assetReferences = clipboardNodes.SelectMany(node => store.FindAssetReferences(node.Content))
+            var assetReferences = clipboardNodes.SelectMany(node => _workspace.FindAssetReferences(node.Content))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var envelope = new ClipboardEnvelope
             {
                 Items = clipboardNodes,
                 TagDefinitions = state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList(),
-                SourceContext = store.CurrentSourceContext,
+                SourceContext = _workspace.CurrentSourceContext,
                 Assets = assetReferences.Select(reference => new ClipboardAsset
                 {
                     Reference = reference,
-                    MimeType = store.GetAssetMimeType(reference),
-                    Content = store.ReadAsset(reference)
+                    MimeType = _workspace.GetAssetMimeType(reference),
+                    Content = _workspace.ReadAsset(reference)
                 }).ToList()
             };
             return JsonConvert.SerializeObject(envelope, Formatting.Indented);
@@ -1511,11 +1511,11 @@ namespace DocSets
             foreach (var asset in envelope.Assets ?? new List<ClipboardAsset>())
             {
                 if (asset?.Content == null || asset.Content.Length == 0) continue;
-                store.SaveImageAssetAsync(asset.Content, asset.MimeType,
+                _workspace.SaveImageAssetAsync(asset.Content, asset.MimeType,
                     System.IO.Path.GetFileName(asset.Reference)).GetAwaiter().GetResult();
             }
             if (envelope.SourceContext != null)
-                RebaseClipboardNodes(envelope.Items, envelope.SourceContext, store.CurrentSourceContext);
+                RebaseClipboardNodes(envelope.Items, envelope.SourceContext, _workspace.CurrentSourceContext);
             return BuildClipboardTree(envelope.Items);
         }
 
@@ -1921,7 +1921,7 @@ namespace DocSets
             ApplyIdMigration(state?.EnsureReadableIds());
             solutionState.History = historyService.Export();
             solutionState.Pins = pinService.Export();
-            store.SaveSolutionState(solutionState);
+            _workspace.SaveSolutionState(solutionState);
         }
 
         public async Task TrackNavigationHistoryAsync()
@@ -2378,7 +2378,7 @@ namespace DocSets
         private async Task PersistRestoredStateAsync()
         {
             SaveSolutionState();
-            await store.SaveAsync(state);
+            await _workspace.SaveAsync(state);
         }
 
         private void ClearUndoHistory()
@@ -2487,7 +2487,7 @@ namespace DocSets
             return SaveCoreAsync();
         }
 
-        public bool CanSave => IsLoaded && store.HasOpenDocSet;
+        public bool CanSave => IsLoaded && _workspace.HasOpenDocSet;
 
         private async Task SaveCoreAsync()
         {
@@ -2500,7 +2500,7 @@ namespace DocSets
             try
             {
                 await fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
-                await store.SaveAsync(state);
+                await _workspace.SaveAsync(state);
             }
             finally
             {

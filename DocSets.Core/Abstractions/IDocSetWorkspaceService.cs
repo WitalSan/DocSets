@@ -5,10 +5,9 @@ using System.Threading.Tasks;
 namespace DocSets
 {
     /// <summary>
-    /// Возможности внешней среды, необходимые прикладной модели DocSets.
-    /// Visual Studio и самостоятельное приложение предоставляют разные реализации.
+    /// Открытые DocSet, их содержимое, Sources, assets и локальное состояние workspace.
     /// </summary>
-    public interface IDocSetsHostService
+    public interface IDocSetWorkspaceService
     {
         string StateFilePath { get; }
         string AssetDirectory { get; }
@@ -17,6 +16,7 @@ namespace DocSets
         bool HasOpenDocSet { get; }
         SourceReferenceContext CurrentSourceContext { get; }
 
+        Task<bool> EnsureInitializedAsync();
         Task<IReadOnlyList<WorkspaceInfo>> GetWorkspacesAsync();
         Task<bool> SelectWorkspaceAsync(string relativePath);
         Task<bool> OpenDocSetAsync(string directoryPath);
@@ -34,16 +34,7 @@ namespace DocSets
         SolutionLocalState LoadSolutionState();
         void SaveSolutionState(SolutionLocalState state);
         string ToFullPath(string path);
-    }
-
-    /// <summary>
-    /// Отслеживание перемещений закладок при редактировании исходных файлов.
-    /// Вне IDE допустима реализация без операций.
-    /// </summary>
-    public interface IEditorTrackingService
-    {
-        Task TrackFromActiveDocumentAsync(DocumentItem item);
-        Task TrackAfterOpenAsync(DocumentItem item);
-        Task UpdateTrackedPositionsAsync(IEnumerable<DocumentItem> items);
+        string ResolvePath(DocumentItem item);
+        string MakeSourceRelativePath(string fullPath, out string sourceId);
     }
 }

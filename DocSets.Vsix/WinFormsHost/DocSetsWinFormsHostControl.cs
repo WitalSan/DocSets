@@ -22,23 +22,23 @@ namespace DocSets
             ThreadHelper.ThrowIfNotOnUIThread();
             var roslyn = new RoslynBookmarkResolver(package);
             var solutionContextService = new VisualStudioSolutionContextService(package);
-            var hostService = new DocSetsStore(solutionContextService);
+            var workspaceService = new DocSetWorkspaceService(solutionContextService);
             var dialogService = new VisualStudioUserDialogService(() => Window.GetWindow(this));
             var clipboardService = new WindowsClipboardService();
-            var navigationService = new VisualStudioNavigationService(package, roslyn, hostService.ToFullPath);
+            var navigationService = new VisualStudioNavigationService(package, roslyn, workspaceService.ResolvePath);
             var previewService = new VisualStudioPreviewService(
                 roslyn,
-                hostService.EnsureInitializedAsync,
-                hostService.ToFullPath);
+                workspaceService.EnsureInitializedAsync,
+                workspaceService.ResolvePath);
             var activeDocumentService = new VisualStudioActiveDocumentService(
                 roslyn,
-                hostService.EnsureInitializedAsync,
-                () => hostService.StorageDirectory,
+                workspaceService.EnsureInitializedAsync,
+                () => workspaceService.StorageDirectory,
                 () => solutionContextService.Current.Name,
-                hostService.ToSourceRelativePath);
-            var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
+                workspaceService.MakeSourceRelativePath);
+            var trackingService = new FileBookmarkTrackingService(package, workspaceService.ResolvePath);
             viewModel = new DocSetsViewModel(
-                hostService,
+                workspaceService,
                 trackingService,
                 dialogService,
                 clipboardService,

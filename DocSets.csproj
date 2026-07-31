@@ -73,7 +73,6 @@
     <Compile Include="DocSets.Vsix\Services\VisualStudioPreviewService.cs" />
     <Compile Include="DocSets.Vsix\Services\VisualStudioSolutionContextService.cs" />
     <Compile Include="DocSets.Vsix\Services\WindowsClipboardService.cs" />
-    <Compile Include="DocSets.Vsix\Storage\DocSetsStore.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkSearchControls.cs">
       <SubType>UserControl</SubType>
     </Compile>
