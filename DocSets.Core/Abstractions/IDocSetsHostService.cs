@@ -28,8 +28,6 @@ namespace DocSets
         Task SaveAsync(DocumentSetsState state);
         Task<bool> HasExternalChangesAsync();
 
-        Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken);
-
         Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName);
         Task<string> NormalizeCommentAssetsAsync(string content, CancellationToken cancellationToken = default);
         IReadOnlyList<string> FindAssetReferences(string content);

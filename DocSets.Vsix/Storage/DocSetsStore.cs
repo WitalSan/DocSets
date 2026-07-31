@@ -13,7 +13,6 @@ namespace DocSets
     internal sealed class DocSetsStore : IDocSetsHostService
     {
         private readonly AsyncPackage package;
-        private readonly RoslynBookmarkResolver roslyn;
 
         private string solutionDirectory = "";
         private string solutionFilePath = "";
@@ -35,10 +34,9 @@ namespace DocSets
         private readonly CodeSourceLocator sourceLocator = new CodeSourceLocator();
         private readonly AssetStorageService assetStorage = new AssetStorageService();
 
-        public DocSetsStore(AsyncPackage package, RoslynBookmarkResolver roslyn)
+        public DocSetsStore(AsyncPackage package)
         {
             this.package = package ?? throw new ArgumentNullException(nameof(package));
-            this.roslyn = roslyn ?? throw new ArgumentNullException(nameof(roslyn));
         }
 
         public string SolutionDirectory => solutionDirectory;
@@ -238,25 +236,6 @@ namespace DocSets
             {
                 // Оставляем предыдущую метку и повторяем проверку на следующем тике.
             }
-        }
-
-        public async Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
-        {
-            if (item == null || item.NodeType == NodeType.Folder || string.IsNullOrWhiteSpace(item.Path))
-            {
-                return string.Empty;
-            }
-
-            if (!await EnsureInitializedAsync())
-            {
-                return string.Empty;
-            }
-
-            return await roslyn.GetLivePreviewAsync(
-                ToFullPath(item),
-                Math.Max(1, item.Line),
-                Math.Max(1, item.Column),
-                cancellationToken);
         }
 
         internal async Task<bool> EnsureInitializedAsync()

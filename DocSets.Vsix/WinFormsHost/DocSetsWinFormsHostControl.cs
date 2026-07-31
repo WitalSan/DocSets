@@ -21,10 +21,14 @@ namespace DocSets
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             var roslyn = new RoslynBookmarkResolver(package);
-            var hostService = new DocSetsStore(package, roslyn);
+            var hostService = new DocSetsStore(package);
             var dialogService = new VisualStudioUserDialogService(() => Window.GetWindow(this));
             var clipboardService = new WindowsClipboardService();
             var navigationService = new VisualStudioNavigationService(package, roslyn, hostService.ToFullPath);
+            var previewService = new VisualStudioPreviewService(
+                roslyn,
+                hostService.EnsureInitializedAsync,
+                hostService.ToFullPath);
             var activeDocumentService = new VisualStudioActiveDocumentService(
                 roslyn,
                 hostService.EnsureInitializedAsync,
@@ -38,7 +42,8 @@ namespace DocSets
                 dialogService,
                 clipboardService,
                 navigationService,
-                activeDocumentService);
+                activeDocumentService,
+                previewService);
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;

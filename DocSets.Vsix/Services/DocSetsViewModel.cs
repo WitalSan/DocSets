@@ -25,6 +25,7 @@ namespace DocSets
         private readonly IClipboardService _clipboard;
         private readonly INavigationService _navigation;
         private readonly IActiveDocumentService _activeDocument;
+        private readonly IPreviewService _preview;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -64,7 +65,8 @@ namespace DocSets
             IUserDialogService dialogs,
             IClipboardService clipboard,
             INavigationService navigation,
-            IActiveDocumentService activeDocument)
+            IActiveDocumentService activeDocument,
+            IPreviewService preview)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
@@ -72,6 +74,7 @@ namespace DocSets
             _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
             _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
             _activeDocument = activeDocument ?? throw new ArgumentNullException(nameof(activeDocument));
+            _preview = preview ?? throw new ArgumentNullException(nameof(preview));
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -2064,7 +2067,7 @@ namespace DocSets
 
         public Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
         {
-            return store.GetLivePreviewAsync(ResolvePin(item), cancellationToken);
+            return _preview.GetPreviewAsync(ResolvePin(item), cancellationToken);
         }
 
         public Task<bool> OpenSymbolAsync(DocumentItem item, string symbol)
