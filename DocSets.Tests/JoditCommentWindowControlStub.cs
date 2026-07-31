@@ -3,12 +3,6 @@ using System.Windows.Forms;
 
 namespace DocSets
 {
-    internal sealed class DocSetsViewModel
-    {
-        internal Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
-            => Task.FromResult<ActiveSymbolReference>(null);
-    }
-
     internal sealed class DocSetsWinFormsControl
     {
         internal DocumentItem CurrentCommentItem { get; set; }

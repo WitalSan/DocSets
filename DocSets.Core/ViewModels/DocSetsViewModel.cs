@@ -9,7 +9,7 @@ using System.Windows.Input;
 
 namespace DocSets
 {
-    internal enum ActiveDocumentFolderKind
+    public enum ActiveDocumentFolderKind
     {
         Solution,
         Project,
@@ -17,48 +17,49 @@ namespace DocSets
         Class
     }
 
-    internal sealed class DocSetsViewModel : NotifyObject
+    public sealed class DocSetsViewModel : NotifyObject
     {
         private readonly IDocSetWorkspaceService _workspace;
-        private readonly IEditorTrackingService fileTracking;
+        private readonly IEditorTrackingService _fileTracking;
         private readonly IUserDialogService _dialogs;
         private readonly IClipboardService _clipboard;
         private readonly INavigationService _navigation;
         private readonly IActiveDocumentService _activeDocument;
         private readonly IPreviewService _preview;
         private readonly ISolutionContextService _solutionContext;
-        private readonly DocumentTreeService treeService;
-        private readonly NavigationHistoryService historyService;
-        private readonly RecentBookmarksService recentBookmarksService;
-        private readonly PinService pinService;
-        private readonly UndoRedoService undoRedoService;
-        private readonly TagService tagService;
-        private readonly SourceReferenceService sourceReferenceService = new SourceReferenceService();
-        private DocumentSetsState state = new DocumentSetsState();
-        private DocumentItem selectedSet;
-        private DocumentItem selectedNode;
-        private ObservableCollection<DocumentItem> selectedNodes = new ObservableCollection<DocumentItem>();
-        private string storageText = "DocSets: загрузка...";
-        private bool isLoaded;
-        private bool isApplyingState;
-        private bool isReloadingExternalChanges;
-        private int activeSaveCount;
-        private IReadOnlyList<WorkspaceInfo> workspaces = Array.Empty<WorkspaceInfo>();
-        private WorkspaceInfo selectedWorkspace;
-        private SolutionLocalState solutionState = new SolutionLocalState();
-        private bool historyProbeInProgress;
-        private bool isRestoringUndoState;
-        private bool suppressUndoRedoNotification;
-        private bool suppressUndoRedoPersistence;
-        private long undoRedoSnapshotMilliseconds;
-        private long undoRedoDeserializeMilliseconds;
-        private long undoRedoApplyMilliseconds;
-        private bool refreshingRecent;
-        private int mutationDepth;
-        private bool mutationChanged;
-        private bool mutationSaveRequested;
-        private readonly SemaphoreSlim mutationGate = new SemaphoreSlim(1, 1);
-        private readonly AsyncLocal<int> mutationNesting = new AsyncLocal<int>();
+        private readonly DocumentTreeService _treeService;
+        private readonly NavigationHistoryService _historyService;
+        private readonly RecentBookmarksService _recentBookmarksService;
+        private readonly PinService _pinService;
+        private readonly UndoRedoService _undoRedoService;
+        private readonly TagService _tagService;
+        private readonly SourceReferenceService _sourceReferenceService = new SourceReferenceService();
+        private DocumentSetsState _state = new DocumentSetsState();
+        private DocumentItem _selectedSet;
+        private DocumentItem _selectedNode;
+        private ObservableCollection<DocumentItem> _selectedNodes = new ObservableCollection<DocumentItem>();
+        private string _storageText = "DocSets: загрузка...";
+        private bool _isLoaded;
+        private bool _isApplyingState;
+        private bool _isReloadingExternalChanges;
+        private int _activeSaveCount;
+        private IReadOnlyList<WorkspaceInfo> _workspaces = Array.Empty<WorkspaceInfo>();
+        private WorkspaceInfo _selectedWorkspace;
+        private SolutionLocalState _solutionState = new SolutionLocalState();
+        private bool _historyProbeInProgress;
+        private bool _isRestoringUndoState;
+        private bool _suppressUndoRedoNotification;
+        private bool _suppressUndoRedoPersistence;
+        private long _undoRedoSnapshotMilliseconds;
+        private long _undoRedoDeserializeMilliseconds;
+        private long _undoRedoApplyMilliseconds;
+        private bool _refreshingRecent;
+        private int _mutationDepth;
+        private bool _mutationChanged;
+        private bool _mutationSaveRequested;
+        private readonly SemaphoreSlim _mutationGate = new SemaphoreSlim(1, 1);
+        private readonly AsyncLocal<int> _mutationNesting = new AsyncLocal<int>();
+        private readonly RelayCommand[] _commands;
 
         public DocSetsViewModel(
             IDocSetWorkspaceService workspace,
@@ -71,25 +72,25 @@ namespace DocSets
             ISolutionContextService solutionContext)
         {
             _workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
-            this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
+            _fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
             _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
             _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
             _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
             _activeDocument = activeDocument ?? throw new ArgumentNullException(nameof(activeDocument));
             _preview = preview ?? throw new ArgumentNullException(nameof(preview));
             _solutionContext = solutionContext ?? throw new ArgumentNullException(nameof(solutionContext));
-            treeService = new DocumentTreeService();
-            historyService = new NavigationHistoryService();
-            recentBookmarksService = new RecentBookmarksService();
-            pinService = new PinService();
-            undoRedoService = new UndoRedoService();
-            tagService = new TagService();
+            _treeService = new DocumentTreeService();
+            _historyService = new NavigationHistoryService();
+            _recentBookmarksService = new RecentBookmarksService();
+            _pinService = new PinService();
+            _undoRedoService = new UndoRedoService();
+            _tagService = new TagService();
 
             AddSetCommand = new RelayCommand(AddSet, () => IsLoaded);
             RenameSetCommand = new RelayCommand(RenameSet, () => IsLoaded && SelectedSet != null);
             DeleteSetCommand = new RelayCommand(DeleteSet, () => IsLoaded && SelectedSet != null);
-            MoveSetUpCommand = new RelayCommand(() => MoveSet(-1), () => IsLoaded && treeService.CanMove(Sets, SelectedSet, -1));
-            MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && treeService.CanMove(Sets, SelectedSet, 1));
+            MoveSetUpCommand = new RelayCommand(() => MoveSet(-1), () => IsLoaded && _treeService.CanMove(Sets, SelectedSet, -1));
+            MoveSetDownCommand = new RelayCommand(() => MoveSet(1), () => IsLoaded && _treeService.CanMove(Sets, SelectedSet, 1));
             RegenerateAllIdsCommand = new RelayCommand(async () => await RegenerateAllIdsAsync(), () => IsLoaded);
 
             AddFolderCommand = new RelayCommand(p => AddFolder(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanModifySet(SelectedSet));
@@ -108,23 +109,48 @@ namespace DocSets
             PasteNodesCommand = new RelayCommand(p => PasteNodes(p as DocumentItem ?? SelectedNode), _ => IsLoaded && CanModifySet(SelectedSet) && ClipboardContainsText());
             CopySelectedNodesAsJsonCommand = new RelayCommand(_ => CopySelectedNodesAsJson(), _ => IsLoaded && SelectedNodes.Count > 0);
             TogglePinCommand = new RelayCommand(p => TogglePin(p as DocumentItem ?? SelectedNode), p => IsLoaded && CanTogglePin(p as DocumentItem ?? SelectedNode));
-            UndoCommand = new RelayCommand(async () => await UndoAsync(), () => IsLoaded && undoRedoService.CanUndo);
-            RedoCommand = new RelayCommand(async () => await RedoAsync(), () => IsLoaded && undoRedoService.CanRedo);
+            UndoCommand = new RelayCommand(async () => await UndoAsync(), () => IsLoaded && _undoRedoService.CanUndo);
+            RedoCommand = new RelayCommand(async () => await RedoAsync(), () => IsLoaded && _undoRedoService.CanRedo);
             PasteNodesFromJsonCommand = new RelayCommand(p => PasteNodesFromJson(p as DocumentItem ?? SelectedNode), _ => IsLoaded && CanModifySet(SelectedSet) && ClipboardContainsJsonText());
-            state.Root.TreeChanged += Root_TreeChanged;
+            _commands = new[]
+            {
+                AddSetCommand,
+                RenameSetCommand,
+                DeleteSetCommand,
+                MoveSetUpCommand,
+                MoveSetDownCommand,
+                RegenerateAllIdsCommand,
+                AddFolderCommand,
+                AddBookmarkCommand,
+                OpenBookmarkCommand,
+                UpdateBookmarkCommand,
+                SyncWithCurrentPositionCommand,
+                RenameNodeCommand,
+                DeleteNodeCommand,
+                MoveNodeUpCommand,
+                MoveNodeDownCommand,
+                CopySelectedNodesCommand,
+                PasteNodesCommand,
+                CopySelectedNodesAsJsonCommand,
+                PasteNodesFromJsonCommand,
+                TogglePinCommand,
+                UndoCommand,
+                RedoCommand
+            }.OfType<RelayCommand>().Distinct().ToArray();
+            _state.Root.TreeChanged += Root_TreeChanged;
         }
 
         public event EventHandler<DocumentTreeChangedEventArgs> TreeChanged;
 
-        public DocumentItem Root => state.Root;
-        public ObservableCollection<DocumentItem> Sets => state.Root.Children;
-        public DocumentItem HistoryRoot => historyService.Root;
-        public DocumentItem RecentRoot => recentBookmarksService.Root;
-        public DocumentItem PinRoot => pinService.Root;
+        public DocumentItem Root => _state.Root;
+        public ObservableCollection<DocumentItem> Sets => _state.Root.Children;
+        public DocumentItem HistoryRoot => _historyService.Root;
+        public DocumentItem RecentRoot => _recentBookmarksService.Root;
+        public DocumentItem PinRoot => _pinService.Root;
         public string CurrentSolutionName => _solutionContext.Current.Name;
-        public IReadOnlyList<TagDefinition> Tags => state.Tags;
+        public IReadOnlyList<TagDefinition> Tags => _state.Tags;
 
-        public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
+        public IReadOnlyList<WorkspaceInfo> Workspaces => _workspaces;
         public string SolutionDirectory => _solutionContext.Current.Directory;
         public string AssetDirectory => _workspace.AssetDirectory;
 
@@ -137,13 +163,13 @@ namespace DocSets
 
         public WorkspaceInfo SelectedWorkspace
         {
-            get => selectedWorkspace;
-            private set => SetProperty(ref selectedWorkspace, value);
+            get => _selectedWorkspace;
+            private set => SetProperty(ref _selectedWorkspace, value);
         }
 
-        public DocumentSetsUiSettings Ui => solutionState.Ui ?? (solutionState.Ui = new DocumentSetsUiSettings());
+        public DocumentSetsUiSettings Ui => _solutionState.Ui ?? (_solutionState.Ui = new DocumentSetsUiSettings());
 
-        public SolutionLocalState SolutionState => solutionState;
+        public SolutionLocalState SolutionState => _solutionState;
 
         public ContentFormat NewNoteContentFormat
         {
@@ -151,8 +177,8 @@ namespace DocSets
             set
             {
                 var normalized = ContentFormat.Html;
-                if (solutionState.NewNoteContentFormat == normalized) return;
-                solutionState.NewNoteContentFormat = normalized;
+                if (_solutionState.NewNoteContentFormat == normalized) return;
+                _solutionState.NewNoteContentFormat = normalized;
                 SaveSolutionState();
                 OnPropertyChanged();
             }
@@ -160,16 +186,16 @@ namespace DocSets
 
         public bool IsLoaded
         {
-            get => isLoaded;
-            private set => SetProperty(ref isLoaded, value);
+            get => _isLoaded;
+            private set => SetProperty(ref _isLoaded, value);
         }
 
         public DocumentItem SelectedSet
         {
-            get => selectedSet;
+            get => _selectedSet;
             set
             {
-                if (!SetProperty(ref selectedSet, value)) return;
+                if (!SetProperty(ref _selectedSet, value)) return;
 
                 // SelectedSet is the working root for commands and selection context.
                 // It is not necessarily the active UI view: Full-Tree may remain active while
@@ -178,7 +204,7 @@ namespace DocSets
                 SetSelectedNodes(Enumerable.Empty<DocumentItem>());
                 OnPropertyChanged(nameof(CurrentNodes));
                 InvalidateCommands();
-                if (IsLoaded && !isApplyingState)
+                if (IsLoaded && !_isApplyingState)
                 {
                     SaveSolutionState();
                 }
@@ -189,10 +215,10 @@ namespace DocSets
 
         public DocumentItem SelectedNode
         {
-            get => selectedNode;
+            get => _selectedNode;
             set
             {
-                if (SetProperty(ref selectedNode, value))
+                if (SetProperty(ref _selectedNode, value))
                 {
                     if (value != null && SelectedNodes.Count == 0)
                     {
@@ -206,8 +232,8 @@ namespace DocSets
 
         public ObservableCollection<DocumentItem> SelectedNodes
         {
-            get => selectedNodes;
-            private set => SetProperty(ref selectedNodes, value ?? new ObservableCollection<DocumentItem>());
+            get => _selectedNodes;
+            private set => SetProperty(ref _selectedNodes, value ?? new ObservableCollection<DocumentItem>());
         }
 
         public void SetSelectedNodes(IEnumerable<DocumentItem> nodes)
@@ -228,7 +254,7 @@ namespace DocSets
             }
 
             SelectedNodes = new ObservableCollection<DocumentItem>(uniqueNodes);
-            selectedNode = uniqueNodes.LastOrDefault();
+            _selectedNode = uniqueNodes.LastOrDefault();
             OnPropertyChanged(nameof(SelectedNode));
             InvalidateCommands();
         }
@@ -287,8 +313,8 @@ namespace DocSets
 
         public string StorageText
         {
-            get => storageText;
-            private set => SetProperty(ref storageText, value);
+            get => _storageText;
+            private set => SetProperty(ref _storageText, value);
         }
 
         public ICommand AddSetCommand { get; }
@@ -326,7 +352,7 @@ namespace DocSets
         public async Task LoadAsync()
         {
             await RefreshWorkspacesAsync();
-            solutionState = _workspace.LoadSolutionState() ?? new SolutionLocalState();
+            _solutionState = _workspace.LoadSolutionState() ?? new SolutionLocalState();
             var loadedState = await _workspace.LoadAsync();
             ApplyLoadedState(loadedState, preferredSetName: null, selectedNodePath: null);
             ClearUndoHistory();
@@ -368,8 +394,8 @@ namespace DocSets
 
         private async Task RefreshWorkspacesAsync()
         {
-            workspaces = await _workspace.GetWorkspacesAsync();
-            SelectedWorkspace = workspaces.FirstOrDefault(x => string.Equals(x.RelativePath, _workspace.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase));
+            _workspaces = await _workspace.GetWorkspacesAsync();
+            SelectedWorkspace = _workspaces.FirstOrDefault(x => string.Equals(x.RelativePath, _workspace.CurrentWorkspaceRelativePath, StringComparison.OrdinalIgnoreCase));
             if (SelectedWorkspace == null && !string.IsNullOrWhiteSpace(_workspace.CurrentWorkspaceRelativePath))
             {
                 var path = _workspace.CurrentWorkspaceRelativePath;
@@ -378,20 +404,20 @@ namespace DocSets
                     ? fileName.Substring(0, fileName.Length - DirectoryDocSetStore.DirectorySuffix.Length)
                     : fileName;
                 SelectedWorkspace = new WorkspaceInfo { Name = name, RelativePath = path, FullPath = _workspace.StateFilePath };
-                workspaces = workspaces.Concat(new[] { SelectedWorkspace }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                _workspaces = _workspaces.Concat(new[] { SelectedWorkspace }).OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
             }
             OnPropertyChanged(nameof(Workspaces));
         }
 
         public async Task<bool> ReloadIfWorkspaceChangedAsync()
         {
-            if (!IsLoaded || isReloadingExternalChanges || Volatile.Read(ref activeSaveCount) > 0 ||
+            if (!IsLoaded || _isReloadingExternalChanges || Volatile.Read(ref _activeSaveCount) > 0 ||
                 !await _workspace.HasExternalChangesAsync())
             {
                 return false;
             }
 
-            isReloadingExternalChanges = true;
+            _isReloadingExternalChanges = true;
             try
             {
                 var preferredSetName = SelectedSet?.Name;
@@ -402,28 +428,28 @@ namespace DocSets
             }
             finally
             {
-                isReloadingExternalChanges = false;
+                _isReloadingExternalChanges = false;
             }
         }
 
         private void Root_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
         {
-            if (refreshingRecent) return;
-            ApplyIdMigration(state.EnsureReadableIds());
+            if (_refreshingRecent) return;
+            ApplyIdMigration(_state.EnsureReadableIds());
             if (ShouldRefreshRecent(e))
             {
-                refreshingRecent = true;
+                _refreshingRecent = true;
                 try
                 {
-                    recentBookmarksService.Refresh();
+                    _recentBookmarksService.Refresh();
                 }
                 finally
                 {
-                    refreshingRecent = false;
+                    _refreshingRecent = false;
                 }
             }
             TreeChanged?.Invoke(this, e);
-            if (IsLoaded && !isApplyingState && e != null
+            if (IsLoaded && !_isApplyingState && e != null
                 && e.PropertyName != nameof(DocumentItem.IsExpanded)
                 && e.PropertyName != nameof(DocumentItem.IsMultiSelected))
             {
@@ -435,14 +461,14 @@ namespace DocSets
                 // Обновление отслеживаемых позиций выполняется как часть текущего
                 // сохранения. Его события уже попадут в записываемый снимок и не
                 // должны рекурсивно запускать следующую запись.
-                if (Volatile.Read(ref activeSaveCount) > 0)
+                if (Volatile.Read(ref _activeSaveCount) > 0)
                 {
                     return;
                 }
 
-                if (mutationDepth > 0)
+                if (_mutationDepth > 0)
                 {
-                    mutationChanged = true;
+                    _mutationChanged = true;
                     return;
                 }
 
@@ -458,12 +484,12 @@ namespace DocSets
             if (loadedState == null)
             {
                 IsLoaded = false;
-                state.Root.TreeChanged -= Root_TreeChanged;
-                state = new DocumentSetsState();
-                tagService.EnsureStandardTags(state);
-                state.Root.TreeChanged += Root_TreeChanged;
-                selectedSet = null;
-                selectedNode = null;
+                _state.Root.TreeChanged -= Root_TreeChanged;
+                _state = new DocumentSetsState();
+                _tagService.EnsureStandardTags(_state);
+                _state.Root.TreeChanged += Root_TreeChanged;
+                _selectedSet = null;
+                _selectedNode = null;
                 SetSelectedNodes(Enumerable.Empty<DocumentItem>());
                 OnPropertyChanged(nameof(Sets));
                 OnPropertyChanged(nameof(Ui));
@@ -477,47 +503,47 @@ namespace DocSets
                 return;
             }
 
-            state.Root.TreeChanged -= Root_TreeChanged;
-            state = loadedState;
-            tagService.EnsureStandardTags(state);
-            if (state.Ui == null) state.Ui = new DocumentSetsUiSettings();
-            if (solutionState.Ui == null || (solutionState.Ui.Columns.Count == 0 && state.Ui.Columns.Count > 0))
+            _state.Root.TreeChanged -= Root_TreeChanged;
+            _state = loadedState;
+            _tagService.EnsureStandardTags(_state);
+            if (_state.Ui == null) _state.Ui = new DocumentSetsUiSettings();
+            if (_solutionState.Ui == null || (_solutionState.Ui.Columns.Count == 0 && _state.Ui.Columns.Count > 0))
             {
-                solutionState.Ui = state.Ui;
+                _solutionState.Ui = _state.Ui;
             }
 
             // Legacy NodeType.Set is normalized while DTO objects are created.
             // Root may contain both folders and leaf items; only folders are represented as tabs.
-            treeService.NormalizeNodes(state.Sets);
-            ApplyIdMigration(state.EnsureReadableIds());
-            historyService.Attach(state, solutionState.History);
-            recentBookmarksService.Attach(state, historyService.Root);
-            pinService.Attach(state, solutionState.Pins, recentBookmarksService.Root);
+            _treeService.NormalizeNodes(_state.Sets);
+            ApplyIdMigration(_state.EnsureReadableIds());
+            _historyService.Attach(_state, _solutionState.History);
+            _recentBookmarksService.Attach(_state, _historyService.Root);
+            _pinService.Attach(_state, _solutionState.Pins, _recentBookmarksService.Root);
 
-            if (!state.Sets.Any(x => x != null && !x.IsLocalOnly))
+            if (!_state.Sets.Any(x => x != null && !x.IsLocalOnly))
             {
-                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
-                state.ActiveSet = "Default";
+                _state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
+                _state.ActiveSet = "Default";
             }
 
             // Loading and Undo restore rebuild several derived/local branches. Subscribing
             // before that work makes every intermediate change run the full TreeChanged
             // pipeline (ID validation, recent-bookmark refresh and persistence checks).
-            state.Root.TreeChanged += Root_TreeChanged;
+            _state.Root.TreeChanged += Root_TreeChanged;
 
-            isApplyingState = true;
+            _isApplyingState = true;
             try
             {
                 IsLoaded = true;
                 OnPropertyChanged(nameof(Sets));
                 OnPropertyChanged(nameof(Ui));
 
-                var activeViewId = solutionState.ActiveViewId;
-                SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
+                var activeViewId = _solutionState.ActiveViewId;
+                SelectedSet = _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
                                   string.Equals(x.Id, activeViewId, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot &&
-                                  string.Equals(x.Name, preferredSetName ?? state.ActiveSet, StringComparison.OrdinalIgnoreCase))
-                              ?? state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
+                              ?? _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot &&
+                                  string.Equals(x.Name, preferredSetName ?? _state.ActiveSet, StringComparison.OrdinalIgnoreCase))
+                              ?? _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
 
                 var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
                 SetSelectedNodes(restoredNode == null
@@ -532,7 +558,7 @@ namespace DocSets
             }
             finally
             {
-                isApplyingState = false;
+                _isApplyingState = false;
             }
 
             InvalidateCommands();
@@ -612,7 +638,7 @@ namespace DocSets
             var name = _dialogs.Prompt("DocSets", "Название группы:");
             if (string.IsNullOrWhiteSpace(name)) return;
             name = name.Trim();
-            if (state.Sets.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
+            if (_state.Sets.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 Show("Группа с таким именем уже есть.");
                 return;
@@ -621,7 +647,7 @@ namespace DocSets
             _ = ExecuteMutationAsync(nameof(AddSet), () =>
             {
                 var set = new DocumentItem { Name = name, NodeType = NodeType.Folder, Type = BookmarkType.Empty };
-                state.Sets.Add(set);
+                _state.Sets.Add(set);
                 SelectedSet = set;
                 InvalidateCommands();
             });
@@ -651,7 +677,7 @@ namespace DocSets
                 return true;
             }
 
-            if (state.Sets.Any(x => !ReferenceEquals(x, set) && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
+            if (_state.Sets.Any(x => !ReferenceEquals(x, set) && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
             {
                 if (showErrors)
                 {
@@ -664,7 +690,7 @@ namespace DocSets
             _ = ExecuteMutationAsync(nameof(TryRenameSet), () =>
             {
                 set.Name = name;
-                state.ActiveSet = name;
+                _state.ActiveSet = name;
                 OnPropertyChanged(nameof(Sets));
                 OnPropertyChanged(nameof(SelectedSet));
                 InvalidateCommands();
@@ -693,14 +719,14 @@ namespace DocSets
 
             _ = ExecuteMutationAsync(nameof(DeleteSet), () =>
             {
-            state.Sets.Remove(set);
-            if (!state.Sets.Any(x => x != null && x.NodeType == NodeType.Folder && !x.IsLocalOnly))
+            _state.Sets.Remove(set);
+            if (!_state.Sets.Any(x => x != null && x.NodeType == NodeType.Folder && !x.IsLocalOnly))
             {
-                state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
+                _state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
             }
 
-            SelectedSet = state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
-            state.ActiveSet = SelectedSet?.Name ?? "";
+            SelectedSet = _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
+            _state.ActiveSet = SelectedSet?.Name ?? "";
             });
             InvalidateCommands();
         }
@@ -764,7 +790,7 @@ namespace DocSets
             bookmark.Children.Clear();
             if (bookmark.Type == BookmarkType.File)
             {
-                await fileTracking.TrackFromActiveDocumentAsync(bookmark);
+                await _fileTracking.TrackFromActiveDocumentAsync(bookmark);
             }
             bookmark.ContentFormat = NewNoteContentFormat;
             return bookmark;
@@ -777,12 +803,12 @@ namespace DocSets
 
         public DocumentItem GetSetContainingNode(DocumentItem item)
         {
-            return treeService.GetSetContainingNode(state, item);
+            return _treeService.GetSetContainingNode(_state, item);
         }
 
         public DocumentItem GetParentFolder(DocumentItem item)
         {
-            return treeService.GetParentFolder(state, item);
+            return _treeService.GetParentFolder(_state, item);
         }
 
         public async Task MoveExistingNodeAsync(DocumentItem item, DocumentItem destinationSet, DocumentItem destinationParent)
@@ -801,12 +827,12 @@ namespace DocSets
 
             if (destinationParent != null)
             {
-                if (destinationParent.NodeType != NodeType.Folder || !treeService.ContainsNode(targetSet.Children, destinationParent))
+                if (destinationParent.NodeType != NodeType.Folder || !_treeService.ContainsNode(targetSet.Children, destinationParent))
                 {
                     destinationParent = null;
                 }
 
-                if (ReferenceEquals(destinationParent, item) || treeService.IsDescendantOf(destinationParent, item))
+                if (ReferenceEquals(destinationParent, item) || _treeService.IsDescendantOf(destinationParent, item))
                 {
                     destinationParent = null;
                 }
@@ -821,14 +847,14 @@ namespace DocSets
             // При редактировании свойств тот же экземпляр item не должен быть добавлен
             // в дерево повторно. Если место назначения изменилось, удаляем все
             // вхождения этой ссылки из всех групп и добавляем ровно один раз.
-            var currentOwner = currentSet == null ? null : treeService.FindOwnerCollection(currentSet.Children, item);
+            var currentOwner = currentSet == null ? null : _treeService.FindOwnerCollection(currentSet.Children, item);
             var destinationChanged = !ReferenceEquals(currentOwner, targetCollection);
-            var alreadyInTarget = treeService.ContainsReference(targetCollection, item);
+            var alreadyInTarget = _treeService.ContainsReference(targetCollection, item);
 
             if (destinationChanged || !alreadyInTarget)
             {
-                treeService.RemoveNodeReferenceFromAllSets(state, item);
-                if (!treeService.ContainsReference(targetCollection, item))
+                _treeService.RemoveNodeReferenceFromAllSets(_state, item);
+                if (!_treeService.ContainsReference(targetCollection, item))
                 {
                     targetCollection.Add(item);
                 }
@@ -860,14 +886,14 @@ namespace DocSets
             bookmark.Children.Clear();
             StampCreated(bookmark);
 
-            if (target != null && !treeService.ContainsNode(set.Children, target))
+            if (target != null && !_treeService.ContainsNode(set.Children, target))
             {
                 target = null;
             }
 
             await ExecuteMutationAsync(nameof(AddPreparedBookmarkAsync), async () =>
             {
-            var collection = treeService.GetInsertCollection(set, target);
+            var collection = _treeService.GetInsertCollection(set, target);
             collection.Add(bookmark);
             if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
 
@@ -876,7 +902,7 @@ namespace DocSets
             SetSelectedNodes(new[] { bookmark });
             if (bookmark.Type == BookmarkType.File)
             {
-                await fileTracking.TrackFromActiveDocumentAsync(bookmark);
+                await _fileTracking.TrackFromActiveDocumentAsync(bookmark);
             }
             });
             OnPropertyChanged(nameof(CurrentNodes));
@@ -924,7 +950,7 @@ namespace DocSets
                 folder.Project = string.Empty;
                 folder.Children.Clear();
                 folder.IsExpanded = true;
-                await fileTracking.TrackFromActiveDocumentAsync(folder);
+                await _fileTracking.TrackFromActiveDocumentAsync(folder);
             }
             else if (kind == ActiveDocumentFolderKind.Class)
             {
@@ -953,14 +979,14 @@ namespace DocSets
 
             folder.ContentFormat = NewNoteContentFormat;
 
-            if (target != null && !treeService.ContainsNode(set.Children, target))
+            if (target != null && !_treeService.ContainsNode(set.Children, target))
             {
                 target = null;
             }
 
             await ExecuteMutationAsync(nameof(CreateFolderFromActiveDocumentAsync), () =>
             {
-            var collection = treeService.GetInsertCollection(set, target);
+            var collection = _treeService.GetInsertCollection(set, target);
             collection.Add(folder);
             if (target?.NodeType == NodeType.Folder) target.IsExpanded = true;
 
@@ -1017,11 +1043,11 @@ namespace DocSets
             item = ResolvePin(item);
             if (!IsBookmark(item)) return;
             if (item.IsHistoryItem)
-                historyService.SuppressNext(item);
+                _historyService.SuppressNext(item);
             await _navigation.OpenBookmarkAsync(item);
             if (item.Type == BookmarkType.File)
             {
-                await fileTracking.TrackAfterOpenAsync(item);
+                await _fileTracking.TrackAfterOpenAsync(item);
             }
         }
 
@@ -1066,7 +1092,7 @@ namespace DocSets
             {
                 item.Symbol = string.Empty;
                 item.Project = string.Empty;
-                await fileTracking.TrackFromActiveDocumentAsync(item);
+                await _fileTracking.TrackFromActiveDocumentAsync(item);
             }
             else
             {
@@ -1119,7 +1145,7 @@ namespace DocSets
             SelectedNode = item;
             if (item.Type == BookmarkType.File)
             {
-                await fileTracking.TrackFromActiveDocumentAsync(item);
+                await _fileTracking.TrackFromActiveDocumentAsync(item);
             }
             StampModified(item, ensureCreated: true);
             });
@@ -1158,7 +1184,7 @@ namespace DocSets
             {
             var historyChanged = false;
             var pinChanged = false;
-            foreach (var node in treeService.FilterOutDescendants(nodes))
+            foreach (var node in _treeService.FilterOutDescendants(nodes))
             {
                 if (node.IsRecentRoot || node.IsRecentItem)
                 {
@@ -1175,17 +1201,17 @@ namespace DocSets
                 if (node.IsPinItem)
                 {
                     pinChanged = true;
-                    treeService.FindOwnerCollection(node)?.Remove(node);
+                    _treeService.FindOwnerCollection(node)?.Remove(node);
                     continue;
                 }
 
                 var deletedIds = new HashSet<string>((new[] { node }).Concat(EnumerateNodes(node.Children)).Select(x => x.Id).Where(x => !string.IsNullOrWhiteSpace(x)), StringComparer.OrdinalIgnoreCase);
                 var pinCount = PinRoot?.Children.Count ?? 0;
-                pinService.RemoveTargets(deletedIds);
+                _pinService.RemoveTargets(deletedIds);
                 pinChanged |= (PinRoot?.Children.Count ?? 0) != pinCount;
 
                 historyChanged |= node.IsHistoryItem || ReferenceEquals(node.Parent, HistoryRoot);
-                treeService.FindOwnerCollection(node)?.Remove(node);
+                _treeService.FindOwnerCollection(node)?.Remove(node);
             }
 
             SetSelectedNodes(Enumerable.Empty<DocumentItem>());
@@ -1198,8 +1224,8 @@ namespace DocSets
         {
             _ = ExecuteMutationAsync(nameof(MoveSet), () =>
             {
-            treeService.Move(state.Sets, SelectedSet, delta);
-            state.ActiveSet = SelectedSet?.Name ?? "";
+            _treeService.Move(_state.Sets, SelectedSet, delta);
+            _state.ActiveSet = SelectedSet?.Name ?? "";
             });
         }
 
@@ -1210,18 +1236,18 @@ namespace DocSets
 
             _ = ExecuteMutationAsync(nameof(MoveSetRelative), () =>
             {
-            var sourceIndex = state.Sets.IndexOf(source);
-            var targetIndex = state.Sets.IndexOf(target);
+            var sourceIndex = _state.Sets.IndexOf(source);
+            var targetIndex = _state.Sets.IndexOf(target);
             if (sourceIndex < 0 || targetIndex < 0)
                 return;
 
-            state.Sets.RemoveAt(sourceIndex);
-            targetIndex = state.Sets.IndexOf(target);
+            _state.Sets.RemoveAt(sourceIndex);
+            targetIndex = _state.Sets.IndexOf(target);
             var insertIndex = after ? targetIndex + 1 : targetIndex;
             if (insertIndex < 0) insertIndex = 0;
-            if (insertIndex > state.Sets.Count) insertIndex = state.Sets.Count;
-            state.Sets.Insert(insertIndex, source);
-            state.ActiveSet = SelectedSet?.Name ?? "";
+            if (insertIndex > _state.Sets.Count) insertIndex = _state.Sets.Count;
+            _state.Sets.Insert(insertIndex, source);
+            _state.ActiveSet = SelectedSet?.Name ?? "";
             OnPropertyChanged(nameof(Sets));
             });
             InvalidateCommands();
@@ -1231,15 +1257,15 @@ namespace DocSets
         {
             _ = ExecuteMutationAsync(nameof(MoveNode), () =>
             {
-            var collection = treeService.FindOwnerCollection(SelectedNode);
-            treeService.Move(collection, SelectedNode, delta);
+            var collection = _treeService.FindOwnerCollection(SelectedNode);
+            _treeService.Move(collection, SelectedNode, delta);
             if (IsStoredBookmark(SelectedNode)) StampModified(SelectedNode, ensureCreated: true);
             });
         }
 
         private void CopySelectedNodes()
         {
-            var selected = treeService.FilterOutDescendants(SelectedNodes).ToList();
+            var selected = _treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (selected.Count == 0) return;
 
             var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
@@ -1248,7 +1274,7 @@ namespace DocSets
 
         private void CopySelectedNodesAsJson()
         {
-            var selected = treeService.FilterOutDescendants(SelectedNodes).ToList();
+            var selected = _treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (selected.Count == 0) return;
 
             var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
@@ -1303,8 +1329,8 @@ namespace DocSets
 
             _ = ExecuteMutationAsync(nameof(PasteNodes), () =>
             {
-            treeService.NormalizeNodes(nodes);
-            var collection = treeService.GetInsertCollection(SelectedSet, target);
+            _treeService.NormalizeNodes(nodes);
+            var collection = _treeService.GetInsertCollection(SelectedSet, target);
 
             DocumentItem last = null;
             foreach (var node in nodes.Select(x => x.Clone()))
@@ -1325,15 +1351,15 @@ namespace DocSets
         {
             var targetSet = GetSetContainingNode(target) ?? (target?.IsRootChild == true ? target : SelectedSet);
             if (!CanModifySet(targetSet)) return false;
-            return treeService.CreateCopyPlan(state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
+            return _treeService.CreateCopyPlan(_state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
         }
 
         public async Task CopySelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            var plan = treeService.CreateCopyPlan(state, SelectedSet, SelectedNodes, target, position, fullTree);
+            var plan = _treeService.CreateCopyPlan(_state, SelectedSet, SelectedNodes, target, position, fullTree);
             if (plan == null) return;
 
-            var sourceNodes = treeService.FilterOutDescendants(SelectedNodes).ToList();
+            var sourceNodes = _treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (sourceNodes.Count == 0) return;
 
             await ExecuteMutationAsync(nameof(CopySelectedNodesToAsync), () =>
@@ -1346,7 +1372,7 @@ namespace DocSets
                 plan.Collection.Insert(insertIndex++, copy);
             }
 
-            state.EnsureReadableIds();
+            _state.EnsureReadableIds();
 
             if (target?.NodeType == NodeType.Folder && position == DropPosition.Inside)
             {
@@ -1362,22 +1388,22 @@ namespace DocSets
         {
             var targetSet = GetSetContainingNode(target) ?? (target?.IsRootChild == true ? target : SelectedSet);
             if (!CanModifySet(targetSet)) return false;
-            return treeService.CreateMovePlan(state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
+            return _treeService.CreateMovePlan(_state, SelectedSet, SelectedNodes, target, position, fullTree) != null;
         }
 
         public async Task MoveSelectedNodesToAsync(DocumentItem target, DropPosition position, bool fullTree = false)
         {
-            var plan = treeService.CreateMovePlan(state, SelectedSet, SelectedNodes, target, position, fullTree);
+            var plan = _treeService.CreateMovePlan(_state, SelectedSet, SelectedNodes, target, position, fullTree);
             if (plan == null) return;
 
-            var nodes = treeService.FilterOutDescendants(SelectedNodes).ToList();
+            var nodes = _treeService.FilterOutDescendants(SelectedNodes).ToList();
             if (nodes.Count == 0) return;
 
             await ExecuteMutationAsync(nameof(MoveSelectedNodesToAsync), () =>
             {
             foreach (var node in nodes)
             {
-                treeService.FindOwnerCollection(node)?.Remove(node);
+                _treeService.FindOwnerCollection(node)?.Remove(node);
             }
 
             var insertIndex = Math.Max(0, Math.Min(plan.Index, plan.Collection.Count));
@@ -1411,20 +1437,20 @@ namespace DocSets
         {
             return SelectedSet?.Children == null
                 ? Enumerable.Empty<DocumentItem>()
-                : treeService.Flatten(SelectedSet.Children, includeCollapsed: true);
+                : _treeService.Flatten(SelectedSet.Children, includeCollapsed: true);
         }
 
         private IEnumerable<DocumentItem> GetVisibleNodes()
         {
             return SelectedSet?.Children == null
                 ? Enumerable.Empty<DocumentItem>()
-                : treeService.Flatten(SelectedSet.Children, includeCollapsed: false);
+                : _treeService.Flatten(SelectedSet.Children, includeCollapsed: false);
         }
 
         private bool CanMoveNode(DocumentItem item, int delta)
         {
-            var collection = treeService.FindOwnerCollection(item);
-            return treeService.CanMove(collection, item, delta);
+            var collection = _treeService.FindOwnerCollection(item);
+            return _treeService.CanMove(collection, item, delta);
         }
 
         private bool IsBookmark(DocumentItem item)
@@ -1488,7 +1514,7 @@ namespace DocSets
             var envelope = new ClipboardEnvelope
             {
                 Items = clipboardNodes,
-                TagDefinitions = state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList(),
+                TagDefinitions = _state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList(),
                 SourceContext = _workspace.CurrentSourceContext,
                 Assets = assetReferences.Select(reference => new ClipboardAsset
                 {
@@ -1507,7 +1533,7 @@ namespace DocSets
             if (trimmed.StartsWith("[", StringComparison.Ordinal))
                 return BuildClipboardTree(JsonConvert.DeserializeObject<List<ClipboardNode>>(json));
             var envelope = JsonConvert.DeserializeObject<ClipboardEnvelope>(json) ?? new ClipboardEnvelope();
-            tagService.MergeDefinitions(state, envelope.TagDefinitions);
+            _tagService.MergeDefinitions(_state, envelope.TagDefinitions);
             foreach (var asset in envelope.Assets ?? new List<ClipboardAsset>())
             {
                 if (asset?.Content == null || asset.Content.Length == 0) continue;
@@ -1526,10 +1552,10 @@ namespace DocSets
             {
                 var sourceId = node.SourceId ?? "";
                 var path = node.Path ?? "";
-                sourceReferenceService.Rebase(sourceContext, targetContext, ref sourceId, ref path);
+                _sourceReferenceService.Rebase(sourceContext, targetContext, ref sourceId, ref path);
                 node.SourceId = sourceId;
                 node.Path = path;
-                node.Content = sourceReferenceService.RebaseMarkdownFileLinks(
+                node.Content = _sourceReferenceService.RebaseMarkdownFileLinks(
                     node.Content, sourceContext, targetContext);
             }
         }
@@ -1907,7 +1933,7 @@ namespace DocSets
 
             await ExecuteMutationAsync(nameof(RegenerateAllIdsAsync), () =>
             {
-            var idMap = state.RegenerateAllReadableIds();
+            var idMap = _state.RegenerateAllReadableIds();
             ApplyIdMigration(idMap);
 
             _ = SaveAsync();
@@ -1918,39 +1944,39 @@ namespace DocSets
 
         public void SaveSolutionState()
         {
-            ApplyIdMigration(state?.EnsureReadableIds());
-            solutionState.History = historyService.Export();
-            solutionState.Pins = pinService.Export();
-            _workspace.SaveSolutionState(solutionState);
+            ApplyIdMigration(_state?.EnsureReadableIds());
+            _solutionState.History = _historyService.Export();
+            _solutionState.Pins = _pinService.Export();
+            _workspace.SaveSolutionState(_solutionState);
         }
 
         public async Task TrackNavigationHistoryAsync()
         {
-            if (!IsLoaded || historyProbeInProgress) return;
-            historyProbeInProgress = true;
+            if (!IsLoaded || _historyProbeInProgress) return;
+            _historyProbeInProgress = true;
             try
             {
                 var item = await _activeDocument.CreateBookmarkAsync();
                 if (item == null || string.IsNullOrWhiteSpace(item.Path))
                 {
-                    historyService.ResetCurrentLocation();
+                    _historyService.ResetCurrentLocation();
                     return;
                 }
 
-                if (historyService.Record(item, pinService.IsPinned, DateTime.Now))
+                if (_historyService.Record(item, _pinService.IsPinned, DateTime.Now))
                 {
                     SaveSolutionState();
                 }
             }
             finally
             {
-                historyProbeInProgress = false;
+                _historyProbeInProgress = false;
             }
         }
 
         public DocumentItem ResolvePin(DocumentItem item)
         {
-            return recentBookmarksService.Resolve(pinService.Resolve(item));
+            return _recentBookmarksService.Resolve(_pinService.Resolve(item));
         }
 
         public void MarkBookmarkModified(DocumentItem item)
@@ -2060,12 +2086,12 @@ namespace DocSets
 
         public bool IsPinned(DocumentItem item)
         {
-            return pinService.IsPinned(item);
+            return _pinService.IsPinned(item);
         }
 
         public bool CanSetPinned(DocumentItem item)
         {
-            return pinService.CanToggle(ResolvePin(item));
+            return _pinService.CanToggle(ResolvePin(item));
         }
 
         public Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
@@ -2093,7 +2119,7 @@ namespace DocSets
         public async Task<bool> OpenBookmarkByIdAsync(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return false;
-            var target = treeService.Flatten(state.Root.Children, includeCollapsed: true)
+            var target = _treeService.Flatten(_state.Root.Children, includeCollapsed: true)
                 .FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
             if (target == null) return false;
             await OpenBookmarkAsync(target);
@@ -2136,9 +2162,9 @@ namespace DocSets
         {
             var targets = (items ?? Enumerable.Empty<DocumentItem>())
                 .Select(ResolvePin)
-                .Where(item => item != null && pinService.CanToggle(item))
+                .Where(item => item != null && _pinService.CanToggle(item))
                 .Distinct()
-                .Where(item => pinService.IsPinned(item) != isPinned)
+                .Where(item => _pinService.IsPinned(item) != isPinned)
                 .ToList();
             if (targets.Count == 0) return;
 
@@ -2146,7 +2172,7 @@ namespace DocSets
             {
                 foreach (var target in targets)
                 {
-                    pinService.Toggle(target);
+                    _pinService.Toggle(target);
                 }
 
                 SaveSolutionState();
@@ -2157,14 +2183,14 @@ namespace DocSets
 
         private bool CanTogglePin(DocumentItem item)
         {
-            return pinService.CanToggle(item);
+            return _pinService.CanToggle(item);
         }
 
         private void TogglePin(DocumentItem item)
         {
             _ = ExecuteMutationAsync(nameof(TogglePin), () =>
             {
-                pinService.Toggle(item);
+                _pinService.Toggle(item);
                 SaveSolutionState();
                 OnPropertyChanged(nameof(CurrentNodes));
             });
@@ -2172,7 +2198,7 @@ namespace DocSets
 
         private void ApplyIdMigration(IDictionary<string, string> idMap)
         {
-            if (idMap == null || idMap.Count == 0 || solutionState == null) return;
+            if (idMap == null || idMap.Count == 0 || _solutionState == null) return;
 
             string Map(string id)
             {
@@ -2180,14 +2206,14 @@ namespace DocSets
                 return idMap.TryGetValue(id, out var mapped) ? mapped : id;
             }
 
-            solutionState.ActiveViewId = Map(solutionState.ActiveViewId);
-            foreach (var pin in solutionState.Pins ?? new List<PinLocalItem>())
+            _solutionState.ActiveViewId = Map(_solutionState.ActiveViewId);
+            foreach (var pin in _solutionState.Pins ?? new List<PinLocalItem>())
             {
                 pin.TargetId = Map(pin.TargetId);
             }
-            pinService.ApplyIdMigration(idMap);
+            _pinService.ApplyIdMigration(idMap);
 
-            var oldViews = solutionState.Views ?? new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
+            var oldViews = _solutionState.Views ?? new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             var newViews = new Dictionary<string, TreeViewLocalState>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in oldViews)
             {
@@ -2199,13 +2225,13 @@ namespace DocSets
                     view.LegacyExpandedIds = view.LegacyExpandedIds.Select(Map).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 newViews[key] = view;
             }
-            solutionState.Views = newViews;
+            _solutionState.Views = newViews;
         }
 
         public Task ToggleTagAsync(string tagId)
         {
             var targets = SelectedNodes.Select(x => ResolvePin(x) ?? x).Where(x => x != null).Distinct().ToList();
-            return ExecuteMutationAsync("Tags", () => tagService.Toggle(targets, tagId));
+            return ExecuteMutationAsync("Tags", () => _tagService.Toggle(targets, tagId));
         }
 
         public async Task<TagDefinition> AddTagAsync(string name, string color = "", string icon = "")
@@ -2213,7 +2239,7 @@ namespace DocSets
             TagDefinition created = null;
             await ExecuteMutationAsync("Add tag", () =>
             {
-                created = tagService.Add(state, name, color, icon);
+                created = _tagService.Add(_state, name, color, icon);
                 OnPropertyChanged(nameof(Tags));
             });
             return created;
@@ -2223,23 +2249,23 @@ namespace DocSets
         {
             return ExecuteMutationAsync("Delete tag", () =>
             {
-                tagService.Delete(state, tagId);
+                _tagService.Delete(_state, tagId);
                 OnPropertyChanged(nameof(Tags));
             });
         }
         public event EventHandler UndoRedoStateRestored;
         public string LastUndoRedoDiagnostics { get; private set; } = string.Empty;
 
-        public IReadOnlyList<string> UndoOperations => undoRedoService.UndoOperations;
-        public IReadOnlyList<string> RedoOperations => undoRedoService.RedoOperations;
+        public IReadOnlyList<string> UndoOperations => _undoRedoService.UndoOperations;
+        public IReadOnlyList<string> RedoOperations => _undoRedoService.RedoOperations;
 
         public void CaptureUndoState(string description = "Изменение", IEnumerable<DocumentItem> affectedItems = null)
         {
-            if (!IsLoaded || isApplyingState || isRestoringUndoState) return;
+            if (!IsLoaded || _isApplyingState || _isRestoringUndoState) return;
 
             var snapshot = CreateUndoSnapshot();
             var ids = (affectedItems ?? SelectedNodes ?? Enumerable.Empty<DocumentItem>()).Where(x => x != null).Select(x => x.Id).ToArray();
-            if (undoRedoService.Capture(description, snapshot, ids, ids, SelectedSet?.Id, SelectedSet?.Id))
+            if (_undoRedoService.Capture(description, snapshot, ids, ids, SelectedSet?.Id, SelectedSet?.Id))
             {
                 InvalidateCommands();
             }
@@ -2250,11 +2276,11 @@ namespace DocSets
             var restored = false;
             ResetUndoRedoDiagnostics();
             var batch = count > 1;
-            suppressUndoRedoNotification = batch;
-            suppressUndoRedoPersistence = true;
+            _suppressUndoRedoNotification = batch;
+            _suppressUndoRedoPersistence = true;
             try
             {
-                for (var i = 0; i < count && undoRedoService.CanUndo; i++)
+                for (var i = 0; i < count && _undoRedoService.CanUndo; i++)
                 {
                     await UndoAsync();
                     restored = true;
@@ -2262,8 +2288,8 @@ namespace DocSets
             }
             finally
             {
-                suppressUndoRedoNotification = false;
-                suppressUndoRedoPersistence = false;
+                _suppressUndoRedoNotification = false;
+                _suppressUndoRedoPersistence = false;
             }
             if (!restored) return;
             if (batch) UndoRedoStateRestored?.Invoke(this, EventArgs.Empty);
@@ -2276,11 +2302,11 @@ namespace DocSets
             var restored = false;
             ResetUndoRedoDiagnostics();
             var batch = count > 1;
-            suppressUndoRedoNotification = batch;
-            suppressUndoRedoPersistence = true;
+            _suppressUndoRedoNotification = batch;
+            _suppressUndoRedoPersistence = true;
             try
             {
-                for (var i = 0; i < count && undoRedoService.CanRedo; i++)
+                for (var i = 0; i < count && _undoRedoService.CanRedo; i++)
                 {
                     await RedoAsync();
                     restored = true;
@@ -2288,8 +2314,8 @@ namespace DocSets
             }
             finally
             {
-                suppressUndoRedoNotification = false;
-                suppressUndoRedoPersistence = false;
+                _suppressUndoRedoNotification = false;
+                _suppressUndoRedoPersistence = false;
             }
             if (!restored) return;
             if (batch) UndoRedoStateRestored?.Invoke(this, EventArgs.Empty);
@@ -2302,8 +2328,8 @@ namespace DocSets
             var timer = System.Diagnostics.Stopwatch.StartNew();
             var currentSnapshot = CreateUndoSnapshot();
             timer.Stop();
-            undoRedoSnapshotMilliseconds += timer.ElapsedMilliseconds;
-            if (!undoRedoService.TryUndo(currentSnapshot, out var targetSnapshot, out var focusIds, out var focusSetId)) return;
+            _undoRedoSnapshotMilliseconds += timer.ElapsedMilliseconds;
+            if (!_undoRedoService.TryUndo(currentSnapshot, out var targetSnapshot, out var focusIds, out var focusSetId)) return;
             await RestoreUndoSnapshotAsync(targetSnapshot, focusIds, focusSetId);
         }
 
@@ -2312,18 +2338,18 @@ namespace DocSets
             var timer = System.Diagnostics.Stopwatch.StartNew();
             var currentSnapshot = CreateUndoSnapshot();
             timer.Stop();
-            undoRedoSnapshotMilliseconds += timer.ElapsedMilliseconds;
-            if (!undoRedoService.TryRedo(currentSnapshot, out var targetSnapshot, out var focusIds, out var focusSetId)) return;
+            _undoRedoSnapshotMilliseconds += timer.ElapsedMilliseconds;
+            if (!_undoRedoService.TryRedo(currentSnapshot, out var targetSnapshot, out var focusIds, out var focusSetId)) return;
             await RestoreUndoSnapshotAsync(targetSnapshot, focusIds, focusSetId);
         }
 
         private string CreateUndoSnapshot()
         {
-            solutionState.Pins = pinService.Export();
+            _solutionState.Pins = _pinService.Export();
             var envelope = new UndoSnapshot
             {
-                State = JsonConvert.SerializeObject(state),
-                Pins = JsonConvert.SerializeObject(solutionState.Pins ?? new List<PinLocalItem>())
+                State = JsonConvert.SerializeObject(_state),
+                Pins = JsonConvert.SerializeObject(_solutionState.Pins ?? new List<PinLocalItem>())
             };
             return JsonConvert.SerializeObject(envelope);
         }
@@ -2335,55 +2361,55 @@ namespace DocSets
             var envelope = JsonConvert.DeserializeObject<UndoSnapshot>(snapshot);
             var restoredState = JsonConvert.DeserializeObject<DocumentSetsState>(envelope?.State ?? "");
             timer.Stop();
-            undoRedoDeserializeMilliseconds += timer.ElapsedMilliseconds;
+            _undoRedoDeserializeMilliseconds += timer.ElapsedMilliseconds;
             if (restoredState == null) return;
 
-            isRestoringUndoState = true;
+            _isRestoringUndoState = true;
             timer.Restart();
             try
             {
-                solutionState.Pins = JsonConvert.DeserializeObject<List<PinLocalItem>>(envelope.Pins ?? "[]") ?? new List<PinLocalItem>();
+                _solutionState.Pins = JsonConvert.DeserializeObject<List<PinLocalItem>>(envelope.Pins ?? "[]") ?? new List<PinLocalItem>();
                 ApplyLoadedState(restoredState, preferredSetName: null, selectedNodePath: null);
-                var restoredSet = state.Sets.FirstOrDefault(x => x != null &&
+                var restoredSet = _state.Sets.FirstOrDefault(x => x != null &&
                     string.Equals(x.Id, focusSetId, StringComparison.OrdinalIgnoreCase));
                 if (restoredSet != null) SelectedSet = restoredSet;
                 var selectedIds = new HashSet<string>(focusItemIds ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
                 SetSelectedNodes(GetAllNodes().Where(x => x != null && selectedIds.Contains(x.Id)));
                 timer.Stop();
-                undoRedoApplyMilliseconds += timer.ElapsedMilliseconds;
-                LastUndoRedoDiagnostics = $"snapshot {undoRedoSnapshotMilliseconds} ms, deserialize {undoRedoDeserializeMilliseconds} ms, apply {undoRedoApplyMilliseconds} ms";
+                _undoRedoApplyMilliseconds += timer.ElapsedMilliseconds;
+                LastUndoRedoDiagnostics = $"snapshot {_undoRedoSnapshotMilliseconds} ms, deserialize {_undoRedoDeserializeMilliseconds} ms, apply {_undoRedoApplyMilliseconds} ms";
                 InvalidateCommands();
-                if (!suppressUndoRedoNotification)
+                if (!_suppressUndoRedoNotification)
                 {
                     UndoRedoStateRestored?.Invoke(this, EventArgs.Empty);
                     await Task.Yield();
                 }
-                if (!suppressUndoRedoPersistence) await PersistRestoredStateAsync();
+                if (!_suppressUndoRedoPersistence) await PersistRestoredStateAsync();
             }
             finally
             {
-                isRestoringUndoState = false;
+                _isRestoringUndoState = false;
                 InvalidateCommands();
             }
         }
 
         private void ResetUndoRedoDiagnostics()
         {
-            undoRedoSnapshotMilliseconds = 0;
-            undoRedoDeserializeMilliseconds = 0;
-            undoRedoApplyMilliseconds = 0;
+            _undoRedoSnapshotMilliseconds = 0;
+            _undoRedoDeserializeMilliseconds = 0;
+            _undoRedoApplyMilliseconds = 0;
             LastUndoRedoDiagnostics = string.Empty;
         }
 
         private async Task PersistRestoredStateAsync()
         {
             SaveSolutionState();
-            await _workspace.SaveAsync(state);
+            await _workspace.SaveAsync(_state);
         }
 
         private void ClearUndoHistory()
         {
-            undoRedoService.Clear();
+            _undoRedoService.Clear();
             InvalidateCommands();
         }
 
@@ -2400,23 +2426,23 @@ namespace DocSets
                 throw new ArgumentNullException(nameof(mutation));
             }
 
-            var isOuterMutation = mutationNesting.Value == 0;
+            var isOuterMutation = _mutationNesting.Value == 0;
             string undoSnapshot = null;
             string undoFocusSetId = null;
             IReadOnlyList<string> undoFocusIds = Array.Empty<string>();
             IReadOnlyList<string> undoParentIds = Array.Empty<string>();
             if (isOuterMutation)
             {
-                await mutationGate.WaitAsync();
+                await _mutationGate.WaitAsync();
             }
 
             try
             {
                 if (isOuterMutation)
                 {
-                    mutationChanged = false;
-                    mutationSaveRequested = false;
-                    if (IsLoaded && !isApplyingState && !isRestoringUndoState)
+                    _mutationChanged = false;
+                    _mutationSaveRequested = false;
+                    if (IsLoaded && !_isApplyingState && !_isRestoringUndoState)
                     {
                         undoSnapshot = CreateUndoSnapshot();
                         undoFocusSetId = SelectedSet?.Id;
@@ -2425,16 +2451,16 @@ namespace DocSets
                     }
                 }
 
-                mutationNesting.Value++;
-                mutationDepth++;
+                _mutationNesting.Value++;
+                _mutationDepth++;
                 try
                 {
                     await mutation();
                 }
                 finally
                 {
-                    mutationDepth--;
-                    mutationNesting.Value--;
+                    _mutationDepth--;
+                    _mutationNesting.Value--;
                 }
 
                 if (isOuterMutation)
@@ -2444,14 +2470,14 @@ namespace DocSets
                     if (redoFocusIds.Length == 0) redoFocusIds = undoParentIds.ToArray();
                     if (undoSnapshot != null
                         && !string.Equals(undoSnapshot, currentSnapshot, StringComparison.Ordinal)
-                        && undoRedoService.Capture(description, undoSnapshot, undoFocusIds, redoFocusIds, undoFocusSetId, SelectedSet?.Id ?? undoFocusSetId))
+                        && _undoRedoService.Capture(description, undoSnapshot, undoFocusIds, redoFocusIds, undoFocusSetId, SelectedSet?.Id ?? undoFocusSetId))
                     {
                         InvalidateCommands();
                     }
 
-                    var shouldSave = mutationChanged || mutationSaveRequested;
-                    mutationChanged = false;
-                    mutationSaveRequested = false;
+                    var shouldSave = _mutationChanged || _mutationSaveRequested;
+                    _mutationChanged = false;
+                    _mutationSaveRequested = false;
                     if (shouldSave)
                     {
                         await SaveCoreAsync();
@@ -2462,7 +2488,7 @@ namespace DocSets
             {
                 if (isOuterMutation)
                 {
-                    mutationGate.Release();
+                    _mutationGate.Release();
                 }
             }
         }
@@ -2478,9 +2504,9 @@ namespace DocSets
 
         public Task SaveAsync()
         {
-            if (mutationDepth > 0)
+            if (_mutationDepth > 0)
             {
-                mutationSaveRequested = true;
+                _mutationSaveRequested = true;
                 return Task.CompletedTask;
             }
 
@@ -2496,23 +2522,23 @@ namespace DocSets
                 return;
             }
 
-            Interlocked.Increment(ref activeSaveCount);
+            Interlocked.Increment(ref _activeSaveCount);
             try
             {
-                await fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
-                await _workspace.SaveAsync(state);
+                await _fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
+                await _workspace.SaveAsync(_state);
             }
             finally
             {
-                Interlocked.Decrement(ref activeSaveCount);
+                Interlocked.Decrement(ref _activeSaveCount);
             }
         }
 
         private IEnumerable<DocumentItem> EnumerateAllNodes()
         {
-            return state?.Sets == null
+            return _state?.Sets == null
                 ? Enumerable.Empty<DocumentItem>()
-                : state.Sets.SelectMany(set => EnumerateNodes(set.Children));
+                : _state.Sets.SelectMany(set => EnumerateNodes(set.Children));
         }
 
         private static IEnumerable<DocumentItem> EnumerateNodes(IEnumerable<DocumentItem> nodes)
@@ -2538,7 +2564,13 @@ namespace DocSets
             }
         }
 
-        private void InvalidateCommands() => CommandManager.InvalidateRequerySuggested();
+        private void InvalidateCommands()
+        {
+            foreach (var command in _commands)
+            {
+                command.RaiseCanExecuteChanged();
+            }
+        }
 
         private void Show(string text)
         {

@@ -63,10 +63,8 @@
   <ItemGroup>
     <!-- Реализации, зависящие от Visual Studio. Общая логика подключена проектами ниже. -->
     <Compile Include="DocSets.Vsix\Roslyn\RoslynBookmarkResolver.cs" />
-    <Compile Include="DocSets.Vsix\Services\DocSetsViewModel.cs" />
     <Compile Include="DocSets.Vsix\Services\EditorStateService.cs" />
     <Compile Include="DocSets.Vsix\Services\FileBookmarkTrackingService.cs" />
-    <Compile Include="DocSets.Vsix\Services\RelayCommand.cs" />
     <Compile Include="DocSets.Vsix\Services\VisualStudioUserDialogService.cs" />
     <Compile Include="DocSets.Vsix\Services\VisualStudioActiveDocumentService.cs" />
     <Compile Include="DocSets.Vsix\Services\VisualStudioNavigationService.cs" />
