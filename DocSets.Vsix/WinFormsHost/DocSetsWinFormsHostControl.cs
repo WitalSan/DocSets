@@ -20,11 +20,13 @@ namespace DocSets
         public DocSetsWinFormsHostControl(AsyncPackage package)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            var hostService = new DocSetsStore(package);
-            var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
+            var roslyn = new RoslynBookmarkResolver(package);
+            var hostService = new DocSetsStore(package, roslyn);
             var dialogService = new VisualStudioUserDialogService(() => Window.GetWindow(this));
             var clipboardService = new WindowsClipboardService();
-            viewModel = new DocSetsViewModel(hostService, trackingService, dialogService, clipboardService, hostService);
+            var navigationService = new VisualStudioNavigationService(package, roslyn, hostService.ToFullPath);
+            var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
+            viewModel = new DocSetsViewModel(hostService, trackingService, dialogService, clipboardService, navigationService);
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;

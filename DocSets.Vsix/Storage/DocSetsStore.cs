@@ -10,7 +10,7 @@ using Newtonsoft.Json;
 
 namespace DocSets
 {
-    internal sealed class DocSetsStore : IDocSetsHostService, INavigationService
+    internal sealed class DocSetsStore : IDocSetsHostService
     {
         private readonly AsyncPackage package;
         private readonly RoslynBookmarkResolver roslyn;
@@ -35,10 +35,10 @@ namespace DocSets
         private readonly CodeSourceLocator sourceLocator = new CodeSourceLocator();
         private readonly AssetStorageService assetStorage = new AssetStorageService();
 
-        public DocSetsStore(AsyncPackage package)
+        public DocSetsStore(AsyncPackage package, RoslynBookmarkResolver roslyn)
         {
             this.package = package ?? throw new ArgumentNullException(nameof(package));
-            roslyn = new RoslynBookmarkResolver(package);
+            this.roslyn = roslyn ?? throw new ArgumentNullException(nameof(roslyn));
         }
 
         public string SolutionDirectory => solutionDirectory;
@@ -301,42 +301,6 @@ namespace DocSets
             return reference;
         }
 
-        public async Task OpenBookmarkAsync(DocumentItem item)
-        {
-            if (item == null)
-            {
-                return;
-            }
-
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            if (item.Type != BookmarkType.File && await roslyn.TryOpenBookmarkBySymbolAsync(item))
-            {
-                return;
-            }
-
-            var fullPath = ToFullPath(item);
-
-            if (!File.Exists(fullPath))
-            {
-                VsShellUtilities.ShowMessageBox(
-                    package,
-                    $"Файл не найден:{Environment.NewLine}{fullPath}",
-                    "DocSets",
-                    OLEMSGICON.OLEMSGICON_WARNING,
-                    OLEMSGBUTTON.OLEMSGBUTTON_OK,
-                    OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
-
-                return;
-            }
-
-            await roslyn.OpenFileAtAsync(
-                fullPath,
-                Math.Max(1, item.Line),
-                Math.Max(1, item.Column));
-            await roslyn.RestoreEditorStateAsync(item, Math.Max(1, item.Line));
-        }
-
         public async Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
         {
             if (item == null || item.NodeType == NodeType.Folder || string.IsNullOrWhiteSpace(item.Path))
@@ -354,11 +318,6 @@ namespace DocSets
                 Math.Max(1, item.Line),
                 Math.Max(1, item.Column),
                 cancellationToken);
-        }
-
-        public Task<bool> OpenSymbolAsync(string symbol, string project)
-        {
-            return roslyn.TryOpenSymbolAsync(symbol, project);
         }
 
         private async Task<bool> EnsureInitializedAsync()
