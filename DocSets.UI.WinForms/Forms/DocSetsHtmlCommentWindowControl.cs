@@ -20,6 +20,7 @@ namespace DocSets
         private readonly string editorName;
         private readonly CheckBox followSelection = new CheckBox();
         private readonly Button saveButton = new Button();
+        private readonly CheckBox toolbarButton = new CheckBox();
         private readonly BookmarkBreadcrumb title = new BookmarkBreadcrumb();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly System.Windows.Forms.Timer idleSaveTimer = new System.Windows.Forms.Timer { Interval = 3000 };
@@ -57,10 +58,11 @@ namespace DocSets
             {
                 Dock = DockStyle.Fill,
                 AutoSize = true,
-                ColumnCount = 3,
+                ColumnCount = 4,
                 RowCount = 1,
                 Padding = new Padding(3)
             };
+            bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -73,6 +75,12 @@ namespace DocSets
             saveButton.Image = SaveIconFactory.Create(this, 18);
             saveButton.Size = DpiService.Scale(this, new Size(32, 27));
             saveButton.Enabled = false;
+            toolbarButton.Appearance = Appearance.Button;
+            toolbarButton.Text = "☰";
+            toolbarButton.TextAlign = ContentAlignment.MiddleCenter;
+            toolbarButton.Checked = true;
+            toolbarButton.Size = DpiService.Scale(this, new Size(32, 27));
+            UpdateToolbarButtonToolTip();
             toolTip.SetToolTip(saveButton, "Сохранить HTML-заметку (Ctrl+S)");
             title.ItemSelected += (_, e) =>
             {
@@ -82,7 +90,8 @@ namespace DocSets
             };
             bar.Controls.Add(followSelection, 0, 0);
             bar.Controls.Add(saveButton, 1, 0);
-            bar.Controls.Add(title, 2, 0);
+            bar.Controls.Add(toolbarButton, 2, 0);
+            bar.Controls.Add(title, 3, 0);
             root.Controls.Add(bar, 0, 0);
             root.Controls.Add(editor, 0, 1);
             Controls.Add(root);
@@ -102,6 +111,14 @@ namespace DocSets
             editor.SaveRequested += async (_, __) => await SaveAsync(forceRead: true);
             editor.SaveStateChanged += enabled => saveButton.Enabled = enabled && item?.ContentFormat == ContentFormat.Html;
             saveButton.Click += async (_, __) => await SaveAsync(forceRead: true);
+            toolbarButton.CheckedChanged += (_, __) =>
+            {
+                editor.SetToolbarVisible(toolbarButton.Checked);
+                UpdateToolbarButtonToolTip();
+                if (viewModel == null) return;
+                viewModel.SolutionState.JoditToolbarVisible = toolbarButton.Checked;
+                viewModel.SaveSolutionState();
+            };
             editor.LinkActivated += target => _ = ActivateLinkAsync(target);
             editor.ImageInsertionRequested += async (data, mime, name, requestId) =>
             {
@@ -152,7 +169,19 @@ namespace DocSets
                 }
             }
             editor.SetAssetDirectory(viewModel?.AssetDirectory);
+            var toolbarVisible = viewModel?.SolutionState?.JoditToolbarVisible ?? true;
+            if (toolbarButton.Checked != toolbarVisible)
+                toolbarButton.Checked = toolbarVisible;
+            else
+                editor.SetToolbarVisible(toolbarVisible);
             await SwitchItemAsync(selectedItem);
+        }
+
+        private void UpdateToolbarButtonToolTip()
+        {
+            toolTip.SetToolTip(toolbarButton, toolbarButton.Checked
+                ? "Скрыть панель инструментов редактора"
+                : "Показать панель инструментов редактора");
         }
 
         internal Task CommitPendingEditAsync() => SaveAsync(forceRead: true);

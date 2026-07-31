@@ -728,6 +728,17 @@
     return true;
   };
 
+  window.docsetsSetToolbarVisible = visible => {
+    if (!editor || !editor.container) return false;
+    editor.container.classList.toggle('docsets-toolbar-hidden', !visible);
+    try { editor.events.fire('resize'); } catch (_) { }
+    return true;
+  };
+
+  window.docsetsIsToolbarVisible = () =>
+    !!editor && !!editor.container &&
+    !editor.container.classList.contains('docsets-toolbar-hidden');
+
   window.docsetsHighlightSearch = (value, occurrence) => {
     value = String(value || '');
     occurrence = Math.max(0, Number(occurrence) || 0);

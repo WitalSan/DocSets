@@ -70,6 +70,9 @@ namespace DocSets
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public ContentFormat NewNoteContentFormat { get; set; } = ContentFormat.Html;
 
+        [JsonProperty("joditToolbarVisible")]
+        public bool JoditToolbarVisible { get; set; } = true;
+
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();
 

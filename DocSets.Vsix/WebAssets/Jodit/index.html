@@ -12,6 +12,9 @@
     #editor-host { display: flex; flex-direction: column; }
     #editor { flex: 1 1 auto; min-height: 0; }
     #editor-host > .jodit-container { flex: 1 1 auto; min-height: 0; border: 0; }
+    .jodit-container.docsets-toolbar-hidden > .jodit-toolbar__box {
+      display: none !important;
+    }
     .jodit-workplace { min-height: 0 !important; }
     .jodit-wysiwyg, .jodit-source { box-sizing: border-box; overflow: auto !important; }
     .jodit-wysiwyg a[href] { cursor: pointer; }

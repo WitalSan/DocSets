@@ -203,6 +203,7 @@ namespace DocSets.Tests
                 PropertiesContentTab = "comment",
                 PropertiesDockLayout = "{\"groups\":[]}",
                 NewNoteContentFormat = ContentFormat.Html,
+                JoditToolbarVisible = false,
                 FilterColors = new List<BookmarkColor> { BookmarkColor.Red, BookmarkColor.Blue }
             };
             var restored = JsonConvert.DeserializeObject<SolutionLocalState>(JsonConvert.SerializeObject(state));
@@ -212,6 +213,7 @@ namespace DocSets.Tests
             Assert.Equal("comment", restored.PropertiesContentTab);
             Assert.Equal(state.PropertiesDockLayout, restored.PropertiesDockLayout);
             Assert.Equal(ContentFormat.Html, restored.NewNoteContentFormat);
+            Assert.False(restored.JoditToolbarVisible);
             Assert.SequenceEqual(state.FilterColors, restored.FilterColors);
         }
 

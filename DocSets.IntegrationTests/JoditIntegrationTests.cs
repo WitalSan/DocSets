@@ -54,6 +54,13 @@ namespace DocSets.Tests
                     await WaitUntilAsync(() => editor.IsReady,
                         "Jodit не инициализирован. Этап: " + editor.InitializationStage);
 
+                    editor.SetToolbarVisible(false);
+                    await WaitUntilAsync(async () => !await editor.IsToolbarVisibleAsync(),
+                        "Jodit не скрыл панель инструментов.");
+                    editor.SetToolbarVisible(true);
+                    await WaitUntilAsync(async () => await editor.IsToolbarVisibleAsync(),
+                        "Jodit не восстановил панель инструментов.");
+
                     var html =
                         "<h2 style=\"color:#c00000\">Проверка Jodit</h2>" +
                         "<table><tbody><tr><td><strong>Ячейка</strong></td><td>2</td></tr></tbody></table>" +

@@ -39,6 +39,7 @@ namespace DocSets
         private string assetDirectory = string.Empty;
         private string initializationStage = "created";
         private bool focusWhenReady;
+        private bool toolbarVisible = true;
 
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
@@ -116,6 +117,13 @@ namespace DocSets
             return JsonConvert.DeserializeObject<string>(result) ?? string.Empty;
         }
 
+        internal async Task<bool> IsToolbarVisibleAsync()
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "window.docsetsIsToolbarVisible && window.docsetsIsToolbarVisible()");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal Task SimulateHistoryCommandAsync(string command)
             => webView.ExecuteScriptAsync("window.docsetsTestHistoryCommand(" +
                 JsonConvert.SerializeObject(command ?? "undo") + ")");
@@ -180,6 +188,13 @@ namespace DocSets
         }
 
         public void SetSaveEnabled(bool enabled) => SaveStateChanged?.Invoke(enabled);
+
+        public void SetToolbarVisible(bool visible)
+        {
+            toolbarVisible = visible;
+            if (ready && webView.CoreWebView2 != null)
+                _ = SetEditorToolbarVisibleAsync();
+        }
 
         public void CompleteImage(string assetReference, string requestId)
         {
@@ -314,6 +329,14 @@ namespace DocSets
             finally { loading = false; }
         }
 
+        private Task SetEditorToolbarVisibleAsync()
+        {
+            if (!ready || webView.CoreWebView2 == null) return Task.CompletedTask;
+            return webView.ExecuteScriptAsync(
+                "window.docsetsSetToolbarVisible && window.docsetsSetToolbarVisible(" +
+                (toolbarVisible ? "true" : "false") + ")");
+        }
+
         private async Task SetEditorSessionAsync(string value, string session)
         {
             if (!ready || webView.CoreWebView2 == null) return;
@@ -350,6 +373,7 @@ namespace DocSets
                     webView.Visible = true;
                     status.Visible = false;
                     _ = SetEditorSessionAsync(pendingHtml, pendingEditingSession);
+                    _ = SetEditorToolbarVisibleAsync();
                     if (focusWhenReady) BeginInvoke(new Action(FocusEditor));
                     break;
                 case "changed":
