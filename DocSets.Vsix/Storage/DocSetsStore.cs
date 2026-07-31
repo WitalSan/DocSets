@@ -4,15 +4,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
 using Newtonsoft.Json;
 
 namespace DocSets
 {
     internal sealed class DocSetsStore : IDocSetsHostService
     {
-        private readonly AsyncPackage package;
+        private readonly ISolutionContextService _solutionContext;
 
         private string solutionDirectory = "";
         private string solutionFilePath = "";
@@ -34,16 +32,10 @@ namespace DocSets
         private readonly CodeSourceLocator sourceLocator = new CodeSourceLocator();
         private readonly AssetStorageService assetStorage = new AssetStorageService();
 
-        public DocSetsStore(AsyncPackage package)
+        public DocSetsStore(ISolutionContextService solutionContext)
         {
-            this.package = package ?? throw new ArgumentNullException(nameof(package));
+            _solutionContext = solutionContext ?? throw new ArgumentNullException(nameof(solutionContext));
         }
-
-        public string SolutionDirectory => solutionDirectory;
-
-        public string SolutionFilePath => solutionFilePath;
-
-        public string CurrentSolutionName => Path.GetFileNameWithoutExtension(solutionFilePath) ?? string.Empty;
 
         public string StorageDirectory => storageDirectory;
 
@@ -161,14 +153,6 @@ namespace DocSets
 
             if (!await EnsureInitializedAsync() || currentDocument == null)
             {
-                VsShellUtilities.ShowMessageBox(
-                    package,
-                    "Откройте или создайте DocSet, чтобы сохранить изменения.",
-                    "DocSets",
-                    OLEMSGICON.OLEMSGICON_WARNING,
-                    OLEMSGBUTTON.OLEMSGBUTTON_OK,
-                    OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
-
                 return;
             }
 
@@ -240,19 +224,14 @@ namespace DocSets
 
         internal async Task<bool> EnsureInitializedAsync()
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            var context = await _solutionContext.GetCurrentAsync();
+            if (context == null || !context.IsAvailable) { ClearSolutionState(); return false; }
 
-            var solution = await package.GetServiceAsync(typeof(SVsSolution)) as IVsSolution;
-            if (solution == null) { ClearSolutionState(); return false; }
-
-            solution.GetSolutionInfo(out var directory, out var solutionFile, out _);
-            if (string.IsNullOrWhiteSpace(solutionFile)) { ClearSolutionState(); return false; }
-
-            var normalizedSolutionFile = Path.GetFullPath(solutionFile);
+            var normalizedSolutionFile = Path.GetFullPath(context.FilePath);
             if (string.Equals(normalizedSolutionFile, solutionFilePath, StringComparison.OrdinalIgnoreCase)) return true;
 
             solutionFilePath = normalizedSolutionFile;
-            solutionDirectory = !string.IsNullOrWhiteSpace(directory) ? directory : Path.GetDirectoryName(normalizedSolutionFile);
+            solutionDirectory = context.Directory;
             lastKnownWriteTimeUtc = DateTime.MinValue;
             lastKnownLength = -1;
             workspaceLocation = DocSetsWorkspaceLocation.ForSolution(solutionFilePath);

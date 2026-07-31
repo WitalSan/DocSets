@@ -21,7 +21,8 @@ namespace DocSets
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             var roslyn = new RoslynBookmarkResolver(package);
-            var hostService = new DocSetsStore(package);
+            var solutionContextService = new VisualStudioSolutionContextService(package);
+            var hostService = new DocSetsStore(solutionContextService);
             var dialogService = new VisualStudioUserDialogService(() => Window.GetWindow(this));
             var clipboardService = new WindowsClipboardService();
             var navigationService = new VisualStudioNavigationService(package, roslyn, hostService.ToFullPath);
@@ -33,7 +34,7 @@ namespace DocSets
                 roslyn,
                 hostService.EnsureInitializedAsync,
                 () => hostService.StorageDirectory,
-                () => hostService.CurrentSolutionName,
+                () => solutionContextService.Current.Name,
                 hostService.ToSourceRelativePath);
             var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
             viewModel = new DocSetsViewModel(
@@ -43,7 +44,8 @@ namespace DocSets
                 clipboardService,
                 navigationService,
                 activeDocumentService,
-                previewService);
+                previewService,
+                solutionContextService);
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;

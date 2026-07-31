@@ -10,9 +10,6 @@ namespace DocSets
     /// </summary>
     public interface IDocSetsHostService
     {
-        string CurrentSolutionName { get; }
-        string SolutionDirectory { get; }
-        string SolutionFilePath { get; }
         string StateFilePath { get; }
         string AssetDirectory { get; }
         string CurrentWorkspaceRelativePath { get; }

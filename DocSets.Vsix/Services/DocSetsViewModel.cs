@@ -26,6 +26,7 @@ namespace DocSets
         private readonly INavigationService _navigation;
         private readonly IActiveDocumentService _activeDocument;
         private readonly IPreviewService _preview;
+        private readonly ISolutionContextService _solutionContext;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -66,7 +67,8 @@ namespace DocSets
             IClipboardService clipboard,
             INavigationService navigation,
             IActiveDocumentService activeDocument,
-            IPreviewService preview)
+            IPreviewService preview,
+            ISolutionContextService solutionContext)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
@@ -75,6 +77,7 @@ namespace DocSets
             _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
             _activeDocument = activeDocument ?? throw new ArgumentNullException(nameof(activeDocument));
             _preview = preview ?? throw new ArgumentNullException(nameof(preview));
+            _solutionContext = solutionContext ?? throw new ArgumentNullException(nameof(solutionContext));
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -118,11 +121,11 @@ namespace DocSets
         public DocumentItem HistoryRoot => historyService.Root;
         public DocumentItem RecentRoot => recentBookmarksService.Root;
         public DocumentItem PinRoot => pinService.Root;
-        public string CurrentSolutionName => store.CurrentSolutionName;
+        public string CurrentSolutionName => _solutionContext.Current.Name;
         public IReadOnlyList<TagDefinition> Tags => state.Tags;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => workspaces;
-        public string SolutionDirectory => store.SolutionDirectory;
+        public string SolutionDirectory => _solutionContext.Current.Directory;
         public string AssetDirectory => store.AssetDirectory;
 
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
@@ -467,7 +470,7 @@ namespace DocSets
                 OnPropertyChanged(nameof(SelectedSet));
                 OnPropertyChanged(nameof(SelectedNode));
                 OnPropertyChanged(nameof(CurrentNodes));
-                StorageText = string.IsNullOrWhiteSpace(store.SolutionFilePath)
+                StorageText = string.IsNullOrWhiteSpace(_solutionContext.Current.FilePath)
                     ? "DocSets: solution ещё не открыт"
                     : "DocSets: откройте или создайте DocSet";
                 InvalidateCommands();
@@ -2016,7 +2019,7 @@ namespace DocSets
             var now = DateTimeOffset.UtcNow;
             item.CreatedAtUtc = now;
             item.ModifiedAtUtc = now;
-            item.ModifiedInSolution = store.CurrentSolutionName;
+            item.ModifiedInSolution = CurrentSolutionName;
         }
 
         private void StampCreatedTree(DocumentItem item)
@@ -2032,7 +2035,7 @@ namespace DocSets
             var now = DateTimeOffset.UtcNow;
             if (ensureCreated && !item.CreatedAtUtc.HasValue) item.CreatedAtUtc = now;
             item.ModifiedAtUtc = now;
-            item.ModifiedInSolution = store.CurrentSolutionName;
+            item.ModifiedInSolution = CurrentSolutionName;
         }
 
         private static bool ShouldRefreshRecent(DocumentTreeChangedEventArgs e)
