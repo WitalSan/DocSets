@@ -23,6 +23,7 @@ namespace DocSets
         Task<bool> SelectWorkspaceAsync(string relativePath);
         Task<bool> OpenDocSetAsync(string directoryPath);
         Task<bool> CreateDocSetAsync(string directoryPath, string name);
+        Task<bool> CloseActiveDocSetAsync();
         Task<DocumentSetsState> LoadAsync(bool forceReload = false);
         Task SaveAsync(DocumentSetsState state);
         Task<bool> HasExternalChangesAsync();

@@ -153,6 +153,8 @@ namespace DocSets
         public IReadOnlyList<WorkspaceInfo> Workspaces => _workspaces;
         public string SolutionDirectory => _solutionContext.Current.Directory;
         public string AssetDirectory => _workspace.AssetDirectory;
+        public string ActiveDocSetDirectory => _workspace.ActiveDocSetDirectory;
+        public string ActiveDocSetName => _workspace.ActiveDocSetName;
 
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
             => _workspace.SaveImageAssetAsync(content, mimeType, originalName);
@@ -396,6 +398,18 @@ namespace DocSets
             if (IsLoaded) await SaveAsync();
             if (!await _workspace.CreateDocSetAsync(directoryPath, name)) return false;
             ApplyLoadedState(await _workspace.LoadAsync(), preferredSetName: null, selectedNodePath: null);
+            ClearUndoHistory();
+            await RefreshWorkspacesAsync();
+            return true;
+        }
+
+        public async Task<bool> CloseActiveDocSetAsync()
+        {
+            if (!_workspace.HasOpenDocSet) return false;
+            await SaveAsync();
+            if (!await _workspace.CloseActiveDocSetAsync()) return false;
+            ApplyLoadedState(await _workspace.LoadAsync(), preferredSetName: null,
+                selectedNodePath: null);
             ClearUndoHistory();
             await RefreshWorkspacesAsync();
             return true;

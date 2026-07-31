@@ -45,6 +45,7 @@ namespace DocSets
         private BookmarkColor selectedColor;
         private Point breadcrumbDragStart;
         private DocumentLink breadcrumbDragLink;
+        private bool _externalDocking;
 
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
@@ -54,6 +55,7 @@ namespace DocSets
         public event EventHandler PinChanged;
         public event EventHandler LayoutStateChanged;
         public event Action<string> SymbolLinkClicked;
+        public event Action<string> ExternalPanelActivationRequested;
 
         public BookmarkPropertiesPanelExperimental()
         {
@@ -91,7 +93,13 @@ namespace DocSets
 
         public Task CommitPendingCommentAsync() => joditComment.CommitPendingEditAsync();
 
-        public void ShowSearchTab() => dockWorkspace.ActivatePanel("search");
+        public void ShowSearchTab()
+        {
+            if (_externalDocking)
+                ExternalPanelActivationRequested?.Invoke(DocSetsPanelIds.Search);
+            else
+                dockWorkspace.ActivatePanel("search");
+        }
 
         public void ShowCommentSearchResult(int start, int length, int occurrenceIndex)
         {
@@ -99,7 +107,13 @@ namespace DocSets
             joditComment.ShowSearchResult(start, length, occurrenceIndex);
         }
 
-        public void ShowCommentTab() => dockWorkspace.ActivatePanel("commentJodit");
+        public void ShowCommentTab()
+        {
+            if (_externalDocking)
+                ExternalPanelActivationRequested?.Invoke(DocSetsPanelIds.Note);
+            else
+                dockWorkspace.ActivatePanel("commentJodit");
+        }
 
         public void ApplySelectedContentTab(string value)
         {
@@ -116,6 +130,27 @@ namespace DocSets
         public void ResetDockLayout() => dockWorkspace.ResetLayout();
         public void PopulatePanelsMenu(ToolStripItemCollection items, Action beforePanelActivation = null)
             => dockWorkspace.PopulatePanelsMenu(items, beforePanelActivation);
+
+        public IReadOnlyDictionary<string, Control> DetachPanelsForExternalDocking()
+        {
+            if (_externalDocking)
+                throw new InvalidOperationException("Панели уже переданы внешнему docking-контейнеру.");
+
+            _externalDocking = true;
+            var result = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase)
+            {
+                [DocSetsPanelIds.Code] = dockWorkspace.Unregister(DocSetsPanelIds.Code),
+                [DocSetsPanelIds.Preview] = dockWorkspace.Unregister(DocSetsPanelIds.Preview),
+                [DocSetsPanelIds.Note] = dockWorkspace.Unregister("commentJodit"),
+                [DocSetsPanelIds.Search] = dockWorkspace.Unregister(DocSetsPanelIds.Search),
+                [DocSetsPanelIds.Log] = dockWorkspace.Unregister(DocSetsPanelIds.Log)
+            };
+            dockWorkspace.SetToolbarVisible(false);
+            dockWorkspace.ActivatePanel(DocSetsPanelIds.Properties);
+            Parent?.Controls.Remove(this);
+            result[DocSetsPanelIds.Properties] = this;
+            return result;
+        }
         public void LoadItem(DocumentItem value, bool isPinned = false)
         {
             LoadSelection(value, false, isPinned, isPinned, value?.Color, value != null);
@@ -403,6 +438,17 @@ namespace DocSets
         }
         public void FocusCommentEditor() => joditComment.FocusEditor();
 
+        public void ExecuteEditorCommand(string command)
+            => joditComment.ExecuteEditorCommand(command);
+
+        public void ExecuteCodeCommand(string command)
+        {
+            if (string.Equals(command, "copy", StringComparison.OrdinalIgnoreCase))
+                codeTextBox.Copy();
+            else if (string.Equals(command, "selectall", StringComparison.OrdinalIgnoreCase))
+                codeTextBox.SelectAll();
+        }
+
         private void BreadcrumbMouseDown(object sender, MouseEventArgs e)
         {
             breadcrumbDragStart = e.Location;
@@ -450,7 +496,8 @@ namespace DocSets
 
         private void RequestPreviewIfVisible()
         {
-            if (!IsDisposed && !Disposing && !loading && !multipleSelection && item != null && dockWorkspace.IsPanelDisplayed("preview"))
+            if (!IsDisposed && !Disposing && !loading && !multipleSelection && item != null &&
+                (_externalDocking || dockWorkspace.IsPanelDisplayed("preview")))
             {
                 PreviewRequested?.Invoke(this, EventArgs.Empty);
             }

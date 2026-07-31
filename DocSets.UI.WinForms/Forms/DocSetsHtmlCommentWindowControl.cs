@@ -196,6 +196,12 @@ namespace DocSets
             editor.FocusEditor();
         }
 
+        public void ExecuteEditorCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command)) return;
+            editor.ExecuteEditorCommand(command);
+        }
+
         public void ShowSearchResult(int start, int length, int occurrenceIndex)
         {
             var content = item?.Content ?? string.Empty;

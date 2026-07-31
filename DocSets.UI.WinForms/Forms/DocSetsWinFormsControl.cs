@@ -18,6 +18,7 @@ namespace DocSets
         public event Action<DocumentItem> CurrentCommentItemChanged;
         public event Action<DocumentItem, object> CommentContentChanged;
         public event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
+        public event Action<string> ExternalPanelActivationRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly Button _openDocSetButton = new Button();
@@ -100,6 +101,7 @@ namespace DocSets
         private readonly Dictionary<object, HashSet<DocumentItem>> _selectedItemsByView = new Dictionary<object, HashSet<DocumentItem>>();
         private object _renderedExpansionOwner;
         private bool _localStateRestored;
+        private bool _externalDocking;
         private const string SetsOverviewTag = "__SETS_OVERVIEW__";
         private const string AddGroupTag = "__ADD_GROUP__";
         private int DpiIconSize => DpiService.IconSize(this);
@@ -119,6 +121,8 @@ namespace DocSets
             BuildLayout();
             _experimentalPropertiesPanel.AttachSearchTab(_searchPanel);
             _ = _experimentalPropertiesPanel.AttachJoditAsync(_viewModel, this);
+            _experimentalPropertiesPanel.ExternalPanelActivationRequested += id =>
+                ExternalPanelActivationRequested?.Invoke(id);
             BuildTree();
             BuildMenus();
             _viewModel.TreeChanged += ViewModel_TreeChanged;
@@ -221,6 +225,60 @@ namespace DocSets
 
         public Task CommitPendingCommentAsync()
             => _experimentalPropertiesPanel.CommitPendingCommentAsync();
+
+        public IReadOnlyDictionary<string, Control> DetachPanelsForExternalDocking()
+        {
+            if (_externalDocking)
+                throw new InvalidOperationException("Панели уже переданы внешнему docking-контейнеру.");
+
+            _externalDocking = true;
+            _togglePropertiesButton.Visible = false;
+            _panelsButton.Visible = false;
+            _propertiesVisible = false;
+            _contentSplit.Panel2Collapsed = true;
+            return _experimentalPropertiesPanel.DetachPanelsForExternalDocking();
+        }
+
+        public Task OpenDocSetFromDialogAsync() => OpenDocSetAsync();
+        public Task CreateDocSetFromDialogAsync() => CreateDocSetAsync();
+
+        public async Task SaveAsync()
+        {
+            await CommitPendingCommentAsync();
+            await _viewModel.SaveAsync();
+            RefreshAll();
+        }
+
+        public void FocusSearch()
+        {
+            _experimentalPropertiesPanel.ShowSearchTab();
+            _searchPanel.FocusQuery();
+        }
+
+        public void ExecuteEditorCommand(string command)
+            => _experimentalPropertiesPanel.ExecuteEditorCommand(command);
+
+        public void ExecutePanelCommand(string panelId, string command)
+        {
+            if (string.Equals(panelId, DocSetsPanelIds.Code,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                _experimentalPropertiesPanel.ExecuteCodeCommand(command);
+                return;
+            }
+
+            if (string.Equals(panelId, DocSetsPanelIds.Tree,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(command, "copy", StringComparison.OrdinalIgnoreCase))
+                    Execute(_viewModel.CopySelectedNodesCommand, GetCurrentItem());
+                else if (string.Equals(command, "paste", StringComparison.OrdinalIgnoreCase))
+                    Execute(_viewModel.PasteNodesCommand, GetCurrentItem());
+                return;
+            }
+
+            _experimentalPropertiesPanel.ExecuteEditorCommand(command);
+        }
 
         public System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
         {
@@ -2108,7 +2166,8 @@ namespace DocSets
             };
             _experimentalPropertiesPanel.PreviewRequested += async (_, __) =>
             {
-                if (_propertiesVisible && _experimentalPropertiesPanel.Visible)
+                if (_externalDocking ||
+                    (_propertiesVisible && _experimentalPropertiesPanel.Visible))
                 {
                     await RefreshExperimentalLivePreviewAsync();
                 }
@@ -2418,6 +2477,8 @@ namespace DocSets
             RebuildTree();
             RefreshStatus();
             RestoreSplitterPosition();
+            if (_externalDocking)
+                _contentSplit.Panel2Collapsed = true;
         }
 
         private void RefreshToolbarItems()
@@ -3215,6 +3276,12 @@ namespace DocSets
 
         private void SetPropertiesPanelVisible(bool visible)
         {
+            if (_externalDocking)
+            {
+                ExternalPanelActivationRequested?.Invoke(DocSetsPanelIds.Properties);
+                return;
+            }
+
             _propertiesVisible = visible;
             _contentSplit.Panel2Collapsed = !visible;
             _togglePropertiesButton.Checked = visible;

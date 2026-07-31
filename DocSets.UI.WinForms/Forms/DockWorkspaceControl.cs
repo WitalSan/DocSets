@@ -61,6 +61,35 @@ namespace DocSets
         }
 
         public bool ContainsPanel(string id) => registrations.ContainsKey(id);
+
+        public Control Unregister(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id) || !registrations.TryGetValue(id, out var registration))
+                return null;
+
+            var group = FindPanelGroup(id);
+            if (group != null)
+            {
+                group.PanelIds.RemoveAll(x => string.Equals(x, id, StringComparison.OrdinalIgnoreCase));
+                if (string.Equals(group.ActivePanelId, id, StringComparison.OrdinalIgnoreCase))
+                    group.ActivePanelId = group.PanelIds.FirstOrDefault();
+            }
+
+            registration.Content.Parent?.Controls.Remove(registration.Content);
+            registrations.Remove(id);
+            lastGroupByPanel.Remove(id);
+            root = Normalize(root);
+            selectedPanelId = EnumerateGroups(root)
+                .Select(x => x.ActivePanelId)
+                .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x));
+            Rebuild();
+            return registration.Content;
+        }
+
+        public void SetToolbarVisible(bool visible)
+        {
+            toolbar.Visible = visible;
+        }
         public bool IsPanelVisible(string id) => FindPanelGroup(id) != null;
         public bool IsPanelDisplayed(string id)
         {

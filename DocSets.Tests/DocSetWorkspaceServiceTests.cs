@@ -75,6 +75,26 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void ClosingActiveDocSetActivatesRemainingWorkspace()
+        {
+            WithTemporaryDirectory(root =>
+            {
+                var context = new MutableSolutionContextService(CreateContext(root, "Close"));
+                var workspace = new DocSetWorkspaceService(context);
+                var first = Path.Combine(root, "First.DocSets");
+                var second = Path.Combine(root, "Second.DocSets");
+                Assert.True(workspace.CreateDocSetAsync(first, "First").GetAwaiter().GetResult());
+                Assert.True(workspace.CreateDocSetAsync(second, "Second").GetAwaiter().GetResult());
+
+                Assert.True(workspace.CloseActiveDocSetAsync().GetAwaiter().GetResult());
+
+                Assert.True(workspace.HasOpenDocSet);
+                Assert.Equal(Path.GetFullPath(first), workspace.ActiveDocSetDirectory);
+                Assert.Equal(1, workspace.GetWorkspacesAsync().GetAwaiter().GetResult().Count);
+            });
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ImageAssetsRoundTripThroughCurrentDocSet()
         {
             WithTemporaryDirectory(root =>

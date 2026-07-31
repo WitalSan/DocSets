@@ -115,6 +115,27 @@ namespace DocSets
             return await OpenDocSetCoreAsync(fullPath, true);
         }
 
+        public async Task<bool> CloseActiveDocSetAsync()
+        {
+            if (!await EnsureInitializedAsync() || _workspaceManager == null ||
+                string.IsNullOrWhiteSpace(_activeDocSetDirectory))
+                return false;
+
+            if (!_workspaceManager.Close(_activeDocSetDirectory)) return false;
+            await _workspaceStore.SaveAsync(_workspaceLocation, _workspaceManager.Workspace);
+            _currentDocument = null;
+            _lastSavedStateJson = "";
+            _activeDocSetDirectory = "";
+            _stateFilePath = "";
+            _storageDirectory = "";
+            _sourceStatuses = Array.Empty<CodeSourceStatus>();
+
+            var next = _workspaceManager.ResolveActiveDocSet();
+            if (!string.IsNullOrWhiteSpace(next) && Directory.Exists(next))
+                await OpenDocSetCoreAsync(next, false);
+            return true;
+        }
+
         public async Task<DocumentSetsState> LoadAsync(bool forceReload = false)
         {
             if (!await EnsureInitializedAsync())
