@@ -22,7 +22,8 @@ namespace DocSets
             ThreadHelper.ThrowIfNotOnUIThread();
             var hostService = new DocSetsStore(package);
             var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
-            viewModel = new DocSetsViewModel(hostService, trackingService, () => Window.GetWindow(this));
+            var dialogService = new VisualStudioUserDialogService(() => Window.GetWindow(this));
+            viewModel = new DocSetsViewModel(hostService, trackingService, dialogService);
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;

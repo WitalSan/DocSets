@@ -45,7 +45,6 @@ namespace DocSets
         SolutionLocalState LoadSolutionState();
         void SaveSolutionState(SolutionLocalState state);
         string ToFullPath(string path);
-        void ShowInformation(string text);
     }
 
     /// <summary>

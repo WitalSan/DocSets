@@ -610,13 +610,6 @@ namespace DocSets
             return Path.GetFullPath(Path.Combine(storageDirectory, path));
         }
 
-        public void ShowInformation(string text)
-        {
-            VsShellUtilities.ShowMessageBox(package, text ?? string.Empty, "DocSets",
-                OLEMSGICON.OLEMSGICON_INFO, OLEMSGBUTTON.OLEMSGBUTTON_OK,
-                OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
-        }
-
         internal string ToFullPath(DocumentItem item)
         {
             return item == null

@@ -22,6 +22,7 @@ namespace DocSets
     {
         private readonly IDocSetsHostService store;
         private readonly IEditorTrackingService fileTracking;
+        private readonly IUserDialogService dialogs;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -29,7 +30,6 @@ namespace DocSets
         private readonly UndoRedoService undoRedoService;
         private readonly TagService tagService;
         private readonly SourceReferenceService sourceReferenceService = new SourceReferenceService();
-        private readonly Func<Window> ownerAccessor;
         private DocumentSetsState state = new DocumentSetsState();
         private DocumentItem selectedSet;
         private DocumentItem selectedNode;
@@ -59,11 +59,11 @@ namespace DocSets
         public DocSetsViewModel(
             IDocSetsHostService store,
             IEditorTrackingService fileTracking,
-            Func<Window> ownerAccessor)
+            IUserDialogService dialogs)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
-            this.ownerAccessor = ownerAccessor ?? (() => null);
+            this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -595,7 +595,7 @@ namespace DocSets
 
         private void AddSet()
         {
-            var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название группы:");
+            var name = dialogs.Prompt("DocSets", "Название группы:");
             if (string.IsNullOrWhiteSpace(name)) return;
             name = name.Trim();
             if (state.Sets.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
@@ -617,7 +617,7 @@ namespace DocSets
         {
             var set = SelectedSet;
             if (set == null) return;
-            var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Новое название группы:", set.Name);
+            var name = dialogs.Prompt("DocSets", "Новое название группы:", set.Name);
             TryRenameSet(set, name, showErrors: true);
         }
 
@@ -669,13 +669,13 @@ namespace DocSets
             }
             if (set.IsHistoryRoot || set.IsPinRoot)
             {
-                if (MessageBox.Show(ownerAccessor(), "Очистить историю переходов?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                if (!dialogs.Confirm("Очистить историю переходов?", "DocSets")) return;
                 set.Children.Clear();
                 SaveSolutionState();
                 InvalidateCommands();
                 return;
             }
-            if (MessageBox.Show(ownerAccessor(), $"Удалить группу '{set.Name}'?", "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (!dialogs.Confirm($"Удалить группу '{set.Name}'?", "DocSets")) return;
 
             _ = ExecuteMutationAsync(nameof(DeleteSet), () =>
             {
@@ -695,7 +695,7 @@ namespace DocSets
             var set = SelectedSet;
             if (set == null) return;
 
-            var name = PromptDialog.Ask(ownerAccessor(), "DocSets", "Название папки:", "Новая папка");
+            var name = dialogs.Prompt("DocSets", "Название папки:", "Новая папка");
             if (string.IsNullOrWhiteSpace(name)) return;
 
             _ = ExecuteMutationAsync(nameof(AddFolder), () =>
@@ -1116,7 +1116,7 @@ namespace DocSets
             item = ResolvePin(item);
             if (item == null) return;
             var caption = item.NodeType == NodeType.Folder ? "Новое название папки:" : "Новое название закладки:";
-            var name = PromptDialog.Ask(ownerAccessor(), "DocSets", caption, item.Name);
+            var name = dialogs.Prompt("DocSets", caption, item.Name);
             if (string.IsNullOrWhiteSpace(name)) return;
 
             _ = ExecuteMutationAsync(nameof(RenameNode), () =>
@@ -1138,7 +1138,7 @@ namespace DocSets
                 ? (nodes[0].NodeType == NodeType.Folder ? $"Удалить папку '{nodes[0].Name}' и все вложенные элементы?" : $"Удалить закладку '{nodes[0].Name}'?")
                 : $"Удалить выбранные элементы ({nodes.Count})?";
 
-            if (MessageBox.Show(ownerAccessor(), text, "DocSets", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            if (!dialogs.Confirm(text, "DocSets")) return;
 
             _ = ExecuteMutationAsync(nameof(DeleteNodes), () =>
             {
@@ -2549,7 +2549,7 @@ namespace DocSets
 
         private void Show(string text)
         {
-            store.ShowInformation(text);
+            dialogs.ShowInformation(text);
         }
 
     }
