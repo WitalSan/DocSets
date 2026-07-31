@@ -23,6 +23,7 @@ namespace DocSets
         private readonly IEditorTrackingService fileTracking;
         private readonly IUserDialogService _dialogs;
         private readonly IClipboardService _clipboard;
+        private readonly INavigationService _navigation;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -60,12 +61,14 @@ namespace DocSets
             IDocSetsHostService store,
             IEditorTrackingService fileTracking,
             IUserDialogService dialogs,
-            IClipboardService clipboard)
+            IClipboardService clipboard,
+            INavigationService navigation)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
             _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
             _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
+            _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -1006,7 +1009,7 @@ namespace DocSets
             if (!IsBookmark(item)) return;
             if (item.IsHistoryItem)
                 historyService.SuppressNext(item);
-            await store.OpenBookmarkAsync(item);
+            await _navigation.OpenBookmarkAsync(item);
             if (item.Type == BookmarkType.File)
             {
                 await fileTracking.TrackAfterOpenAsync(item);
@@ -2064,7 +2067,7 @@ namespace DocSets
         public Task<bool> OpenSymbolAsync(DocumentItem item, string symbol)
         {
             item = ResolvePin(item);
-            return store.OpenSymbolAsync(symbol, item?.Project);
+            return _navigation.OpenSymbolAsync(symbol, item?.Project);
         }
 
         public Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
@@ -2075,7 +2078,7 @@ namespace DocSets
         public Task<bool> OpenSymbolAsync(DocumentItem item, string symbol, string project)
         {
             item = ResolvePin(item);
-            return store.OpenSymbolAsync(symbol, string.IsNullOrWhiteSpace(project) ? item?.Project : project);
+            return _navigation.OpenSymbolAsync(symbol, string.IsNullOrWhiteSpace(project) ? item?.Project : project);
         }
 
         public async Task<bool> OpenBookmarkByIdAsync(string id)
@@ -2091,7 +2094,7 @@ namespace DocSets
         public async Task<bool> OpenFileLinkAsync(string path, string sourceId = "")
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
-            await store.OpenBookmarkAsync(new DocumentItem
+            await _navigation.OpenBookmarkAsync(new DocumentItem
             {
                 Type = BookmarkType.File, NodeType = NodeType.Item, SourceId = sourceId ?? "",
                 Path = path, Line = 1, Column = 1

@@ -10,7 +10,7 @@ using Newtonsoft.Json;
 
 namespace DocSets
 {
-    internal sealed class DocSetsStore : IDocSetsHostService
+    internal sealed class DocSetsStore : IDocSetsHostService, INavigationService
     {
         private readonly AsyncPackage package;
         private readonly RoslynBookmarkResolver roslyn;

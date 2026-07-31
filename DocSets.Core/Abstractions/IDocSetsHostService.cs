@@ -32,9 +32,7 @@ namespace DocSets
         Task<DocumentItem> CreateClassBookmarkFromActiveDocumentAsync();
         Task<ActiveDocumentContext> GetActiveDocumentContextAsync();
         Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText);
-        Task OpenBookmarkAsync(DocumentItem item);
         Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken);
-        Task<bool> OpenSymbolAsync(string symbol, string project);
 
         Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName);
         Task<string> NormalizeCommentAssetsAsync(string content, CancellationToken cancellationToken = default);

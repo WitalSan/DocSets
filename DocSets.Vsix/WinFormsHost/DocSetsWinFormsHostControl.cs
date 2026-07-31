@@ -24,7 +24,7 @@ namespace DocSets
             var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
             var dialogService = new VisualStudioUserDialogService(() => Window.GetWindow(this));
             var clipboardService = new WindowsClipboardService();
-            viewModel = new DocSetsViewModel(hostService, trackingService, dialogService, clipboardService);
+            viewModel = new DocSetsViewModel(hostService, trackingService, dialogService, clipboardService, hostService);
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;
