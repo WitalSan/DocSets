@@ -527,7 +527,9 @@ namespace Aga.Controls.Tree
 
 		protected override CreateParams CreateParams
 		{
+#if NETFRAMEWORK
 			[SecurityPermission(SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.UnmanagedCode)]
+#endif
 			get
 			{
 				CreateParams res = base.CreateParams;

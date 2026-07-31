@@ -90,9 +90,15 @@ namespace Aga.Controls.Threading
 				{
 					if (allowAbort)
 					{
+#if NETFRAMEWORK
 						_threads[item].Abort();
 						_threads.Remove(item);
 						return WorkItemStatus.Aborted;
+#else
+						// В .NET 8 Thread.Abort не поддерживается. Выполняющийся callback
+						// остаётся зарегистрированным и завершится обычным способом.
+						return WorkItemStatus.Executing;
+#endif
 					}
 					else
 						return WorkItemStatus.Executing;
@@ -109,8 +115,10 @@ namespace Aga.Controls.Threading
 				_callbacks.Clear();
 				if (allowAbort)
 				{
+#if NETFRAMEWORK
 					foreach (Thread t in _threads.Values)
 						t.Abort();
+#endif
 				}
 			}
 		}
