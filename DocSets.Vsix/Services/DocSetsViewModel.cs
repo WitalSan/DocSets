@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.Shell;
-using Microsoft.VisualStudio.Shell.Interop;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -22,9 +20,8 @@ namespace DocSets
 
     internal sealed class DocSetsViewModel : NotifyObject
     {
-        private readonly AsyncPackage package;
-        private readonly DocSetsStore store;
-        private readonly FileBookmarkTrackingService fileTracking;
+        private readonly IDocSetsHostService store;
+        private readonly IEditorTrackingService fileTracking;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -59,12 +56,14 @@ namespace DocSets
         private readonly SemaphoreSlim mutationGate = new SemaphoreSlim(1, 1);
         private readonly AsyncLocal<int> mutationNesting = new AsyncLocal<int>();
 
-        public DocSetsViewModel(AsyncPackage package, Func<Window> ownerAccessor)
+        public DocSetsViewModel(
+            IDocSetsHostService store,
+            IEditorTrackingService fileTracking,
+            Func<Window> ownerAccessor)
         {
-            this.package = package ?? throw new ArgumentNullException(nameof(package));
+            this.store = store ?? throw new ArgumentNullException(nameof(store));
+            this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
             this.ownerAccessor = ownerAccessor ?? (() => null);
-            store = new DocSetsStore(package);
-            fileTracking = new FileBookmarkTrackingService(package, store.ToFullPath);
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -2550,7 +2549,7 @@ namespace DocSets
 
         private void Show(string text)
         {
-            VsShellUtilities.ShowMessageBox(package, text, "DocSets", OLEMSGICON.OLEMSGICON_INFO, OLEMSGBUTTON.OLEMSGBUTTON_OK, OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
+            store.ShowInformation(text);
         }
 
     }

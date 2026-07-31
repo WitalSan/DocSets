@@ -739,6 +739,23 @@
     !!editor && !!editor.container &&
     !editor.container.classList.contains('docsets-toolbar-hidden');
 
+  window.docsetsExecCommand = command => {
+    if (!editor) return false;
+    const normalized = String(command || '').toLowerCase();
+    if (normalized === 'copy' || normalized === 'cut' || normalized === 'paste')
+      return document.execCommand(normalized);
+    if (normalized === 'selectall') {
+      editor.execCommand('selectall');
+      return true;
+    }
+    if (normalized === 'find') {
+      editor.execCommand('find');
+      return true;
+    }
+    editor.execCommand(normalized);
+    return true;
+  };
+
   window.docsetsHighlightSearch = (value, occurrence) => {
     value = String(value || '');
     occurrence = Math.max(0, Number(occurrence) || 0);

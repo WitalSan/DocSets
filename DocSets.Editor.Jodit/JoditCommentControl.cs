@@ -3,7 +3,7 @@ namespace DocSets
     /// <summary>
     /// Экспериментальный HTML-редактор Jodit.
     /// </summary>
-    internal sealed class JoditCommentControl : HtmlWebEditorCommentControl
+    public sealed class JoditCommentControl : HtmlWebEditorCommentControl
     {
         public JoditCommentControl(string userDataFolder = null)
             : base(

@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net472;net8.0-windows</TargetFrameworks>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <LangVersion>9</LangVersion>
+    <RootNamespace>DocSets</RootNamespace>
+    <AssemblyName>DocSets.Editor.Jodit</AssemblyName>
+    <Nullable>disable</Nullable>
+    <VsIdeDir Condition="'$(DevEnvDir)' != ''">$(DevEnvDir)</VsIdeDir>
+    <VsIdeDir Condition="'$(VsIdeDir)' == ''">$(MSBuildToolsPath)\..\..\..\Common7\IDE\</VsIdeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472' and !Exists('$(VsIdeDir)PrivateAssemblies\Microsoft.Web.WebView2.Core.dll')">
+    <!-- Вне Visual Studio пакет даёт стабильный compile-time контракт тестам. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44">
+      <IncludeAssets>compile</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472' and Exists('$(VsIdeDir)PrivateAssemblies\Microsoft.Web.WebView2.Core.dll')">
+    <!-- VSIX обязан компилироваться против тех же сборок, которые загрузит VS. -->
+    <Reference Include="Microsoft.Web.WebView2.Core">
+      <HintPath>$(VsIdeDir)PrivateAssemblies\Microsoft.Web.WebView2.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Web.WebView2.WinForms">
+      <HintPath>$(VsIdeDir)Extensions\Microsoft\Web Live Preview\Microsoft.Web.WebView2.WinForms.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\index.html" LogicalName="DocSets.Jodit.index.html" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit-editor.js" LogicalName="DocSets.Jodit.jodit-editor.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.js" LogicalName="DocSets.Jodit.jodit.min.js" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.css" LogicalName="DocSets.Jodit.jodit.min.css" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\Prism\*.js" LogicalName="DocSets.Jodit.Prism.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

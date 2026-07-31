@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace DocSets
 {
-    internal sealed class UndoRedoService
+    public sealed class UndoRedoService
     {
         private readonly int limit;
         private readonly List<Entry> undoEntries = new List<Entry>();

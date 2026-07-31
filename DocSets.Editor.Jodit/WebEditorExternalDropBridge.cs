@@ -8,7 +8,7 @@ namespace DocSets
     /// Единый браузерный конвейер перетаскивания текста для редакторов заметок.
     /// Редактор отвечает только за представление уже разрешённой ссылки.
     /// </summary>
-    internal static class WebEditorExternalDropBridge
+    public static class WebEditorExternalDropBridge
     {
         private const string Script = @"
 (() => {
@@ -76,7 +76,7 @@ namespace DocSets
         }
     }
 
-    internal sealed class ExternalDropTestResult
+    public sealed class ExternalDropTestResult
     {
         public bool Accepted { get; set; }
         public string DropEffect { get; set; }

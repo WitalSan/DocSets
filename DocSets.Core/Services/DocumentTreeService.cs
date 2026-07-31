@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace DocSets
 {
-    internal enum DropPosition
+    public enum DropPosition
     {
         Before,
         Inside,
@@ -16,7 +16,7 @@ namespace DocSets
     /// Pure tree algorithms for DocumentItem. This service does not own selection,
     /// persistence, dialogs, or Visual Studio integration.
     /// </summary>
-    internal sealed class DocumentTreeService
+    public sealed class DocumentTreeService
     {
         public DocumentItem GetSetContainingNode(DocumentSetsState state, DocumentItem item)
         {
@@ -369,7 +369,7 @@ namespace DocSets
         }
     }
 
-    internal sealed class DocumentTreeMovePlan
+    public sealed class DocumentTreeMovePlan
     {
         public DocumentTreeMovePlan(ObservableCollection<DocumentItem> collection, int index)
         {

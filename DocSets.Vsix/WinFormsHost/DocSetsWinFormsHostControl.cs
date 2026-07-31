@@ -20,7 +20,9 @@ namespace DocSets
         public DocSetsWinFormsHostControl(AsyncPackage package)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            viewModel = new DocSetsViewModel(package, () => Window.GetWindow(this));
+            var hostService = new DocSetsStore(package);
+            var trackingService = new FileBookmarkTrackingService(package, hostService.ToFullPath);
+            viewModel = new DocSetsViewModel(hostService, trackingService, () => Window.GetWindow(this));
             winFormsControl = new DocSetsWinFormsControl(viewModel);
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;

@@ -10,18 +10,6 @@ using System.Windows.Forms;
 
 namespace DocSets
 {
-    internal enum DocumentLinkKind { Symbol, File, Bookmark, Url }
-
-    [Serializable]
-    internal sealed class DocumentLink
-    {
-        public DocumentLinkKind Kind { get; set; }
-        public string Caption { get; set; }
-        public string Target { get; set; }
-        public string Project { get; set; }
-        public string SourceId { get; set; }
-    }
-
     internal sealed class MarkdownLinkSpan
     {
         public int Start { get; set; }

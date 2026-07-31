@@ -5,10 +5,10 @@ using System.Text.RegularExpressions;
 
 namespace DocSets
 {
-    internal static class BookmarkToolTipFormatter
+    public static class BookmarkToolTipFormatter
     {
-        internal const int MaximumLines = 5;
-        internal const int MaximumCharactersPerLine = 200;
+        public const int MaximumLines = 5;
+        public const int MaximumCharactersPerLine = 200;
 
         private static readonly Regex NonVisibleHtml = new Regex(
             @"<(script|style)\b[^>]*>.*?</\1\s*>",
@@ -41,7 +41,7 @@ namespace DocSets
             return Format(item.Content, item.ContentFormat);
         }
 
-        internal static string Format(string content, ContentFormat format)
+        public static string Format(string content, ContentFormat format)
         {
             if (string.IsNullOrWhiteSpace(content))
             {

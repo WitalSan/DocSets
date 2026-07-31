@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace DocSets
 {
-    internal sealed class RecentBookmarksService
+    public sealed class RecentBookmarksService
     {
         private const int RecentLimit = 100;
         private DocumentSetsState state;

@@ -22,24 +22,10 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Source\Model.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Source\DocSetStorageModels.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DirectoryDocSetStore.cs" Link="Source\DirectoryDocSetStore.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DocSetDocumentRepository.cs" Link="Source\DocSetDocumentRepository.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DocSetsWorkspaceStore.cs" Link="Source\DocSetsWorkspaceStore.cs" />
-    <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
-    <Compile Include="..\DocSets.Core\Services\CodeSourceLocator.cs" Link="Source\CodeSourceLocator.cs" />
-    <Compile Include="..\DocSets.Core\Services\SourceReferenceService.cs" Link="Source\SourceReferenceService.cs" />
-    <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
+    <ProjectReference Include="..\DocSets.Model\DocSets.Model.csproj" />
+    <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
+    <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />
     <Compile Include="..\DocSets.Import\LegacyDocSetConverter.cs" Link="Source\LegacyDocSetConverter.cs" />
-    <Compile Include="..\DocSets.Core\Services\BookmarkSearchService.cs" Link="Source\BookmarkSearchService.cs" />
-    <Compile Include="..\DocSets.Core\Services\BookmarkToolTipFormatter.cs" Link="Source\BookmarkToolTipFormatter.cs" />
-    <Compile Include="..\DocSets.Core\Services\DocumentTreeService.cs" Link="Source\DocumentTreeService.cs" />
-    <Compile Include="..\DocSets.Core\Services\NavigationHistoryService.cs" Link="Source\NavigationHistoryService.cs" />
-    <Compile Include="..\DocSets.Core\Services\PinService.cs" Link="Source\PinService.cs" />
-    <Compile Include="..\DocSets.Core\Services\RecentBookmarksService.cs" Link="Source\RecentBookmarksService.cs" />
-    <Compile Include="..\DocSets.Core\Services\UndoRedoService.cs" Link="Source\UndoRedoService.cs" />
-    <Compile Include="..\DocSets.Core\Services\TagService.cs" Link="Source\TagService.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\DpiService.cs" Link="Source\DpiService.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\IconProvider.cs" Link="Source\IconProvider.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\BookmarkColorService.cs" Link="Source\BookmarkColorService.cs" />

@@ -61,8 +61,13 @@
     <LangVersion>9</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Source trees are included recursively, like SDK-style projects. -->
-    <Compile Include="DocSets.Core\**\*.cs" Exclude="DocSets.Core\**\bin\**;DocSets.Core\**\obj\**;DocSets.Core\**\.vs\**" />
+    <!-- Реализации, зависящие от Visual Studio. Общая логика подключена проектами ниже. -->
+    <Compile Include="DocSets.Vsix\Roslyn\RoslynBookmarkResolver.cs" />
+    <Compile Include="DocSets.Vsix\Services\DocSetsViewModel.cs" />
+    <Compile Include="DocSets.Vsix\Services\EditorStateService.cs" />
+    <Compile Include="DocSets.Vsix\Services\FileBookmarkTrackingService.cs" />
+    <Compile Include="DocSets.Vsix\Services\RelayCommand.cs" />
+    <Compile Include="DocSets.Vsix\Storage\DocSetsStore.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkSearchControls.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -114,13 +119,6 @@
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsJoditCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
-    <Compile Include="DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="DocSets.Vsix\WinFormsHost\JoditCommentControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
-    <Compile Include="DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" />
     <Compile Include="Properties\**\*.cs" Exclude="Properties\**\bin\**;Properties\**\obj\**;Properties\**\.vs\**" />
     <!-- Design-time hints do not participate in source inclusion. -->
     <Compile Update="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">
@@ -165,6 +163,19 @@
     <Reference Include="WindowsFormsIntegration" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="DocSets.Model\DocSets.Model.csproj">
+      <Name>DocSets.Model</Name>
+    </ProjectReference>
+    <ProjectReference Include="DocSets.Serialization\DocSets.Serialization.csproj">
+      <Name>DocSets.Serialization</Name>
+    </ProjectReference>
+    <ProjectReference Include="DocSets.Core\DocSets.Core.csproj">
+      <Name>DocSets.Core</Name>
+    </ProjectReference>
+    <ProjectReference Include="DocSets.Editor.Jodit\DocSets.Editor.Jodit.csproj">
+      <Name>DocSets.Editor.Jodit</Name>
+      <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
+    </ProjectReference>
     <ProjectReference Include="Aga.Controls\Aga.Controls.csproj">
       <Project>{E73BB233-D88B-44A7-A98F-D71EE158381D}</Project>
       <Name>Aga.Controls</Name>
@@ -251,21 +262,6 @@
     </EmbeddedResource>
     <EmbeddedResource Include="-Icons-\PinOverlay.png">
       <LogicalName>DocSets.Icons.PinOverlay.png</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\index.html">
-      <LogicalName>DocSets.Jodit.index.html</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\jodit-editor.js">
-      <LogicalName>DocSets.Jodit.jodit-editor.js</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\jodit.min.js">
-      <LogicalName>DocSets.Jodit.jodit.min.js</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\jodit.min.css">
-      <LogicalName>DocSets.Jodit.jodit.min.css</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="DocSets.Vsix\WebAssets\Jodit\Prism\*.js">
-      <LogicalName>DocSets.Jodit.Prism.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -5,7 +5,7 @@ using System.Text;
 
 namespace DocSets
 {
-    internal sealed class NavigationHistoryService
+    public sealed class NavigationHistoryService
     {
         private const int HistoryLimit = 2000;
         private DocumentSetsState state;

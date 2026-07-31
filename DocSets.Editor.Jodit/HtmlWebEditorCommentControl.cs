@@ -16,7 +16,7 @@ namespace DocSets
     /// <summary>
     /// Общий WebView2-хост HTML-редакторов DocSets.
     /// </summary>
-    internal abstract class HtmlWebEditorCommentControl : UserControl
+    public abstract class HtmlWebEditorCommentControl : UserControl
     {
         private const string AssetHostPrefix = "https://docsets.assets/";
         private readonly WebView2 webView = new WebView2 { Dock = DockStyle.Fill, AllowExternalDrop = true };
@@ -194,6 +194,13 @@ namespace DocSets
             toolbarVisible = visible;
             if (ready && webView.CoreWebView2 != null)
                 _ = SetEditorToolbarVisibleAsync();
+        }
+
+        public void ExecuteEditorCommand(string command)
+        {
+            if (!ready || webView.CoreWebView2 == null || string.IsNullOrWhiteSpace(command)) return;
+            _ = webView.ExecuteScriptAsync("window.docsetsExecCommand && window.docsetsExecCommand(" +
+                JsonConvert.SerializeObject(command) + ")");
         }
 
         public void CompleteImage(string assetReference, string requestId)

@@ -20,7 +20,7 @@ namespace DocSets
     /// If the user opens the file through the bookmark and then moves the caret,
     /// Line/Column are updated to that caret position.
     /// </summary>
-    internal sealed class FileBookmarkTrackingService
+    internal sealed class FileBookmarkTrackingService : IEditorTrackingService
     {
         private readonly AsyncPackage package;
         private readonly Func<DocumentItem, string> toFullPath;

@@ -10,10 +10,8 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Legacy\Model.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Storage\DocSetStorageModels.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DirectoryDocSetStore.cs" Link="Storage\DirectoryDocSetStore.cs" />
-    <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Services\DocSetsLog.cs" />
-    <Compile Include="..\DocSets.Core\Services\CodeSourceLocator.cs" Link="Services\CodeSourceLocator.cs" />
+    <ProjectReference Include="..\DocSets.Model\DocSets.Model.csproj" />
+    <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
+    <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />
   </ItemGroup>
 </Project>

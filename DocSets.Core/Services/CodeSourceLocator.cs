@@ -7,11 +7,11 @@ namespace DocSets
 {
     public sealed class CodeSourceStatus
     {
-        public CodeSource Source { get; internal set; }
-        public string ResolvedRoot { get; internal set; } = "";
-        public string ResolvedPath { get; internal set; } = "";
-        public bool RootExists { get; internal set; }
-        public bool Exists { get; internal set; }
+        public CodeSource Source { get; set; }
+        public string ResolvedRoot { get; set; } = "";
+        public string ResolvedPath { get; set; } = "";
+        public bool RootExists { get; set; }
+        public bool Exists { get; set; }
     }
 
     public sealed class CodeSourceLocator

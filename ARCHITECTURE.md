@@ -1,446 +1,238 @@
 # Архитектура DocSets
 
-## 1. Назначение и границы системы
+## 1. Цель разделения
 
-DocSets — расширение Visual Studio 2022 для хранения и навигации по древовидным
-наборам закладок. Закладка может указывать на символ исходного кода или на позицию
-в файле. Общие данные сохраняются в `*.docsets.json`, а персональное состояние
-пользователя — внутри `.vs` текущего solution.
+DocSets работает в двух средах:
 
-Расширение рассчитано на Visual Studio 2022 (`[17.0, 18.0)`, amd64), .NET
-Framework 4.7.2 и C# 9.
+- расширение Visual Studio 2022 на .NET Framework 4.7.2;
+- самостоятельное приложение `DocSets.Desktop` на .NET 8.
 
-## 2. Компоненты
+Модель, хранение и прикладные алгоритмы не должны зависеть от Visual Studio SDK,
+WinForms или конкретного редактора. Общий код собирается один раз и подключается
+через ссылки на проекты. Подключение общих исходников через `Compile/Link` запрещено.
 
-Solution содержит два проекта:
-
-```text
-DocSets.sln
-├── DocSets.csproj                 VSIX и вся логика DocSets
-└── Aga.Controls/Aga.Controls.csproj
-                                      Вендорный WinForms TreeViewAdv
-```
-
-Внутри `DocSets.csproj` код разделён логически, но не физически: `Core`, UI и
-VSIX-интеграция компилируются в одну сборку `DocSets.dll`.
+## 2. Сборки и зависимости
 
 ```text
-DocSets.Vsix/
-  Package/        регистрация AsyncPackage и команд Visual Studio
-  ToolWindow/     ToolWindowPane
-  WinFormsHost/   WPF WindowsFormsHost, lifecycle и фоновые таймеры
+                            netstandard2.0
+          ┌─────────────────────────────────────────┐
+          │ DocSets.Model                           │
+          │ доменная модель и DTO                   │
+          └───────────────────┬─────────────────────┘
+                              │
+          ┌───────────────────▼─────────────────────┐
+          │ DocSets.Serialization                   │
+          │ JSON, каталоги DocSet, assets, журнал   │
+          └───────────────────┬─────────────────────┘
+                              │
+          ┌───────────────────▼─────────────────────┐
+          │ DocSets.Core                            │
+          │ use cases, дерево, поиск, Pin, история  │
+          │ и контракты внешней среды               │
+          └───────────────┬───────────────┬─────────┘
+                          │               │
+                net472    │               │ net8.0-windows
+          ┌───────────────▼──────┐  ┌─────▼──────────────────┐
+          │ DocSets VSIX         │  │ DocSets.Desktop        │
+          │ VS SDK, Roslyn, DTE  │  │ самостоятельный host   │
+          └──────────────────────┘  └────────────────────────┘
 
-DocSets.UI.WinForms/
-  Forms/          главное окно, свойства закладки и диалоги
-  TreeViewAdv/    адаптеры DocumentItem для Aga.Controls.Tree
-  Icons/          загрузка и композиция встроенных иконок
-
-DocSets.Core/
-  Models/         runtime-модель, storage DTO и локальное состояние
-  Storage/        поиск workspace, JSON I/O и преобразование путей
-  Roslyn/         создание и разрешение symbol-закладок
-  Services/       use cases, команды и интеграция с редактором
-
-Aga.Controls/     сторонний TreeViewAdv без бизнес-логики DocSets
+          ┌─────────────────────────────────────────┐
+          │ DocSets.Editor.Jodit                    │
+          │ net472 + net8.0-windows                 │
+          │ общий WebView2/Jodit-редактор заметок   │
+          └─────────────────────────────────────────┘
 ```
 
-Подробная навигация по файлам находится в [REPOSITORY_MAP.md](REPOSITORY_MAP.md).
+Допустимое направление зависимостей — только сверху вниз в приведённой цепочке:
+`Model <- Serialization <- Core <- host`. Обратные ссылки и зависимости
+`netstandard2.0`-сборок от Visual Studio SDK запрещены.
 
-## 3. Runtime-композиция
+### DocSets.Model (`netstandard2.0`)
 
-Объекты создаются вручную сверху вниз, DI-контейнер не используется:
+Содержит:
+
+- `DocumentItem`, `DocumentSetsState` и связанные перечисления;
+- модель тегов, источников и локального состояния;
+- DTO каталожного формата DocSet;
+- переносимые описания ссылок `DocumentLink`.
+
+В этой сборке нет файлового ввода-вывода и платформенного UI.
+
+### DocSets.Serialization (`netstandard2.0`)
+
+Содержит:
+
+- `DirectoryDocSetStore`;
+- `DocSetDocumentRepository`;
+- `DocSetsWorkspaceStore`;
+- `AssetStorageService`;
+- общий журнал `DocSetsLog`.
+
+Сборка отвечает за преобразование модели в файлы и обратно, атомарное сохранение,
+пути источников и локальное хранилище изображений.
+
+### DocSets.Core (`netstandard2.0`)
+
+Содержит платформенно-независимые операции:
+
+- `DocumentTreeService`;
+- `BookmarkSearchService`;
+- `TagService` и `RecentBookmarksService`;
+- `NavigationHistoryService` и `PinService`;
+- `UndoRedoService`;
+- форматирование краткого представления заметок;
+- поиск и проверку источников кода;
+- контракты host-среды.
+
+### DocSets.Editor.Jodit (`net472;net8.0-windows`)
+
+Общий редактор HTML-заметок. Он собирается для обеих сред и содержит один набор
+Jodit/Prism-ресурсов. VSIX использует WebView2 из Visual Studio, Desktop — пакет
+WebView2 Runtime. Редактор не знает о DTE, Roslyn и составе основного окна.
+
+### VSIX (`net472`)
+
+Содержит только интеграцию с Visual Studio и существующий UI расширения:
+
+- `AsyncPackage`, команды и Tool Window;
+- `RoslynBookmarkResolver`;
+- `EditorStateService` и `FileBookmarkTrackingService`;
+- адаптер хранилища `DocSetsStore`;
+- `DocSetsViewModel` и текущий WinForms-интерфейс.
+
+### DocSets.Desktop (`net8.0-windows`)
+
+Самостоятельное приложение содержит:
+
+- главное окно на DockPanelSuite;
+- дерево, свойства, поиск, код, preview, заметку и лог;
+- открытие, создание и сохранение каталога `*.DocSets`;
+- локальные настройки окна и раскладки;
+- ScintillaNET для просмотра кода;
+- общий Jodit-редактор заметок.
+
+## 3. Инверсия платформенных зависимостей
+
+Платформенные операции описаны интерфейсами в `DocSets.Core/Abstractions`.
+Главный контракт — `IDocSetsHostService`. Он предоставляет прикладному слою:
+
+- загрузку и сохранение документа;
+- сведения о текущем source/workspace;
+- переход к файлу или символу;
+- получение активного символа и preview;
+- работу с assets;
+- локальное состояние пользователя;
+- показ информационного сообщения.
+
+Отслеживание положения закладок выделено в `IEditorTrackingService`.
+
+VSIX-композиция создаёт `DocSetsStore` и `FileBookmarkTrackingService`, после чего
+передаёт их в `DocSetsViewModel` через конструктор. `DocSetsViewModel` больше не
+создаёт Visual Studio-сервисы внутри себя.
+
+Для Desktop платформенными аналогами служат `DesktopDocumentSession` и панели
+главного окна. По мере переноса общего контроллера они должны реализовать те же
+узкие контракты, а неподдерживаемые IDE-функции — явно сообщать о недоступности.
+
+## 4. Runtime-композиция
+
+### Visual Studio
 
 ```text
 DocSetsPackage
-  └── DocSetsToolWindowCommand
-       └── DocSetsToolWindow
-            └── DocSetsWinFormsHostControl
-                 ├── DocSetsViewModel
-                 │    ├── DocSetsStore
-                 │    │    └── RoslynBookmarkResolver
-                 │    │         └── EditorStateService
-                 │    ├── FileBookmarkTrackingService
-                 │    ├── DocumentTreeService
-                 │    ├── NavigationHistoryService
-                 │    ├── PinService
-                 │    └── UndoRedoService
-                 └── DocSetsWinFormsControl
-                      └── Aga.Controls.TreeViewAdv
+  └─ DocSetsToolWindow
+      └─ DocSetsWinFormsHostControl (composition root)
+          ├─ DocSetsStore : IDocSetsHostService
+          ├─ FileBookmarkTrackingService : IEditorTrackingService
+          ├─ DocSetsViewModel
+          └─ DocSetsWinFormsControl
 ```
 
-Основной запуск:
-
-1. `DocSetsPackage.InitializeAsync` регистрирует команды расширения.
-2. Команда открытия создаёт `DocSetsToolWindow`.
-3. Tool window создаёт WPF-host `DocSetsWinFormsHostControl`.
-4. Host создаёт один `DocSetsViewModel` и один `DocSetsWinFormsControl`.
-5. При `Loaded` загружаются workspace и локальное состояние solution.
-
-Host владеет тремя `DispatcherTimer`:
-
-- повтор загрузки solution — каждые 2 секунды, максимум 30 попыток;
-- проверка внешних изменений workspace — каждые 1,5 секунды;
-- фиксация истории навигации — каждые 500 миллисекунд.
-
-Таймеры работают на UI dispatcher. Доступ к DTE, editor views и большинству
-Visual Studio services также переводится на UI thread через
-`ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync`.
-
-## 4. Модель данных
-
-### 4.1 Runtime-дерево
-
-`DocumentSetsState` содержит синтетический корень `Root`. Корневые папки дерева
-являются наборами (Sets). Отдельного runtime-класса Set нет.
+### Desktop
 
 ```text
-DocumentSetsState.Root
-├── History                         local-only root
-├── Pin                             local-only root
-├── Set A                           обычный DocumentItem/Folder
-│   ├── Folder
-│   │   ├── Symbol bookmark
-│   │   └── File bookmark
-│   └── Bookmark
-└── Set B
+Program
+  └─ MainForm (composition root)
+      ├─ DesktopDocumentSession
+      ├─ DirectoryDocSetStore / DocSetDocumentRepository
+      ├─ TreeToolWindow
+      ├─ PropertiesToolWindow
+      ├─ SearchToolWindow
+      ├─ CodeDocument / PreviewDocument
+      ├─ NoteDocument (DocSets.Editor.Jodit)
+      └─ LogToolWindow
 ```
 
-Универсальный узел `DocumentItem` содержит:
+DI-контейнер пока не нужен: зависимости явно собираются в composition root каждой
+среды. Это сохраняет граф прозрачным и позволяет тестировать сервисы напрямую.
 
-- `Id`, `Name`, `Parent`, `Children`;
-- `NodeType`: `Item`, `Folder`, legacy-значение `Set`;
-- `Type`: `Symbol`, `File`, `Empty`, `Pin`;
-- `Symbol` и `Project` для Roslyn-навигации;
-- `Path`, `Line`, `Column` для файловой навигации и fallback;
-- `Comment`, `Color`, `EditorState`;
-- runtime-флаги выделения, History, Pin и local-only.
+## 5. Модель и хранение
 
-`DocumentItem.Children` — `ObservableCollection<DocumentItem>`. Добавление,
-удаление, перемещение и изменение свойства поднимают единое событие `TreeChanged`
-до корня. ViewModel использует его для обновления UI и сохранения workspace.
+`DocumentSetsState` содержит корень дерева. Универсальный `DocumentItem` может быть
+папкой, закладкой на символ, файл, локальной Pin-ссылкой или служебным узлом.
+Изменения коллекций и свойств поднимают `TreeChanged` до корня.
 
-### 4.2 Persisted-представление
-
-В памяти используется дерево, но в workspace JSON оно преобразуется в плоский
-массив `items`. Иерархия задаётся через `id` и `parent`:
-
-```json
-{
-  "activeSet": "Default",
-  "items": [
-    {
-      "id": "default",
-      "parent": "",
-      "name": "Default",
-      "nodeType": "Folder",
-      "line": 1,
-      "column": 1
-    },
-    {
-      "id": "docsets-store-load",
-      "parent": "default",
-      "name": "DocSetsStore.LoadAsync",
-      "type": "Symbol",
-      "symbol": "DocSets.DocSetsStore.LoadAsync",
-      "project": "DocSets",
-      "path": "DocSets.Core\\Storage\\DocSetsStore.cs",
-      "line": 68,
-      "column": 9
-    }
-  ],
-  "ui": {
-    "columns": []
-  }
-}
-```
-
-Перед сериализацией узлам назначаются уникальные читаемые ID. Узлы с
-`IsLocalOnly` в workspace не записываются.
-
-Загрузка поддерживает миграции старых файлов:
-
-- прежний массив `sets`, в котором каждый Set содержал собственные `items`;
-- `NodeType.Set`, нормализуемый в корневую папку;
-- поле `isFolder`, существовавшее до `NodeType`;
-- GUID-подобные ID, заменяемые читаемыми;
-- symbol-строки в legacy `FullyQualifiedFormat`.
-
-## 5. Два уровня хранения
-
-### 5.1 Общий workspace
-
-`DocSetsStore` начинает поиск в каталоге активного `.sln` и поднимается по всем
-родительским каталогам. В каждом каталоге обнаруживаются:
-
-- все файлы `*.docsets.json`;
-- legacy-файл `DocSets.workspace.json`.
-
-Пользователь выбирает workspace в UI. Выбор сохраняется локально для solution.
-Если сохранённого выбора нет, предпочтение отдаётся workspace с именем solution,
-затем первому найденному. Если файлов нет, используется новый
-`<SolutionName>.docsets.json` рядом с solution.
-
-Пути закладок сохраняются относительно каталога выбранного workspace. Поэтому один
-workspace в корне монорепозитория может обслуживать несколько вложенных solutions:
+Каталожный документ имеет вид:
 
 ```text
-RepoRoot/
-  Shared.docsets.json
-  ServiceA/ServiceA.sln
-  ServiceB/ServiceB.sln
-  Shared/Shared.sln
+Example.DocSets/
+  docset.json
+  assets/
+    images/
 ```
 
-Сохранение workspace:
+Пути закладок разрешаются через `Sources`. Источник по умолчанию не записывается в
+каждую ссылку. Ссылка без имени source всегда относится к локальному source-default
+текущего DocSet. Assets адресуются переносимыми ссылками `asset:...`.
 
-1. сериализуется через Newtonsoft.Json;
-2. записывается во временный файл рядом с целевым;
-3. существующий файл заменяется через `File.Replace`;
-4. если replace недоступен, используется copy/delete;
-5. новые файлы устанавливаются через `File.Move`.
+Сохранение выполняется репозиторием атомарно через временный файл. Персональные
+настройки VSIX хранятся под `.vs`, Desktop — под
+`%LocalAppData%/DocSets/Desktop`.
 
-Вызовы сохранения сериализованы `SemaphoreSlim`. Для обнаружения внешних изменений
-запоминаются `LastWriteTimeUtc` и длина файла. При изменении выполняется полный
-reload с попыткой восстановить активный Set и путь выбранного узла.
+## 6. Состояние переиспользования UI
 
-Синхронизация не выполняет merge: файл workspace является общей последней версией,
-а конфликтующие параллельные изменения должны разрешаться внешним инструментом или
-пользователем.
+Бизнес-логика, сериализация и Jodit уже являются отдельными сборками. Текущее
+сложное дерево VSIX пока физически находится в `DocSets.UI.WinForms` и связано с
+`DocSetsViewModel` и несколькими API Visual Studio. Desktop сейчас использует
+самостоятельную панель дерева поверх той же доменной модели.
 
-### 5.2 Локальное состояние solution
+Следующий архитектурный шаг:
 
-Персональное состояние хранится отдельно:
+1. выделить интерфейс контроллера дерева без типов Visual Studio;
+2. заменить обращения UI к `ThreadHelper` и VS-диалогам интерфейсами;
+3. перенести общий WinForms-контрол и Aga-адаптеры в отдельную multi-target
+   UI-сборку либо обновить Aga.Controls для совместимости с .NET 8;
+4. подключить один и тот же контрол к VSIX и Desktop;
+5. удалить оставшиеся `Compile/Link` из тестовых проектов после появления общей
+   UI-сборки и отдельной сборки тестовых утилит.
 
-```text
-<solution-directory>/.vs/DockSets/<solution-name>.json
-```
+До выполнения этого шага нельзя считать визуальный слой полностью общим. При этом
+новую бизнес-логику уже нельзя добавлять непосредственно в VSIX-контрол.
 
-`SolutionLocalState` содержит:
+## 7. Правила развития
 
-- путь выбранного workspace;
-- `ActiveViewId`;
-- collapsed/selected IDs для каждого представления дерева;
-- раскладку колонок и высоту панели свойств;
-- режим активации дерева;
-- текстовый и цветовые фильтры;
-- видимость панели свойств;
-- History;
-- Pin-ссылки.
+- Новое поле документа сначала добавляется в `DocSets.Model`, затем в DTO и
+  преобразования `DocSets.Serialization`.
+- Операции над деревом и поиском реализуются в `DocSets.Core` без ссылок на UI.
+- Любое обращение к DTE, Roslyn или активному редактору остаётся в VSIX-адаптере.
+- Общий исходный код не подключается через linked files.
+- Форматы, спецификации и комментарии в исходниках документируются на русском.
+- Host не должен молча подменять недоступную функцию: он возвращает результат или
+  явно сообщает пользователю, что операция в этой среде не поддерживается.
+- Сохранение не выполняется на каждое промежуточное событие WebView2; редактор
+  фиксирует итоговую ревизию при явном сохранении, потере фокуса или idle.
 
-Это состояние не предназначено для совместного использования и обычно исключено
-из Git вместе с каталогом `.vs`.
+## 8. Проверка архитектурных изменений
 
-## 6. Прикладная логика
+После изменения границ сборок необходимо проверить:
 
-`DocSetsViewModel` — координатор use cases. Он отвечает за:
-
-- загрузку, переключение и внешний reload workspace;
-- выбор Set и одного/нескольких узлов;
-- создание, переименование, удаление и перемещение дерева;
-- drag-and-drop и copy/paste, включая JSON clipboard;
-- создание и обновление закладок из активного редактора;
-- orchestration History, Pin и Undo/Redo через отдельные сервисы;
-- миграцию ID и сохранение локального состояния;
-- маршрутизацию команд через `ICommand`.
-
-Чистые алгоритмы вынесены из ViewModel:
-
-- `DocumentTreeService` рассчитывает владельцев, иерархию, допустимость и позиции
-  копирования/перемещения;
-- `NavigationHistoryService` владеет local-only History, дедупликацией и лимитом;
-- `PinService` владеет local-only Pin, разрешением `TargetId` и миграцией ссылок;
-- `UndoRedoService` хранит упорядоченные снимки и ограничивает их количество.
-
-Эти сервисы не зависят от Visual Studio SDK, UI и файлового storage. Создание
-снимков, применение восстановленного состояния и момент сохранения остаются во
-ViewModel.
-
-Типичный поток изменения:
-
-```text
-WinForms event
-  → RelayCommand / метод DocSetsViewModel
-    → изменение DocumentItem
-      → Root.TreeChanged
-        ├── DocSetsWinFormsControl обновляет дерево/toolbar
-        └── DocSetsViewModel запускает SaveAsync
-          → FileBookmarkTrackingService обновляет file positions
-          → DocSetsStore сохраняет workspace
-```
-
-Persistent user operations run through `ExecuteMutationAsync`. The outer mutation
-captures one Undo snapshot, suppresses intermediate saves raised by `TreeChanged`,
-and performs one final workspace save. Calls to `SaveAsync` inside the scope only
-mark that final save as required. History and Pin changes are local-only and do not
-write the shared workspace.
-
-UI-состояние (`IsExpanded`, `IsMultiSelected`) не вызывает сохранение общего
-workspace. Оно фиксируется через `SolutionLocalState`.
-
-## 7. Типы закладок и навигация
-
-### 7.1 Symbol bookmark
-
-При создании `RoslynBookmarkResolver`:
-
-1. получает активный document и позицию DTE selection;
-2. находит соответствующий Roslyn document;
-3. ищет ближайший объявленный symbol по цепочке syntax ancestors;
-4. сохраняет имя symbol вместе с containing type/namespace, но без параметров;
-5. сохраняет имя проекта и файловую позицию как fallback;
-6. привязывает `EditorState` к строке декларации symbol.
-
-При открытии resolver просматривает документы подходящего проекта, сравнивает
-объявленные symbols с сохранённым именем и открывает найденную декларацию. Если
-symbol не разрешён, используется сохранённый файл, строка и колонка.
-
-Поддерживаются методы, конструкторы, свойства, индексаторы, события, поля, классы,
-структуры, интерфейсы, перечисления и делегаты.
-
-### 7.2 File bookmark
-
-File bookmark всегда открывается по `Path`, `Line`, `Column`.
-`FileBookmarkTrackingService` связывает такую закладку с `IWpfTextView` файла и
-обновляет позицию из текущей каретки. Подписки удаляются при закрытии view или когда
-закладка исчезает из модели.
-
-### 7.3 Editor state и preview
-
-`EditorStateService` сохраняет относительно якорной строки:
-
-- позицию каретки;
-- начало и конец selection;
-- исходный выделенный текст;
-- первую видимую строку;
-- code preview.
-
-Для symbol bookmark якорь — строка декларации. Для file bookmark — сохранённая
-строка. При восстановлении selection сначала ищется сохранённый текст с
-нормализованными пробелами в окне ±300 строк, затем используется координатный
-fallback.
-
-Без selection preview содержит до шести строк: декларацию symbol с присоединённым
-комментарием либо текущую и следующие строки файла.
-
-## 8. History и Pin
-
-### History
-
-History — local-only корневая папка, сохраняемая в `SolutionLocalState`.
-
-- активная позиция проверяется каждые 500 мс;
-- новая запись создаётся только при переходе к другому symbol или файлу;
-- повторная цель обновляется и переносится в начало;
-- переход из History подавляет создание дубликата;
-- внутри одного symbol перемещения не создают новые записи;
-- максимальный размер — 2000 записей;
-- pinned history-записи не удаляются при обрезке лимита.
-
-### Pin
-
-Pin — local-only корневая папка. Pin-узел не копирует исходную закладку, а хранит
-`TargetId`. Перед выполнением команды ViewModel разрешает его в исходный
-`DocumentItem`. При миграции ID ссылки Pin и локальные IDs представлений также
-переписываются.
-
-## 9. Undo/Redo
-
-Undo/Redo хранится в `UndoRedoService` только в памяти текущего Tool Window и
-очищается при загрузке или смене workspace.
-
-Перед изменением ViewModel сериализует полный `DocumentSetsState` и список Pin в
-JSON-снимок. `UndoRedoService` управляет порядком снимков, а ViewModel применяет
-полученное состояние и сразу сохраняет восстановленный workspace. Лимит истории —
-100 снимков; при переполнении удаляется самый старый снимок.
-
-History не входит в undo-снимок; она является журналом навигации, а не частью
-редактируемого общего дерева.
-
-## 10. Пользовательский интерфейс
-
-Visual Studio Tool Window является WPF-контейнером, внутри которого через
-`WindowsFormsHost` размещён `DocSetsWinFormsControl`.
-
-Главный WinForms-контрол программно строит:
-
-- выбор workspace;
-- стандартные вкладки Full-Tree, History и Pin;
-- вкладки пользовательских Sets;
-- toolbar, поиск и Undo/Redo;
-- текстовые и цветовые фильтры;
-- `TreeViewAdv` с настраиваемыми колонками;
-- контекстные меню и drag-and-drop;
-- панель свойств и code preview;
-- status bar с активным storage path.
-
-`BookmarkTreeNode` является проекцией `DocumentItem` в модель Aga TreeViewAdv.
-Фильтрация создаёт отфильтрованную проекцию, не меняя доменное дерево.
-
-Состояние collapse/selection кэшируется отдельно для Full-Tree и каждого Set, затем
-сохраняется по устойчивым ID в `SolutionLocalState`.
-
-## 11. Команды Visual Studio
-
-`DocSetsPackage.vsct` регистрирует:
-
-- открытие Tool Window в меню окон;
-- `DocSets: Добавить закладку` в контекстном меню редактора;
-- `DocSets: Найти` в контекстном меню редактора;
-- `Ctrl+Num+` для добавления закладки.
-
-Команды редактора сначала открывают/получают Tool Window, гарантируют загрузку
-ViewModel и передают действие WinForms-контролу.
-
-## 12. Правила расширения
-
-При добавлении нового persisted-поля закладки необходимо синхронно обновить:
-
-1. `DocumentItem`;
-2. `DocumentItemStorageDto`;
-3. преобразования `AppendFlatItem` и `FromStorageDto`;
-4. `DocumentItem.Clone`;
-5. clipboard DTO/сериализацию в `DocSetsViewModel`;
-6. свойства UI, если поле редактируется пользователем;
-7. миграцию, если меняется смысл существующих данных.
-
-При добавлении новой команды дерева обычно изменяются:
-
-1. команда и use case в `DocSetsViewModel`;
-2. toolbar/context menu/shortcut в `DocSetsWinFormsControl`;
-3. `CaptureUndoState` до первой мутации;
-4. правила для History/Pin и multi-selection;
-5. проверка сохранения общего и локального состояния.
-
-Команда уровня Visual Studio дополнительно требует согласованных ID в
-`DocSetsPackage.vsct` и `DocSetsToolWindowCommand`.
-
-## 13. Архитектурные ограничения
-
-- `DocSetsViewModel` остаётся orchestration-фасадом для команд, selection, Visual
-  Studio integration и persistence.
-- `DocSetsWinFormsControl` одновременно отвечает за построение UI, UI-state,
-  фильтрацию, ввод и orchestration представления.
-- Границы `Core/UI/Vsix` не защищены отдельными сборками или интерфейсами; Core
-  напрямую использует Visual Studio SDK и UI primitives.
-- Сохранение инициируется как событиями модели, так и отдельными командами, поэтому
-  при изменениях следует учитывать повторные и параллельно поставленные записи.
-- Внешняя синхронизация является polling/reload-механизмом без merge.
-- Разрешение symbol bookmark может сканировать документы и syntax nodes проекта.
-- Автоматических тестовых проектов в solution сейчас нет.
-- Ошибки интеграции с DTE/Roslyn и локального persistence часто обрабатываются как
-  best effort, чтобы не нарушать работу Visual Studio.
-
-## 14. Проверка архитектурно значимых изменений
-
-После изменений модели, storage или навигации следует проверить:
-
-1. сборку Debug и Release нужной архитектуры;
-2. запуск Experimental Instance (`devenv.exe /rootsuffix Exp`);
-3. загрузку legacy и текущего формата workspace;
-4. round trip JSON без потери порядка и ID;
-5. Symbol/File navigation после редактирования исходников;
-6. восстановление caret, selection, viewport и preview;
-7. переключение workspace и внешний reload;
-8. History, Pin и миграцию ссылок после изменения ID;
-9. Undo/Redo для добавления, удаления, переименования и drag-and-drop;
-10. восстановление вкладки, collapse, selection и фильтров после перезапуска VS.
+1. сборку `DocSets.Model`, `DocSets.Serialization` и `DocSets.Core` для
+   `netstandard2.0`;
+2. сборку `DocSets.Editor.Jodit` для `net472` и `net8.0-windows`;
+3. сборку VSIX на .NET Framework 4.7.2;
+4. сборку и запуск `DocSets.Desktop` на .NET 8;
+5. сборку импортера, модульных и интеграционных тестов;
+6. открытие одного DocSet в обеих средах без изменения формата;
+7. round trip заметок, изображений, ссылок и source-default;
+8. отсутствие ссылок Visual Studio SDK в трёх `netstandard2.0`-сборках.

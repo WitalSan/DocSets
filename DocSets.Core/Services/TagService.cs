@@ -5,9 +5,9 @@ using System.Text;
 
 namespace DocSets
 {
-    internal sealed class TagService
+    public sealed class TagService
     {
-        internal static readonly TagDefinition[] StandardTags =
+        public static readonly TagDefinition[] StandardTags =
         {
             new TagDefinition { Id = "bug", Name = "Bug", Color = "#D9534F", Icon = "bug" },
             new TagDefinition { Id = "todo", Name = "Todo", Color = "#F0AD4E", Icon = "check" },
@@ -79,7 +79,7 @@ namespace DocSets
             }
         }
 
-        internal static string CreateId(string name, ISet<string> used)
+        public static string CreateId(string name, ISet<string> used)
         {
             var builder = new StringBuilder(); var separator = false;
             foreach (var c in (name ?? "").Trim().ToLowerInvariant())

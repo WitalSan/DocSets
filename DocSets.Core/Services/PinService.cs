@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace DocSets
 {
-    internal sealed class PinService
+    public sealed class PinService
     {
         private DocumentSetsState state;
 

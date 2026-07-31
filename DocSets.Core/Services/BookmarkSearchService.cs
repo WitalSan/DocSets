@@ -5,10 +5,10 @@ using System.Text.RegularExpressions;
 
 namespace DocSets
 {
-    internal enum BookmarkSearchScope { CurrentGroup, AllGroups }
-    internal enum BookmarkSearchField { Name, Symbol, Path, Content }
+    public enum BookmarkSearchScope { CurrentGroup, AllGroups }
+    public enum BookmarkSearchField { Name, Symbol, Path, Content }
 
-    internal sealed class BookmarkSearchRequest
+    public sealed class BookmarkSearchRequest
     {
         public string Query { get; set; } = string.Empty;
         public BookmarkSearchScope Scope { get; set; } = BookmarkSearchScope.CurrentGroup;
@@ -21,7 +21,7 @@ namespace DocSets
         public int MaximumResults { get; set; } = 5000;
     }
 
-    internal sealed class BookmarkSearchResult
+    public sealed class BookmarkSearchResult
     {
         public DocumentItem Item { get; set; }
         public DocumentItem Group { get; set; }
@@ -36,7 +36,7 @@ namespace DocSets
             Field == BookmarkSearchField.Path ? "Путь" : "Заметка";
     }
 
-    internal sealed class BookmarkSearchService
+    public sealed class BookmarkSearchService
     {
         public IReadOnlyList<BookmarkSearchResult> Search(
             BookmarkSearchRequest request,

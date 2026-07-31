@@ -14,46 +14,24 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework">
       <HintPath>..\DocSets.Tests\lib\Microsoft.VisualStudio.QualityTools.UnitTestFramework.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <Reference Include="Microsoft.Web.WebView2.Core">
-      <HintPath>$(VsIdeDir)Extensions\Microsoft\Web Live Preview\Microsoft.Web.WebView2.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Web.WebView2.WinForms">
-      <HintPath>$(VsIdeDir)Extensions\Microsoft\Web Live Preview\Microsoft.Web.WebView2.WinForms.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\DocSets.Core\Models\Model.cs" Link="Source\Model.cs" />
-    <Compile Include="..\DocSets.Core\Storage\DocSetStorageModels.cs" Link="Source\DocSetStorageModels.cs" />
-    <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
-    <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
+    <ProjectReference Include="..\DocSets.Model\DocSets.Model.csproj" />
+    <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
+    <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />
+    <ProjectReference Include="..\DocSets.Editor.Jodit\DocSets.Editor.Jodit.csproj" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
-    <Compile Include="..\DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs" Link="Source\HtmlWebEditorCommentControl.cs" />
-    <Compile Include="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs" Link="Source\JoditCommentControl.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkBreadcrumb.cs" Link="Source\BookmarkBreadcrumb.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\DpiService.cs" Link="Source\DpiService.cs" />
-    <Compile Include="..\DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" Link="Source\WebEditorExternalDropBridge.cs" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\index.html" LogicalName="DocSets.Jodit.index.html" />
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit-editor.js" LogicalName="DocSets.Jodit.jodit-editor.js" />
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.js" LogicalName="DocSets.Jodit.jodit.min.js" />
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.css" LogicalName="DocSets.Jodit.jodit.min.css" />
-    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\Prism\*.js" LogicalName="DocSets.Jodit.Prism.%(Filename)%(Extension)" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="$(VsIdeDir)Extensions\Microsoft\Web Live Preview\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 </Project>

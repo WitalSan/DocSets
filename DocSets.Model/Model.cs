@@ -452,7 +452,7 @@ namespace DocSets
 
     }
 
-    internal sealed class LegacyDocumentSetDto
+    public sealed class LegacyDocumentSetDto
     {
         [JsonProperty("name")]
         public string Name { get; set; }
@@ -1236,7 +1236,7 @@ namespace DocSets
         }
     }
 
-    internal sealed class ActiveDocumentContext
+    public sealed class ActiveDocumentContext
     {
         public string SolutionName { get; set; } = "";
 

@@ -10,7 +10,7 @@ using Newtonsoft.Json;
 
 namespace DocSets
 {
-    internal sealed class DocSetsStore
+    internal sealed class DocSetsStore : IDocSetsHostService
     {
         private readonly AsyncPackage package;
         private readonly RoslynBookmarkResolver roslyn;
@@ -58,7 +58,7 @@ namespace DocSets
 
         public string CurrentWorkspaceRelativePath => ToSolutionRelativePath(activeDocSetDirectory);
 
-        internal SourceReferenceContext CurrentSourceContext
+        public SourceReferenceContext CurrentSourceContext
             => SourceReferenceContext.Create(sourceStatuses, sourceLocator);
 
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
@@ -77,13 +77,13 @@ namespace DocSets
                 activeDocSetDirectory, markdown, cancellationToken);
         }
 
-        internal IReadOnlyList<string> FindAssetReferences(string markdown)
+        public IReadOnlyList<string> FindAssetReferences(string markdown)
             => assetStorage.FindReferences(markdown);
 
-        internal byte[] ReadAsset(string assetReference)
+        public byte[] ReadAsset(string assetReference)
             => assetStorage.Read(activeDocSetDirectory, assetReference);
 
-        internal string GetAssetMimeType(string assetReference)
+        public string GetAssetMimeType(string assetReference)
             => assetStorage.GetMimeType(assetReference);
 
         public async Task<IReadOnlyList<WorkspaceInfo>> GetWorkspacesAsync()
@@ -608,6 +608,13 @@ namespace DocSets
             }
 
             return Path.GetFullPath(Path.Combine(storageDirectory, path));
+        }
+
+        public void ShowInformation(string text)
+        {
+            VsShellUtilities.ShowMessageBox(package, text ?? string.Empty, "DocSets",
+                OLEMSGICON.OLEMSGICON_INFO, OLEMSGBUTTON.OLEMSGBUTTON_OK,
+                OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
         }
 
         internal string ToFullPath(DocumentItem item)
