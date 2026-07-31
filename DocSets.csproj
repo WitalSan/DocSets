@@ -68,6 +68,7 @@
     <Compile Include="DocSets.Vsix\Services\FileBookmarkTrackingService.cs" />
     <Compile Include="DocSets.Vsix\Services\RelayCommand.cs" />
     <Compile Include="DocSets.Vsix\Services\VisualStudioUserDialogService.cs" />
+    <Compile Include="DocSets.Vsix\Services\WindowsClipboardService.cs" />
     <Compile Include="DocSets.Vsix\Storage\DocSetsStore.cs" />
     <Compile Include="DocSets.UI.WinForms\Forms\BookmarkSearchControls.cs">
       <SubType>UserControl</SubType>

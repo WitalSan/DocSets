@@ -5,7 +5,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Input;
 
 namespace DocSets
@@ -22,7 +21,8 @@ namespace DocSets
     {
         private readonly IDocSetsHostService store;
         private readonly IEditorTrackingService fileTracking;
-        private readonly IUserDialogService dialogs;
+        private readonly IUserDialogService _dialogs;
+        private readonly IClipboardService _clipboard;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -59,11 +59,13 @@ namespace DocSets
         public DocSetsViewModel(
             IDocSetsHostService store,
             IEditorTrackingService fileTracking,
-            IUserDialogService dialogs)
+            IUserDialogService dialogs,
+            IClipboardService clipboard)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
-            this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+            _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+            _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -595,7 +597,7 @@ namespace DocSets
 
         private void AddSet()
         {
-            var name = dialogs.Prompt("DocSets", "Название группы:");
+            var name = _dialogs.Prompt("DocSets", "Название группы:");
             if (string.IsNullOrWhiteSpace(name)) return;
             name = name.Trim();
             if (state.Sets.Any(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase)))
@@ -617,7 +619,7 @@ namespace DocSets
         {
             var set = SelectedSet;
             if (set == null) return;
-            var name = dialogs.Prompt("DocSets", "Новое название группы:", set.Name);
+            var name = _dialogs.Prompt("DocSets", "Новое название группы:", set.Name);
             TryRenameSet(set, name, showErrors: true);
         }
 
@@ -669,13 +671,13 @@ namespace DocSets
             }
             if (set.IsHistoryRoot || set.IsPinRoot)
             {
-                if (!dialogs.Confirm("Очистить историю переходов?", "DocSets")) return;
+                if (!_dialogs.Confirm("Очистить историю переходов?", "DocSets")) return;
                 set.Children.Clear();
                 SaveSolutionState();
                 InvalidateCommands();
                 return;
             }
-            if (!dialogs.Confirm($"Удалить группу '{set.Name}'?", "DocSets")) return;
+            if (!_dialogs.Confirm($"Удалить группу '{set.Name}'?", "DocSets")) return;
 
             _ = ExecuteMutationAsync(nameof(DeleteSet), () =>
             {
@@ -695,7 +697,7 @@ namespace DocSets
             var set = SelectedSet;
             if (set == null) return;
 
-            var name = dialogs.Prompt("DocSets", "Название папки:", "Новая папка");
+            var name = _dialogs.Prompt("DocSets", "Название папки:", "Новая папка");
             if (string.IsNullOrWhiteSpace(name)) return;
 
             _ = ExecuteMutationAsync(nameof(AddFolder), () =>
@@ -1116,7 +1118,7 @@ namespace DocSets
             item = ResolvePin(item);
             if (item == null) return;
             var caption = item.NodeType == NodeType.Folder ? "Новое название папки:" : "Новое название закладки:";
-            var name = dialogs.Prompt("DocSets", caption, item.Name);
+            var name = _dialogs.Prompt("DocSets", caption, item.Name);
             if (string.IsNullOrWhiteSpace(name)) return;
 
             _ = ExecuteMutationAsync(nameof(RenameNode), () =>
@@ -1138,7 +1140,7 @@ namespace DocSets
                 ? (nodes[0].NodeType == NodeType.Folder ? $"Удалить папку '{nodes[0].Name}' и все вложенные элементы?" : $"Удалить закладку '{nodes[0].Name}'?")
                 : $"Удалить выбранные элементы ({nodes.Count})?";
 
-            if (!dialogs.Confirm(text, "DocSets")) return;
+            if (!_dialogs.Confirm(text, "DocSets")) return;
 
             _ = ExecuteMutationAsync(nameof(DeleteNodes), () =>
             {
@@ -1229,11 +1231,7 @@ namespace DocSets
             if (selected.Count == 0) return;
 
             var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
-            var json = SerializeClipboardNodes(nodes);
-
-            var data = new DataObject();
-            data.SetText(BuildText(nodes));
-            Clipboard.SetDataObject(data, true);
+            _clipboard.SetText(BuildText(nodes));
         }
 
         private void CopySelectedNodesAsJson()
@@ -1244,9 +1242,7 @@ namespace DocSets
             var nodes = selected.Select(CloneResolved).Where(x => x != null).ToList();
             var json = SerializeClipboardNodes(nodes);
 
-            var data = new DataObject();
-            data.SetText(json);
-            Clipboard.SetDataObject(data, true);
+            _clipboard.SetText(json);
         }
 
         private void PasteNodes(DocumentItem target)
@@ -1255,7 +1251,7 @@ namespace DocSets
 
             try
             {
-                var text = Clipboard.GetText();
+                if (!_clipboard.TryGetText(out var text)) return;
                 var nodes = TryParseClipboardJson(text, out var jsonNodes)
                     ? jsonNodes
                     : ParseClipboardText(text);
@@ -1274,7 +1270,8 @@ namespace DocSets
 
             try
             {
-                PasteNodesFromJsonText(target, Clipboard.GetText());
+                if (!_clipboard.TryGetText(out var text)) return;
+                PasteNodesFromJsonText(target, text);
             }
             catch
             {
@@ -1879,33 +1876,17 @@ namespace DocSets
             public EditorState EditorState { get; set; }
         }
 
-        private static bool ClipboardContainsText()
+        private bool ClipboardContainsText()
         {
-            try
-            {
-                return Clipboard.ContainsText() && !string.IsNullOrWhiteSpace(Clipboard.GetText());
-            }
-            catch
-            {
-                return false;
-            }
+            return _clipboard.TryGetText(out var text) && !string.IsNullOrWhiteSpace(text);
         }
 
-        private static bool ClipboardContainsJsonText()
+        private bool ClipboardContainsJsonText()
         {
-            try
-            {
-                if (!Clipboard.ContainsText()) return false;
-                var text = Clipboard.GetText();
-                if (string.IsNullOrWhiteSpace(text)) return false;
+            if (!_clipboard.TryGetText(out var text) || string.IsNullOrWhiteSpace(text)) return false;
 
-                var trimmed = text.TrimStart();
-                return trimmed.StartsWith("[", StringComparison.Ordinal) || trimmed.StartsWith("{", StringComparison.Ordinal);
-            }
-            catch
-            {
-                return false;
-            }
+            var trimmed = text.TrimStart();
+            return trimmed.StartsWith("[", StringComparison.Ordinal) || trimmed.StartsWith("{", StringComparison.Ordinal);
         }
 
         private async Task RegenerateAllIdsAsync()
@@ -2549,7 +2530,7 @@ namespace DocSets
 
         private void Show(string text)
         {
-            dialogs.ShowInformation(text);
+            _dialogs.ShowInformation(text);
         }
 
     }
