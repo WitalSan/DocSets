@@ -37,7 +37,6 @@
     <Compile Include="..\DocSets.Core\Services\AssetStorageService.cs" Link="Source\AssetStorageService.cs" />
     <Compile Include="..\DocSets.Core\Services\DocSetsLog.cs" Link="Source\DocSetsLog.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Icons\SaveIconFactory.cs" Link="Source\SaveIconFactory.cs" />
-    <Compile Include="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs" Link="Source\ToastCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs" Link="Source\HtmlWebEditorCommentControl.cs" />
     <Compile Include="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs" Link="Source\JoditCommentControl.cs" />
     <Compile Include="..\DocSets.UI.WinForms\Forms\BookmarkBreadcrumb.cs" Link="Source\BookmarkBreadcrumb.cs" />

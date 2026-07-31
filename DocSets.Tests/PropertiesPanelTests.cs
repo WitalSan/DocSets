@@ -35,10 +35,8 @@ namespace DocSets.Tests
 
                 Assert.NotNull(panel.GetPendingChangeDescription());
                 Assert.True(panel.ApplyToCurrentItem());
-                Assert.True(panel.ApplyCommittedComment(item, panel.CommentRevision, "new comment"));
-                panel.AcceptCommittedComment(item, panel.CommentRevision, "new comment");
                 Assert.Equal("Renamed", item.Name);
-                Assert.Equal("new comment", item.Content);
+                Assert.Equal("old comment", item.Content);
                 Assert.Equal(BookmarkType.File, item.Type);
                 Assert.Equal("new.cs", item.Path);
                 Assert.Equal(42, item.Line);
@@ -118,66 +116,25 @@ namespace DocSets.Tests
                 var label = Field<LinkLabel>(panel, "codeSymbolLabel");
                 Assert.Equal("Namespace.Class.Method", label.Text);
                 Assert.Equal(3, label.Links.Count);
-                Assert.Equal("Namespace", label.Links[0].LinkData);
-                Assert.Equal("Namespace.Class", label.Links[1].LinkData);
-                Assert.Equal("Namespace.Class.Method", label.Links[2].LinkData);
+                Assert.Equal("Namespace", ((BreadcrumbItem)label.Links[0].LinkData).Value);
+                Assert.Equal("Namespace.Class", ((BreadcrumbItem)label.Links[1].LinkData).Value);
+                Assert.Equal("Namespace.Class.Method", ((BreadcrumbItem)label.Links[2].LinkData).Value);
             }
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
-        public void MarkdownCommentIsSecondViewOfExistingComment()
+        public void JoditIsTheOnlyCommentPanel()
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())
             {
-                var item = Bookmark(); panel.LoadItem(item);
-                var markdown = Field<MarkdownCommentControl>(panel, "markdownComment");
-                Assert.Equal("old comment", markdown.CommentText);
-                Assert.False(markdown.IsEditing);
-                Field<RichTextBox>(markdown, "editor").Text = "**new** [[A.B.Run]]";
-                Assert.Equal("old comment", item.Content);
-                Assert.False(panel.ApplyToCurrentItem());
-                Assert.True(panel.ApplyCommittedComment(item, panel.CommentRevision, markdown.CommentText));
-                panel.AcceptCommittedComment(item, panel.CommentRevision, markdown.CommentText);
-                Assert.Equal("**new** [[A.B.Run]]", item.Content);
-                panel.ApplyCommittedComment(item, panel.CommentRevision, "classic edit");
-                panel.AcceptCommittedComment(item, panel.CommentRevision, "classic edit");
-                panel.LoadItem(item);
-                panel.ApplySelectedContentTab("comment");
-                var markdown2 = Field<MarkdownCommentControl>(panel, "markdownComment2");
-                Assert.Equal("classic edit", markdown2.CommentText);
-            }
-        }
-
-        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
-        public void SecondCommentTabIsIsolatedExperimentalSurface()
-        {
-            using (var panel = new BookmarkPropertiesPanelExperimental())
-            {
-                var item = Bookmark();
-                panel.LoadItem(item);
                 var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
-                var current = Field<MarkdownCommentControl>(panel, "markdownComment");
-                var experimental = Field<MarkdownCommentControl>(panel, "markdownComment2");
-
-                Assert.True(dock.ContainsPanel("properties"));
-                Assert.True(dock.ContainsPanel("comment2"));
-                Assert.True(dock.ContainsPanel("comment3"));
-                Assert.False(current.ExperimentalDragDrop);
-                Assert.True(experimental.ExperimentalDragDrop);
-                var experimentalEditor = Field<RichTextBox>(experimental, "editor");
-                Assert.Equal(11, experimentalEditor.Lines.Length);
-
-                panel.ApplySelectedContentTab("comment2");
-                Assert.Equal("comment2", panel.SelectedContentTab);
-                Assert.Equal("old comment", experimental.CommentText);
-                experimentalEditor.Text = "changed" + Environment.NewLine + Environment.NewLine;
-                Assert.Equal("changed", experimental.CommentText);
-                Assert.False(panel.ApplyToCurrentItem());
-                Assert.True(panel.ApplyCommittedComment(item, panel.CommentRevision, experimental.CommentText));
-                panel.AcceptCommittedComment(item, panel.CommentRevision, experimental.CommentText);
-                Assert.Equal("changed", item.Content);
+                Assert.True(dock.ContainsPanel("commentJodit"));
+                Assert.False(dock.ContainsPanel("comment2"));
+                Assert.False(dock.ContainsPanel("comment3"));
             }
-        }        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ContentTabsStayAvailableWithoutSelectedItem()
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())
@@ -186,8 +143,8 @@ namespace DocSets.Tests
                 var dock = Field<DockWorkspaceControl>(panel, "dockWorkspace");
                 Assert.True(panel.Enabled);
                 Assert.True(dock.Enabled);
-                panel.ApplySelectedContentTab("comment2");
-                Assert.Equal("comment2", panel.SelectedContentTab);
+                panel.ApplySelectedContentTab("commentJodit");
+                Assert.Equal("commentJodit", panel.SelectedContentTab);
             }
         }
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
@@ -195,7 +152,7 @@ namespace DocSets.Tests
         {
             using (var panel = new BookmarkPropertiesPanelExperimental())
             {
-                panel.ApplySelectedContentTab("comment"); Assert.Equal("comment2", panel.SelectedContentTab);
+                panel.ApplySelectedContentTab("comment"); Assert.Equal("commentJodit", panel.SelectedContentTab);
                 panel.ApplySelectedContentTab("properties"); Assert.Equal("properties", panel.SelectedContentTab);
             }
         }

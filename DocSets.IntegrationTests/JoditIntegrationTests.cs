@@ -51,7 +51,8 @@ namespace DocSets.Tests
                 {
                     form.Controls.Add(editor);
                     form.Show();
-                    await WaitUntilAsync(() => editor.IsReady, "Jodit не инициализирован.");
+                    await WaitUntilAsync(() => editor.IsReady,
+                        "Jodit не инициализирован. Этап: " + editor.InitializationStage);
 
                     var html =
                         "<h2 style=\"color:#c00000\">Проверка Jodit</h2>" +

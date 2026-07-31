@@ -11,8 +11,5 @@
     <Compile Update="..\DocSets.UI.WinForms\Forms\DocSetsLogControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Update="ToastCommentControlStub.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
   </ItemGroup>
 </Project>

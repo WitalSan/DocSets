@@ -19,7 +19,7 @@ namespace DocSets
   const isText = transfer => transfer && (!transfer.files || transfer.files.length === 0) &&
     (!transfer.types || Array.from(transfer.types).some(x => x === 'text/plain' || x === 'Text' || x === 'text'));
   const isEditor = target => !!(target && target.closest && target.closest(
-    '.ck-editor__editable,.jodit-wysiwyg,.toastui-editor-contents,.toastui-editor-md-container,.toastui-editor-ww-container,.ProseMirror'));
+    '.jodit-wysiwyg,[contenteditable=true]'));
   const placeCaret = event => {
     if (event.clientX < 0 || event.clientY < 0) return;
     const range = document.caretRangeFromPoint && document.caretRangeFromPoint(event.clientX, event.clientY);
@@ -51,7 +51,7 @@ namespace DocSets
     send(text);
   }, true);
   window.docsetsTestExternalTextDrop = text => {
-    const target = document.querySelector('.ck-editor__editable,.jodit-wysiwyg,.toastui-editor-ww-container .ProseMirror,.toastui-editor-md-container .ProseMirror,.ProseMirror,[contenteditable=true]');
+    const target = document.querySelector('.jodit-wysiwyg,[contenteditable=true]');
     if (!target) return { accepted: false, reason: 'editor-not-found' };
     const transfer = new DataTransfer();
     transfer.setData('text/plain', String(text || ''));

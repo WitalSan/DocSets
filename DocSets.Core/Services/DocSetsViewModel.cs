@@ -134,12 +134,10 @@ namespace DocSets
 
         public ContentFormat NewNoteContentFormat
         {
-            get => solutionState.NewNoteContentFormat == ContentFormat.Html
-                ? ContentFormat.Html
-                : ContentFormat.Markdown;
+            get => ContentFormat.Html;
             set
             {
-                var normalized = value == ContentFormat.Html ? ContentFormat.Html : ContentFormat.Markdown;
+                var normalized = ContentFormat.Html;
                 if (solutionState.NewNoteContentFormat == normalized) return;
                 solutionState.NewNoteContentFormat = normalized;
                 SaveSolutionState();

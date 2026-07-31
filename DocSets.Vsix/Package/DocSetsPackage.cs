@@ -27,7 +27,6 @@ namespace DocSets
     [Guid(DocSetsPackage.PackageGuidString)]
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(DocSetsToolWindow))]
-    [ProvideToolWindow(typeof(DocSetsCommentToolWindow))]
     [ProvideToolWindow(typeof(DocSetsJoditCommentToolWindow))]
     public sealed class DocSetsPackage : AsyncPackage
     {

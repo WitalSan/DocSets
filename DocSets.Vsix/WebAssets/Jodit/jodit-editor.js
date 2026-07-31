@@ -512,6 +512,42 @@
     return true;
   };
 
+  window.docsetsHighlightSearch = (value, occurrence) => {
+    value = String(value || '');
+    occurrence = Math.max(0, Number(occurrence) || 0);
+    if (!value) return false;
+    const root = document.querySelector('.jodit-wysiwyg');
+    if (!root) return false;
+    const needle = value.toLocaleLowerCase();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    let count = 0;
+    while ((node = walker.nextNode())) {
+      const text = String(node.nodeValue || '');
+      const haystack = text.toLocaleLowerCase();
+      let offset = 0;
+      let index;
+      while ((index = haystack.indexOf(needle, offset)) >= 0) {
+        if (count++ === occurrence) {
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + value.length);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          if (node.parentElement) node.parentElement.scrollIntoView({
+            block: 'center',
+            inline: 'nearest'
+          });
+          editor.focus();
+          return true;
+        }
+        offset = index + Math.max(1, needle.length);
+      }
+    }
+    return false;
+  };
+
   window.docsetsInsertCodeBlock = (language, source) =>
     insertCodeBlock(language, source);
 

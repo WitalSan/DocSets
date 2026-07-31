@@ -28,10 +28,10 @@ namespace DocSets.Tests
             Assert.Equal(BookmarkToolTipFormatter.MaximumLines, lines.Length);
             foreach (var line in lines)
             {
-                Assert.IsTrue(line.TrimEnd('\r').Length <= BookmarkToolTipFormatter.MaximumCharactersPerLine);
+                Assert.True(line.TrimEnd('\r').Length <= BookmarkToolTipFormatter.MaximumCharactersPerLine);
             }
 
-            Assert.IsTrue(text.EndsWith("\u2026"));
+            Assert.True(text.EndsWith("\u2026"));
         }
 
         [TestMethod]
@@ -39,8 +39,9 @@ namespace DocSets.Tests
         {
             var item = new DocumentItem
             {
-                Name = "Закладка",
-                Display = "Program.cs:10",
+                Name = string.Empty,
+                Path = "Program.cs",
+                Line = 10,
                 Content = string.Empty
             };
 

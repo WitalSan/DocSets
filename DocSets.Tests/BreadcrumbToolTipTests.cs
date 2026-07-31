@@ -42,7 +42,7 @@ namespace DocSets.Tests
             Assert.True(value.EndsWith(overview));
             Assert.False(value.Contains("<h2>"));
             Assert.False(value.Contains("скрытый текст"));
-            Assert.AreEqual(
+            Assert.Equal(
                 BookmarkToolTipFormatter.MaximumLines,
                 overview.Split(new[] { System.Environment.NewLine }, System.StringSplitOptions.None).Length);
         }

@@ -68,7 +68,7 @@ namespace DocSets
 
         [JsonProperty("newNoteContentFormat")]
         [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
-        public ContentFormat NewNoteContentFormat { get; set; } = ContentFormat.Markdown;
+        public ContentFormat NewNoteContentFormat { get; set; } = ContentFormat.Html;
 
         [JsonProperty("history")]
         public List<NavigationHistoryLocalItem> History { get; set; } = new List<NavigationHistoryLocalItem>();

@@ -8,8 +8,5 @@
     <Compile Update="..\DocSets.Vsix\WinFormsHost\JoditCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Update="..\DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
   </ItemGroup>
 </Project>

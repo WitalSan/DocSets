@@ -15,8 +15,6 @@ namespace DocSets
 {
     internal sealed class DocSetsWinFormsControl : UserControl
     {
-        public event EventHandler CommentEditorFocusRequested;
-        public event EventHandler OpenCommentWindowRequested;
         public event EventHandler OpenJoditWindowRequested;
         internal event Action<DocumentItem> CurrentCommentItemChanged;
         internal event Action<DocumentItem, object> CommentContentChanged;
@@ -25,7 +23,6 @@ namespace DocSets
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly Button _openDocSetButton = new Button();
         private readonly Button _createDocSetButton = new Button();
-        private readonly ToolStripDropDownButton _newNoteFormatButton = new ToolStripDropDownButton();
         private readonly ToolStrip _standardGroupsStrip = new ToolStrip();
         private readonly ToolStrip _groupsStrip = new ToolStrip();
         private readonly ToolStrip _toolStrip = new ToolStrip();
@@ -219,8 +216,11 @@ namespace DocSets
         {
             Select();
             Focus();
-            _experimentalPropertiesPanel.FocusMarkdownEditor();
+            _experimentalPropertiesPanel.FocusCommentEditor();
         }
+
+        internal Task CommitPendingCommentAsync()
+            => _experimentalPropertiesPanel.CommitPendingCommentAsync();
 
         public System.Threading.Tasks.Task AddBookmarkFromEditorAsync()
         {
@@ -335,7 +335,6 @@ namespace DocSets
             _toolStrip.Items.Add(new ToolStripSeparator());
             AddPropertiesPanelButton();
             _toolStrip.Items.Add(new ToolStripSeparator());
-            SetupNewNoteFormatButton();
             //AddButton("Копировать", _viewModel.CopySelectedNodesCommand);
             //AddButton("Вставить", _viewModel.PasteNodesCommand);
             top.Controls.Add(_toolStrip, 2, 0);
@@ -1236,46 +1235,6 @@ namespace DocSets
             UpdateFindCounter();
         }
 
-        private void SetupNewNoteFormatButton()
-        {
-            _newNoteFormatButton.DisplayStyle = ToolStripItemDisplayStyle.Text;
-            _newNoteFormatButton.ToolTipText =
-                "Формат содержимого для новых заметок. Существующие заметки не преобразуются.";
-
-            var markdown = new ToolStripMenuItem("Markdown");
-            var html = new ToolStripMenuItem("HTML (Jodit)");
-            markdown.Click += (_, __) => SetNewNoteContentFormat(ContentFormat.Markdown);
-            html.Click += (_, __) => SetNewNoteContentFormat(ContentFormat.Html);
-            _newNoteFormatButton.DropDownItems.Add(new ToolStripMenuItem("Формат новых заметок")
-            {
-                Enabled = false
-            });
-            _newNoteFormatButton.DropDownItems.Add(new ToolStripSeparator());
-            _newNoteFormatButton.DropDownItems.Add(markdown);
-            _newNoteFormatButton.DropDownItems.Add(html);
-            _newNoteFormatButton.DropDownOpening += (_, __) =>
-            {
-                markdown.Checked = _viewModel.NewNoteContentFormat == ContentFormat.Markdown;
-                html.Checked = _viewModel.NewNoteContentFormat == ContentFormat.Html;
-            };
-            _toolStrip.Items.Add(_newNoteFormatButton);
-            UpdateNewNoteFormatButton();
-        }
-
-        private void SetNewNoteContentFormat(ContentFormat format)
-        {
-            _viewModel.NewNoteContentFormat = format;
-            UpdateNewNoteFormatButton();
-        }
-
-        private void UpdateNewNoteFormatButton()
-        {
-            _newNoteFormatButton.Text = "Настройки";
-            _newNoteFormatButton.ToolTipText = "Формат новых заметок: " +
-                (_viewModel.NewNoteContentFormat == ContentFormat.Html ? "HTML" : "Markdown") +
-                ". Существующие заметки не преобразуются.";
-        }
-
         private void BuildTree()
         {
             _tree.Font = new Font("Segoe UI", 10f);
@@ -2110,30 +2069,13 @@ namespace DocSets
             _experimentalPropertiesSaveTimer.Tick += async (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
-                if (_experimentalPropertiesPanel.FormatChangePromptActive)
-                {
-                    _experimentalPropertiesSaveTimer.Start();
-                    return;
-                }
                 await SaveExperimentalPropertiesAsync();
             };
             _experimentalPropertiesPanel.ItemChanged += (_, __) =>
             {
                 _experimentalPropertiesSaveTimer.Stop();
-                _experimentalPropertiesSaveTimer.Interval =
-                    _experimentalPropertiesPanel.MarkdownEditPending ? 3000 : 500;
+                _experimentalPropertiesSaveTimer.Interval = 500;
                 _experimentalPropertiesSaveTimer.Start();
-            };
-            _experimentalPropertiesPanel.MarkdownDropFocusRequested += (_, __) => CommentEditorFocusRequested?.Invoke(this, EventArgs.Empty);
-            _experimentalPropertiesPanel.MarkdownEditingCompleted += async (_, __) =>
-            {
-                _experimentalPropertiesSaveTimer.Stop();
-                await SaveExperimentalPropertiesAsync();
-            };
-            _experimentalPropertiesPanel.MarkdownSaveRequested += async (_, __) =>
-            {
-                _experimentalPropertiesSaveTimer.Stop();
-                await SaveExperimentalPropertiesAsync();
             };
             _experimentalPropertiesPanel.ColorChanged += async (_, __) =>
             {
@@ -2176,58 +2118,8 @@ namespace DocSets
                 var current = _experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem();
                 await _viewModel.OpenSymbolAsync(current, symbol);
             };
-            _experimentalPropertiesPanel.DocumentLinkActivated += async link =>
-            {
-                if (link == null) return;
-                var opened = false;
-                switch (link.Kind)
-                {
-                    case DocumentLinkKind.Symbol:
-                        opened = await _viewModel.OpenSymbolAsync(_experimentalPropertiesPanel.CurrentItem ?? GetCurrentItem(), link.Target, link.Project);
-                        break;
-                    case DocumentLinkKind.File:
-                        opened = await _viewModel.OpenFileLinkAsync(link.Target, link.SourceId);
-                        break;
-                    case DocumentLinkKind.Bookmark:
-                        opened = await _viewModel.OpenBookmarkByIdAsync(link.Target);
-                        break;
-                    case DocumentLinkKind.Url:
-                        if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri) &&
-                            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
-                        {
-                            VsShellUtilities.OpenSystemBrowser(uri.AbsoluteUri); opened = true;
-                        }
-                        break;
-                }
-                if (!opened) _statusLabel.Text = "Ссылка не найдена: " + link.Target;
-            };
-            _experimentalPropertiesPanel.ExternalSymbolDropRequested += async (text, position) =>
-            {
-                var link = await DocumentLinkService.ResolveDroppedSymbolAsync(_viewModel, text);
-                if (link == null)
-                {
-                    _statusLabel.Text = "Не удалось определить символ: " + text;
-                    _experimentalPropertiesPanel.RequestMarkdownEditorFocus();
-                    return;
-                }
-                _experimentalPropertiesPanel.InsertResolvedExternalSymbol(link, position);
-            };
-            _experimentalPropertiesPanel.ImageInsertionRequested += async (data, mime, name, requestId) =>
-            {
-                try
-                {
-                    var bytes = Convert.FromBase64String(data);
-                    var assetReference = await _viewModel.SaveImageAssetAsync(bytes, mime, name);
-                    _experimentalPropertiesPanel.InsertImageAsset(assetReference, name, requestId);
-                }
-                catch (Exception exception)
-                {
-                    _statusLabel.Text = "Не удалось сохранить изображение: " + exception.Message;
-                }
-            };
             _experimentalPropertiesPanel.Leave += async (_, __) =>
             {
-                if (_experimentalPropertiesPanel.FormatChangePromptActive) return;
                 _experimentalPropertiesSaveTimer.Stop();
                 var undoDescription = _experimentalPropertiesPanel.GetPendingChangeDescription();
                 if (undoDescription != null) _viewModel.CaptureUndoState(undoDescription);
@@ -2265,14 +2157,9 @@ namespace DocSets
 
                 LoadPropertiesPanel(GetCurrentItem());
             };
-            _experimentalPropertiesPanel.OpenCommentWindowRequested += (_, __) =>
+            _experimentalPropertiesPanel.OpenJoditWindowRequested += async (_, __) =>
             {
-                CommitPendingMarkdownEdit();
-                OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
-            };
-            _experimentalPropertiesPanel.OpenJoditWindowRequested += (_, __) =>
-            {
-                CommitPendingMarkdownEdit();
+                await _experimentalPropertiesPanel.CommitPendingCommentAsync();
                 OpenJoditWindowRequested?.Invoke(this, EventArgs.Empty);
             };
             _experimentalPropertiesPanel.LayoutStateChanged += (_, __) =>
@@ -2475,21 +2362,10 @@ namespace DocSets
 
         public void SaveLocalSettings()
         {
-            CommitPendingMarkdownEdit();
+            ThreadHelper.JoinableTaskFactory.Run(
+                async () => await _experimentalPropertiesPanel.CommitPendingCommentAsync());
             CaptureRenderedViewState();
             SaveLocalState();
-        }
-
-        private void CommitPendingMarkdownEdit()
-        {
-            if (_experimentalPropertiesPanel.FormatChangePromptActive) return;
-            if (!_experimentalPropertiesPanel.MarkdownEditPending) return;
-            _experimentalPropertiesSaveTimer.Stop();
-            var description = _experimentalPropertiesPanel.GetPendingChangeDescription();
-            if (description != null) _viewModel.CaptureUndoState(description);
-            if (!_experimentalPropertiesPanel.ApplyToCurrentItem()) return;
-            _viewModel.MarkBookmarkModified(_experimentalPropertiesPanel.CurrentItem);
-            ThreadHelper.JoinableTaskFactory.Run(async () => await _viewModel.SaveAsync());
         }
 
         private void SaveLocalState()
@@ -2524,7 +2400,6 @@ namespace DocSets
 
         public void RefreshAll()
         {
-            UpdateNewNoteFormatButton();
             if (_viewModel.IsLoaded && !_localStateRestored)
                 RestoreLocalState();
 
@@ -3091,8 +2966,8 @@ namespace DocSets
         {
             if (_refreshing) return;
 
-            // До смены элемента фиксируем заметку прежнего элемента. Редактор остаётся
-            // доступным, а в модель попадает уже нормализованный Markdown.
+            // До смены элемента фиксируем обычные свойства прежнего элемента.
+            // Jodit сохраняет заметку собственным контуром при событии смены выбора.
             await SaveExperimentalPropertiesAsync();
 
             var pendingPropertyChange = _classicProperties.GetPendingChangeDescription();
@@ -3137,60 +3012,16 @@ namespace DocSets
                 var target = _experimentalPropertiesPanel.CurrentItem;
                 if (target == null) return;
 
-                var commentPending = _experimentalPropertiesPanel.MarkdownEditPending;
-                var commentOnly = _experimentalPropertiesPanel.OnlyCommentChangePending;
-                var revision = _experimentalPropertiesPanel.CommentRevision;
-                string normalizedComment = null;
-                if (commentPending)
-                {
-                    var editorComment = await _experimentalPropertiesPanel.GetCurrentCommentAsync();
-                    normalizedComment = await _viewModel.NormalizeCommentAssetsAsync(editorComment);
-                }
-
                 var description = _experimentalPropertiesPanel.GetPendingChangeDescription();
                 if (description != null)
                     _viewModel.CaptureUndoState(description, new[] { target });
 
-                var changed = false;
-                if (ReferenceEquals(target, _experimentalPropertiesPanel.CurrentItem))
-                    changed = _experimentalPropertiesPanel.ApplyToCurrentItem();
-
-                var commentChanged = false;
-                if (commentPending)
-                {
-                    commentChanged = _experimentalPropertiesPanel.ApplyCommittedComment(
-                        target, revision, normalizedComment);
-                    changed |= commentChanged;
-                }
-
-                if (!changed)
-                {
-                    if (commentPending)
-                        _experimentalPropertiesPanel.AcceptCommittedComment(
-                            target, revision, normalizedComment);
-                    return;
-                }
+                if (!ReferenceEquals(target, _experimentalPropertiesPanel.CurrentItem) ||
+                    !_experimentalPropertiesPanel.ApplyToCurrentItem()) return;
                 _viewModel.MarkBookmarkModified(target);
                 await _viewModel.SaveAsync();
-                if (commentPending)
-                    _experimentalPropertiesPanel.AcceptCommittedComment(
-                        target, revision, normalizedComment);
-                if (commentChanged)
-                    NotifyCommentSaved(target, _experimentalPropertiesPanel);
-
-                if (commentOnly) _tree.Invalidate();
-                else RebuildTree();
+                RebuildTree();
                 RefreshStatus();
-
-                // Если пользователь продолжил ввод во время сохранения, текущая
-                // редакция остаётся dirty и получит собственный idle-commit.
-                if (_experimentalPropertiesPanel.MarkdownEditPending &&
-                    ReferenceEquals(target, _experimentalPropertiesPanel.CurrentItem))
-                {
-                    _experimentalPropertiesSaveTimer.Stop();
-                    _experimentalPropertiesSaveTimer.Interval = 3000;
-                    _experimentalPropertiesSaveTimer.Start();
-                }
             }
             catch (ObjectDisposedException) when (_disposingProperties)
             {
@@ -3223,9 +3054,6 @@ namespace DocSets
                 commonColor = targets[0].Color;
             }
 
-            // Виртуальный каталог изображений должен быть подключён до передачи
-            // Markdown в WebView, иначе первая загрузка asset-ссылок завершается ошибкой.
-            _experimentalPropertiesPanel.SetAssetDirectory(_viewModel.AssetDirectory);
             _classicProperties.LoadSelection(
                 target,
                 selectedCount > 1,

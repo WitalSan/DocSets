@@ -11,7 +11,7 @@ namespace DocSets.Tests
     public sealed class ExternalSymbolDropIntegrationTests
     {
         [TestMethod]
-        public void SameExternalDropPipelineInsertsMarkdownAndHtmlLinks()
+        public void ExternalDropPipelineInsertsJoditHtmlLink()
         {
             Exception failure = null;
             var thread = new Thread(() =>
@@ -42,39 +42,11 @@ namespace DocSets.Tests
             Directory.CreateDirectory(root);
             try
             {
-                await TestToastAsync(root);
                 await TestJoditAsync(root);
             }
             finally
             {
                 try { Directory.Delete(root, true); } catch { }
-            }
-        }
-
-        private static async Task TestToastAsync(string root)
-        {
-            using (var form = new Form { Width = 800, Height = 500, ShowInTaskbar = false })
-            using (var editor = new ToastCommentControl(Path.Combine(root, "Toast")) { Dock = DockStyle.Fill })
-            {
-                form.Controls.Add(editor);
-                form.Show();
-                await WaitUntilAsync(() => editor.IsReady, "Toast не инициализирован.");
-                editor.LoadComment("BeforeAfter");
-                await WaitUntilAsync(async () => (await editor.GetCurrentCommentAsync()).Contains("BeforeAfter"),
-                    "Toast не загрузил исходный текст.");
-                await editor.SetTestSelectionAsync(6);
-                var received = false;
-                editor.ExternalSymbolDropRequested += text =>
-                {
-                    received = text == "Display";
-                    editor.InsertResolvedLink(CreateLink());
-                };
-                var result = await editor.SimulateExternalTextDropAsync("Display");
-                AssertDropAccepted(result, "Toast");
-                await WaitUntilAsync(async () => received &&
-                    (await editor.GetCurrentCommentAsync()).Contains(
-                        "Before [DocumentItem.Display](symbol:test|DocSets.DocumentItem.Display) After"),
-                    "Toast вставил ссылку без требуемых пробелов либо не в формате Markdown.");
             }
         }
 

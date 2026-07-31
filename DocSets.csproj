@@ -81,9 +81,6 @@
     <Compile Include="DocSets.UI.WinForms\Forms\DockWorkspaceControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
-    <Compile Include="DocSets.UI.WinForms\Forms\DocSetsCommentWindowControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
     <Compile Include="DocSets.UI.WinForms\Forms\DocSetsHtmlCommentWindowControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -115,12 +112,8 @@
     <Compile Include="DocSets.Vsix\Package\DocSetsPackage.cs" />
     <Compile Include="DocSets.Vsix\Package\DocSetsToolWindowCommand.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsToolWindow.cs" />
-    <Compile Include="DocSets.Vsix\ToolWindow\DocSetsCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\ToolWindow\DocSetsJoditCommentToolWindow.cs" />
     <Compile Include="DocSets.Vsix\WinFormsHost\DocSetsWinFormsHostControl.cs" />
-    <Compile Include="DocSets.Vsix\WinFormsHost\ToastCommentControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
     <Compile Include="DocSets.Vsix\WinFormsHost\HtmlWebEditorCommentControl.cs">
       <SubType>UserControl</SubType>
     </Compile>
@@ -128,9 +121,6 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="DocSets.Vsix\WinFormsHost\WebEditorExternalDropBridge.cs" />
-    <Compile Include="DocSets.Vsix\WinFormsHost\VsMarkdownCommentControl.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
     <Compile Include="Properties\**\*.cs" Exclude="Properties\**\bin\**;Properties\**\obj\**;Properties\**\.vs\**" />
     <!-- Design-time hints do not participate in source inclusion. -->
     <Compile Update="DocSets.UI.WinForms\TreeViewAdv\OverflowNodeTextBox.cs">

@@ -6,7 +6,7 @@ namespace DocSets.Tests
     internal static class Program
     {
         internal static readonly string TracePath = Path.Combine(
-            Path.GetTempPath(), "DocSets.ToastClipboardIntegration.log");
+            Path.GetTempPath(), "DocSets.JoditIntegration.log");
 
         internal static void Trace(string message)
             => File.AppendAllText(TracePath, DateTime.Now.ToString("O") + " " + message + Environment.NewLine);
@@ -21,16 +21,13 @@ namespace DocSets.Tests
                 var filter = args != null && args.Length > 0
                     ? args[0].Trim().ToLowerInvariant()
                     : "all";
-                if (filter == "all" || filter == "toast")
-                    new ToastClipboardIntegrationTests()
-                        .TextAndImageRoundTripThroughWindowsClipboardAndTwoToastEditors();
                 if (filter == "all" || filter == "jodit")
                     new JoditIntegrationTests()
                         .HtmlTableFormattingAndAssetLinkRoundTripThroughJodit();
                 if (filter == "all" || filter == "drop")
                     new ExternalSymbolDropIntegrationTests()
-                        .SameExternalDropPipelineInsertsMarkdownAndHtmlLinks();
-                Console.WriteLine("Интеграционные тесты TOAST, Jodit и Clipboard пройдены.");
+                        .ExternalDropPipelineInsertsJoditHtmlLink();
+                Console.WriteLine("Интеграционные тесты Jodit и Clipboard пройдены.");
                 Trace("Тест пройден.");
                 return 0;
             }

@@ -55,6 +55,30 @@ namespace DocSets
                 await pane.control.CommitPendingEditBeforeCloseAsync();
         }
 
+        internal static bool TryShowSearchResult(
+            AsyncPackage package, DocumentItem item, int start, int length, int occurrenceIndex)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (package == null || item == null) return false;
+            var pane = package.FindToolWindow(
+                typeof(DocSetsJoditCommentToolWindow), 0, false)
+                as DocSetsJoditCommentToolWindow;
+            if (!(pane?.Frame is IVsWindowFrame frame) ||
+                frame.IsVisible() != Microsoft.VisualStudio.VSConstants.S_OK) return false;
+            _ = pane.ShowSearchResultAsync(item, start, length, occurrenceIndex);
+            Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(frame.Show());
+            return true;
+        }
+
+        private async Task ShowSearchResultAsync(
+            DocumentItem item, int start, int length, int occurrenceIndex)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (currentViewModel == null || currentSource == null) return;
+            await control.AttachAsync(currentViewModel, currentSource, item);
+            control.ShowSearchResult(start, length, occurrenceIndex);
+        }
+
         private async Task AttachCurrentContextAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();

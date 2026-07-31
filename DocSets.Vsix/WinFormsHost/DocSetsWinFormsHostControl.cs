@@ -1,7 +1,6 @@
 using Microsoft.VisualStudio.Shell;
 using System;
 using System.Windows;
-using System.Windows.Input;
 using System.Windows.Forms.Integration;
 using System.Windows.Threading;
 
@@ -23,8 +22,6 @@ namespace DocSets
             ThreadHelper.ThrowIfNotOnUIThread();
             viewModel = new DocSetsViewModel(package, () => Window.GetWindow(this));
             winFormsControl = new DocSetsWinFormsControl(viewModel);
-            winFormsControl.CommentEditorFocusRequested += OnCommentEditorFocusRequested;
-            winFormsControl.OpenCommentWindowRequested += OnOpenCommentWindowRequested;
             winFormsControl.OpenJoditWindowRequested += OnOpenJoditWindowRequested;
             winFormsControl.CommentSearchMatchRequested += OnCommentSearchMatchRequested;
             Focusable = true;
@@ -73,12 +70,8 @@ namespace DocSets
         private bool OnCommentSearchMatchRequested(DocumentItem item, int start, int length, int occurrenceIndex)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            return DocSetsCommentToolWindow.TryShowSearchResult(DocSetsPackage.Instance, item, start, length, occurrenceIndex);
-        }
-        private void OnOpenCommentWindowRequested(object sender, EventArgs e)
-        {
-            ThreadHelper.ThrowIfNotOnUIThread();
-            DocSetsCommentToolWindow.Show(DocSetsPackage.Instance, viewModel, winFormsControl);
+            return DocSetsJoditCommentToolWindow.TryShowSearchResult(
+                DocSetsPackage.Instance, item, start, length, occurrenceIndex);
         }
 
         private async void OnOpenJoditWindowRequested(object sender, EventArgs e)
@@ -98,29 +91,11 @@ namespace DocSets
             }
         }
 
-        private void OnCommentEditorFocusRequested(object sender, EventArgs e)
-        {
-            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
-            {
-                if (!IsVisible || winFormsControl.IsDisposed) return;
-                Focus();
-                Keyboard.Focus(this);
-                winFormsControl.Select();
-                winFormsControl.FocusCommentEditor();
-                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
-                {
-                    if (!IsVisible || winFormsControl.IsDisposed) return;
-                    Focus();
-                    Keyboard.Focus(this);
-                    winFormsControl.FocusCommentEditor();
-                }));
-            }));
-        }
         private void OnSolutionBeforeClosing()
         {
             ThreadHelper.JoinableTaskFactory.Run(async () =>
             {
-                await DocSetsCommentToolWindow.CommitPendingEditAsync(DocSetsPackage.Instance);
+                await winFormsControl.CommitPendingCommentAsync();
                 await DocSetsJoditCommentToolWindow.CommitPendingEditAsync(DocSetsPackage.Instance);
             });
             winFormsControl.SaveLocalSettings();
@@ -131,8 +106,6 @@ namespace DocSets
             if (disposing)
             {
                 winFormsControl.SaveLocalSettings();
-                winFormsControl.CommentEditorFocusRequested -= OnCommentEditorFocusRequested;
-                winFormsControl.OpenCommentWindowRequested -= OnOpenCommentWindowRequested;
                 winFormsControl.OpenJoditWindowRequested -= OnOpenJoditWindowRequested;
                 winFormsControl.CommentSearchMatchRequested -= OnCommentSearchMatchRequested;
                 DocSetsJoditCommentToolWindow.UnregisterContext(winFormsControl);

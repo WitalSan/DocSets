@@ -20,24 +20,18 @@ namespace DocSets
         private readonly TextBox projectTextBox = new TextBox();
         private readonly NumericUpDown lineBox = new NumericUpDown();
         private readonly NumericUpDown columnBox = new NumericUpDown();
-        private readonly TextBox commentTextBox = new TextBox();
         private readonly RichTextBox codeTextBox = new RichTextBox();
         private readonly RichTextBox livePreviewTextBox = new RichTextBox();
         private readonly BookmarkBreadcrumb codeSymbolLabel = new BookmarkBreadcrumb();
         private readonly Button copyCodeButton = new Button();
         private readonly Button refreshCodeButton = new Button();
-        private readonly Button openCommentWindowButton = new Button();
         private readonly Button openJoditWindowButton = new Button();
         private readonly ToolTip toolTip = new ToolTip();
         private readonly DockWorkspaceControl dockWorkspace = new DockWorkspaceControl();
-        private readonly MarkdownCommentControl markdownComment = new MarkdownCommentControl();
-        private readonly MarkdownCommentControl markdownComment2 = new MarkdownCommentControl(experimentalDragDrop: true);
-        private readonly ToastCommentControl markdownComment3 = new ToastCommentControl();
         private readonly DocSetsJoditCommentWindowControl joditComment =
             new DocSetsJoditCommentWindowControl();
         private readonly DocSetsLogControl logControl = new DocSetsLogControl();
         private ExperimentalAccordionHost accordion;
-        private ExperimentalAccordionSection commentSection;
         private ExperimentalAccordionSection codeSection;
         private ExperimentalAccordionSection previewSection;
         private ExperimentalAccordionSection propertiesSection;
@@ -51,32 +45,15 @@ namespace DocSets
         private BookmarkColor selectedColor;
         private Point breadcrumbDragStart;
         private DocumentLink breadcrumbDragLink;
-        private bool markdownCommentDirty;
-        private bool markdownComment3Dirty;
-        private long commentRevision;
-        private string loadedCommentText = string.Empty;
-        private MarkdownCommentControl dirtyMarkdownComment;
-        private MarkdownCommentControl focusMarkdownComment;
-        private MarkdownCommentControl pendingExternalDropComment;
-        private bool pendingToastDrop;
-        private bool formatPromptActive;
-        private DocSetsViewModel attachedViewModel;
 
         public event EventHandler ItemChanged;
         public event EventHandler ColorChanged;
         public event EventHandler RefreshCodeRequested;
-        public event EventHandler OpenCommentWindowRequested;
         public event EventHandler OpenJoditWindowRequested;
         public event EventHandler PreviewRequested;
         public event EventHandler PinChanged;
         public event EventHandler LayoutStateChanged;
         public event Action<string> SymbolLinkClicked;
-        public event Action<DocumentLink> DocumentLinkActivated;
-        public event Action<string, int> ExternalSymbolDropRequested;
-        public event Action<string, string, string, string> ImageInsertionRequested;
-        public event EventHandler MarkdownEditingCompleted;
-        public event EventHandler MarkdownSaveRequested;
-        public event EventHandler MarkdownDropFocusRequested;
 
         public BookmarkPropertiesPanelExperimental()
         {
@@ -84,145 +61,13 @@ namespace DocSets
             BuildLayout();
             WireChanges(detailsHost);
             folderCheckBox.CheckedChanged += Changed;
-            commentTextBox.TextChanged += Changed;
-            commentTextBox.TextChanged += (_, __) =>
-            {
-                if (!loading)
-                {
-                    loadedCommentText = commentTextBox.Text ?? string.Empty;
-                    markdownCommentDirty = false;
-                    markdownComment3Dirty = false;
-                    dirtyMarkdownComment = null;
-                }
-            };
-            WireMarkdownComment(markdownComment);
-            WireMarkdownComment(markdownComment2);
-            WireMarkdownComment3();
             LoadItem(null);
             DocSetsLog.Current.Info("Интерфейс", "Окно DocSets открыто.");
-        }
-
-        private void WireMarkdownComment(MarkdownCommentControl control)
-        {
-            control.CommentChanged += (_, __) =>
-            {
-                if (loading) return;
-                commentRevision++;
-                markdownComment3Dirty = false;
-                markdownCommentDirty = true;
-                dirtyMarkdownComment = control;
-                Changed(control, EventArgs.Empty);
-            };
-            control.LinkActivated += link => DocumentLinkActivated?.Invoke(link);
-            control.ExternalSymbolDropRequested += (text, position) =>
-            {
-                pendingExternalDropComment = control;
-                focusMarkdownComment = control;
-                ExternalSymbolDropRequested?.Invoke(text, position);
-            };
-            control.EditingCompleted += (_, __) => MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
-            control.SaveRequested += (_, __) => MarkdownSaveRequested?.Invoke(this, EventArgs.Empty);
-            control.DropFocusRequested += (_, __) =>
-            {
-                focusMarkdownComment = control;
-                MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
-            };
-        }
-        private void WireMarkdownComment3()
-        {
-            markdownComment3.CommentChanged += (_, __) =>
-            {
-                if (loading) return;
-                if (item != null && item.ContentFormat != ContentFormat.Markdown)
-                {
-                    _ = HandleToastFormatMismatchAsync();
-                    return;
-                }
-                commentRevision++;
-                markdownCommentDirty = false;
-                markdownComment3Dirty = false;
-                dirtyMarkdownComment = null;
-                markdownComment3Dirty = true;
-                Changed(markdownComment3, EventArgs.Empty);
-            };
-            markdownComment3.EditingCompleted += (_, __) =>
-            {
-                if (!formatPromptActive)
-                    MarkdownEditingCompleted?.Invoke(this, EventArgs.Empty);
-            };
-            markdownComment3.SaveRequested += (_, __) =>
-            {
-                if (!formatPromptActive)
-                    MarkdownSaveRequested?.Invoke(this, EventArgs.Empty);
-            };
-            markdownComment3.LinkActivated += ActivateToastLink;
-            markdownComment3.ExternalSymbolDropRequested += text =>
-            {
-                pendingToastDrop = true;
-                ExternalSymbolDropRequested?.Invoke(text, 0);
-            };
-            markdownComment3.ImageInsertionRequested += (data, mime, name, requestId) =>
-                ImageInsertionRequested?.Invoke(data, mime, name, requestId);
-        }
-
-        private void ActivateToastLink(string target)
-        {
-            if (string.IsNullOrWhiteSpace(target)) return;
-            var rendered = DocumentLinkService.Render("[link](" + target + ")");
-            var link = rendered.Links.FirstOrDefault()?.Link;
-            if (link != null) DocumentLinkActivated?.Invoke(link);
         }
 
         public DocumentItem CurrentItem => item;
         public bool RequestedPinState => !loadedAllPinned;
         public BookmarkColor SelectedColor => selectedColor;
-        public bool MarkdownEditPending => markdownCommentDirty || markdownComment3Dirty;
-        public bool FormatChangePromptActive => formatPromptActive;
-        public long CommentRevision => commentRevision;
-
-        public Task<string> GetCurrentCommentAsync()
-        {
-            if (markdownComment3Dirty) return markdownComment3.GetCurrentCommentAsync();
-            return Task.FromResult(CurrentCommentText);
-        }
-
-        public void AcceptCommittedComment(DocumentItem committedItem, long committedRevision,
-            string normalizedComment)
-        {
-            if (!ReferenceEquals(item, committedItem) || commentRevision != committedRevision) return;
-            loadedCommentText = normalizedComment ?? string.Empty;
-            markdownCommentDirty = false;
-            markdownComment3Dirty = false;
-            dirtyMarkdownComment = null;
-            markdownComment.SetSaveEnabled(false);
-            markdownComment2.SetSaveEnabled(false);
-            markdownComment3.SetSaveEnabled(false);
-        }
-
-        public bool ApplyCommittedComment(DocumentItem committedItem, long committedRevision,
-            string normalizedComment)
-        {
-            if (committedItem == null) return false;
-            var value = normalizedComment ?? string.Empty;
-            var changed = !string.Equals(committedItem.Content ?? string.Empty, value,
-                StringComparison.Ordinal);
-            if (changed) committedItem.Content = value;
-            return changed;
-        }
-        public bool OnlyCommentChangePending
-        {
-            get
-            {
-                if (loading || item == null || multipleSelection || string.Equals(item.Content ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) return false;
-                var type = fileButton.Checked ? BookmarkType.File : symbolButton.Checked ? BookmarkType.Symbol : BookmarkType.Empty;
-                return string.Equals(item.Name ?? string.Empty, nameTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal) &&
-                    item.NodeType == (folderCheckBox.Checked ? NodeType.Folder : NodeType.Item) && item.Type == type &&
-                    string.Equals(item.Path ?? string.Empty, type == BookmarkType.Empty ? string.Empty : pathTextBox.Text?.Trim() ?? string.Empty, StringComparison.Ordinal) &&
-                    string.Equals(item.Symbol ?? string.Empty, type == BookmarkType.Symbol ? symbolTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
-                    string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal) &&
-                    item.Line == (int)lineBox.Value && item.Column == (int)columnBox.Value && item.Color == selectedColor;
-            }
-        }
 
         public IList<string> SectionOrder => accordion?.SectionOrder ?? new List<string>();
         public IList<string> ExpandedSections => accordion?.ExpandedSections ?? new List<string>();
@@ -241,67 +86,28 @@ namespace DocSets
 
         public Task AttachJoditAsync(DocSetsViewModel viewModel, DocSetsWinFormsControl owner)
         {
-            attachedViewModel = viewModel;
             return joditComment.AttachAsync(viewModel, owner, owner?.CurrentCommentItem);
         }
 
-        private async Task HandleToastFormatMismatchAsync()
-        {
-            if (formatPromptActive || item == null || attachedViewModel == null) return;
-            formatPromptActive = true;
-            try
-            {
-                var result = MessageBox.Show(
-                    "Формат этой заметки не соответствует редактору TOAST.\r\n\r\n" +
-                    "Изменить формат заметки на Markdown и продолжить редактирование?\r\n" +
-                    "Содержимое автоматически не преобразуется.",
-                    "DocSets — формат заметки",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question);
-                if (result != DialogResult.Yes)
-                {
-                    loading = true;
-                    try
-                    {
-                        markdownComment3.LoadComment(item.Content ?? string.Empty);
-                        markdownComment3.SetSaveEnabled(false);
-                    }
-                    finally { loading = false; }
-                    return;
-                }
-
-                await attachedViewModel.ChangeContentFormatAsync(item, ContentFormat.Markdown);
-                commentRevision++;
-                markdownCommentDirty = false;
-                markdownComment3Dirty = true;
-                dirtyMarkdownComment = null;
-                Changed(markdownComment3, EventArgs.Empty);
-            }
-            finally
-            {
-                formatPromptActive = false;
-            }
-        }
+        public Task CommitPendingCommentAsync() => joditComment.CommitPendingEditAsync();
 
         public void ShowSearchTab() => dockWorkspace.ActivatePanel("search");
 
         public void ShowCommentSearchResult(int start, int length, int occurrenceIndex)
         {
             ShowCommentTab();
-            var comment = item?.Content ?? string.Empty;
-            if (!DocumentLinkService.TryResolveSearchHighlight(comment, start, length, occurrenceIndex, out var visibleText, out var visibleOccurrence)) return;
-            markdownComment3.HighlightSearchMatch(visibleText, visibleOccurrence);
+            joditComment.ShowSearchResult(start, length, occurrenceIndex);
         }
 
-        public void ShowCommentTab()
-        {
-            if (dockWorkspace.ContainsPanel("comment3")) dockWorkspace.ActivatePanel("comment3");
-            else dockWorkspace.ActivatePanel("comment2");
-        }
+        public void ShowCommentTab() => dockWorkspace.ActivatePanel("commentJodit");
 
         public void ApplySelectedContentTab(string value)
         {
-            var requested = string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ? "comment2" : value;
+            var requested = value;
+            if (string.Equals(value, "comment", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(value, "comment2", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(value, "comment3", StringComparison.OrdinalIgnoreCase))
+                requested = "commentJodit";
             dockWorkspace.ActivatePanel(requested);
         }
 
@@ -321,7 +127,6 @@ namespace DocSets
             BookmarkColor? commonColor,
             bool canPin)
         {
-            var preserveMarkdownEdit = ReferenceEquals(item, value) && MarkdownEditPending;
             loading = true;
             try
             {
@@ -340,21 +145,6 @@ namespace DocSets
                 projectTextBox.Text = value?.Project ?? string.Empty;
                 lineBox.Value = Clamp(value?.Line ?? 1, lineBox.Minimum, lineBox.Maximum);
                 columnBox.Value = Clamp(value?.Column ?? 1, columnBox.Minimum, columnBox.Maximum);
-                // Старый TextBox больше не показывается в докинге. Загрузка большого
-                // data:image в Win32 TextBox блокировала UI на десятки секунд.
-                loadedCommentText = value?.Content ?? string.Empty;
-                if (loadedCommentText.Length < 65536 ||
-                    loadedCommentText.IndexOf("data:image", StringComparison.OrdinalIgnoreCase) < 0)
-                    commentTextBox.Text = loadedCommentText;
-                if (!preserveMarkdownEdit)
-                {
-                    markdownComment.LoadComment(value?.Content ?? string.Empty, resetToPreview: true);
-                    markdownComment2.LoadComment(value?.Content ?? string.Empty, resetToPreview: true);
-                    markdownComment3.LoadComment(value?.Content ?? string.Empty);
-                    markdownCommentDirty = false;
-                    markdownComment3Dirty = false;
-                    dirtyMarkdownComment = null;
-                }
                 UpdateCodePreview(value);
                 selectedColor = commonColor ?? BookmarkColor.None;
                 pinCheckBox.ThreeState = multiple;
@@ -369,11 +159,8 @@ namespace DocSets
                 folderCheckBox.Enabled = value != null && !multiple;
                 codeSymbolLabel.Enabled = value != null && !multiple;
                 refreshCodeButton.Enabled = value != null && !multiple;
-                openCommentWindowButton.Enabled = value != null && !multiple;
                 openJoditWindowButton.Enabled = value != null && !multiple;
-                markdownComment.Enabled = value != null && !multiple;
-                markdownComment2.Enabled = value != null && !multiple;
-                markdownComment3.Enabled = value != null && !multiple;
+                joditComment.Enabled = value != null && !multiple;
                 SetSectionContentEnabled(value != null && !multiple);
                 UpdateColorButtons();
                 if (multiple && !commonColor.HasValue)
@@ -405,7 +192,6 @@ namespace DocSets
             if (!string.Equals(item.Project ?? string.Empty, type == BookmarkType.Symbol ? projectTextBox.Text?.Trim() ?? string.Empty : string.Empty, StringComparison.Ordinal)) changes.Add("проект");
             if (item.Line != (int)lineBox.Value) changes.Add("строка");
             if (item.Column != (int)columnBox.Value) changes.Add("колонка");
-            if (!string.Equals(item.Content ?? string.Empty, CurrentCommentText, StringComparison.Ordinal)) changes.Add("заметка");
             if (item.Color != selectedColor) changes.Add("цвет");
 
             if (changes.Count == 0) return null;
@@ -433,8 +219,6 @@ namespace DocSets
             changed |= Set(ref item, item.Project, project, (x, v) => x.Project = v);
             if (item.Line != (int)lineBox.Value) { item.Line = (int)lineBox.Value; changed = true; }
             if (item.Column != (int)columnBox.Value) { item.Column = (int)columnBox.Value; changed = true; }
-            // Содержимое заметки применяет отдельный асинхронный commit-контур.
-            // До присваивания модели он извлекает data:image в каталог assets.
             if (item.Color != selectedColor) { item.Color = selectedColor; changed = true; }
             return changed;
         }
@@ -514,19 +298,17 @@ namespace DocSets
                 AutoSize = false,
                 Height = DpiService.Scale(this, 30),
                 MinimumSize = new Size(0, DpiService.Scale(this, 30)),
-                ColumnCount = 4,
+                ColumnCount = 3,
                 RowCount = 1,
                 Margin = new Padding(0)
             };
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             breadcrumbRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             refreshCodeButton.Margin = new Padding(0, 0, 3, 0);
             breadcrumbRow.Controls.Add(refreshCodeButton, 0, 0);
-            breadcrumbRow.Controls.Add(openCommentWindowButton, 1, 0);
-            breadcrumbRow.Controls.Add(openJoditWindowButton, 2, 0);
-            breadcrumbRow.Controls.Add(codeSymbolLabel, 3, 0);
+            breadcrumbRow.Controls.Add(openJoditWindowButton, 1, 0);
+            breadcrumbRow.Controls.Add(codeSymbolLabel, 2, 0);
             root.Controls.Add(breadcrumbRow, 0, 1);
 
             accordion = new ExperimentalAccordionHost { Dock = DockStyle.Fill };
@@ -535,23 +317,8 @@ namespace DocSets
             dockWorkspace.SelectedPanelChanged += (_, __) =>
             {
                 var selectedKind = dockWorkspace.SelectedPanelId;
-                var target = string.Equals(selectedKind, "comment", StringComparison.OrdinalIgnoreCase) ? markdownComment :
-                    string.Equals(selectedKind, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : null;
-                var target3 = string.Equals(selectedKind, "comment3", StringComparison.OrdinalIgnoreCase);
-                if (target == null && markdownCommentDirty) dirtyMarkdownComment?.ShowPreview();
-                if (target != null && !ReferenceEquals(target, dirtyMarkdownComment)) target.LoadComment(CurrentCommentText, resetToPreview: true);
-                if (target3 && !markdownComment3Dirty) markdownComment3.LoadComment(CurrentCommentText);
-                if (target != null) focusMarkdownComment = target;
                 if (string.Equals(selectedKind, "preview", StringComparison.OrdinalIgnoreCase)) RequestPreviewIfVisible();
             };
-            commentTextBox.Dock = DockStyle.Fill;
-            commentTextBox.Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10F, FontStyle.Regular);
-            commentTextBox.Multiline = true;
-            commentTextBox.AcceptsReturn = true;
-            commentTextBox.AcceptsTab = true;
-            commentTextBox.ScrollBars = ScrollBars.Vertical;
-            var commentHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(3) };
-            commentHost.Controls.Add(commentTextBox);
 
             var codeRoot = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
             codeRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -574,17 +341,11 @@ namespace DocSets
             refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             toolTip.SetToolTip(refreshCodeButton, "Синхронизировать с текущей позицией");
             refreshCodeButton.Click += (_, __) => RefreshCodeRequested?.Invoke(this, EventArgs.Empty);
-            openCommentWindowButton.Text = "E";
-            openCommentWindowButton.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
-            openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
-            openCommentWindowButton.Margin = new Padding(0, 0, 3, 0);
-            toolTip.SetToolTip(openCommentWindowButton, "Открыть заметку в отдельном окне");
-            openCommentWindowButton.Click += (_, __) => OpenCommentWindowRequested?.Invoke(this, EventArgs.Empty);
-            openJoditWindowButton.Text = "EJ";
+            openJoditWindowButton.Text = "E";
             openJoditWindowButton.Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold);
-            openJoditWindowButton.Size = DpiService.Scale(this, new Size(38, 28));
+            openJoditWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
             openJoditWindowButton.Margin = new Padding(0, 0, 3, 0);
-            toolTip.SetToolTip(openJoditWindowButton, "Открыть HTML-заметку в экспериментальном Jodit");
+            toolTip.SetToolTip(openJoditWindowButton, "Открыть заметку в отдельном окне");
             openJoditWindowButton.Click += (_, __) => OpenJoditWindowRequested?.Invoke(this, EventArgs.Empty);
             codeButtons.Controls.Add(copyCodeButton);
             codeRoot.Controls.Add(codeButtons, 0, 0);
@@ -609,7 +370,6 @@ namespace DocSets
             detailsHost.Dock = DockStyle.Fill;
             detailsHost.AutoScroll = true;
             detailsHost.Controls.Add(CreateDetailsLayout());
-            commentSection = new ExperimentalAccordionSection("comment", "Заметка", commentHost, 130, false);
             codeSection = new ExperimentalAccordionSection("code", "Код", codeRoot, 210, false);
             previewSection = new ExperimentalAccordionSection("preview", "Preview", livePreviewTextBox, 210, false);
             propertiesSection = new ExperimentalAccordionSection("properties", "Свойства", detailsHost, 180, false);
@@ -618,10 +378,7 @@ namespace DocSets
             dockWorkspace.Register("properties", "Свойства", detailsHost);
             dockWorkspace.Register("code", "Код", codeRoot);
             dockWorkspace.Register("preview", "Preview", livePreviewTextBox);
-            dockWorkspace.Register("comment2", "Заметка-2", markdownComment2);
-            dockWorkspace.Register("comment3", "Заметка [TOAST]", markdownComment3);
-            dockWorkspace.Register("commentJodit", "Заметка [Jodit]", joditComment,
-                visibleByDefault: false);
+            dockWorkspace.Register("commentJodit", "Заметка", joditComment);
             dockWorkspace.Register("log", "Лог", logControl, visibleByDefault: false);
             root.Controls.Add(dockWorkspace, 0, 2);
         }
@@ -633,8 +390,7 @@ namespace DocSets
             copyCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
             refreshCodeButton.Image = IconProvider.Get(AppIcon.Sync, this, 18);
             refreshCodeButton.Size = DpiService.Scale(this, new Size(30, 28));
-            openCommentWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
-            openJoditWindowButton.Size = DpiService.Scale(this, new Size(38, 28));
+            openJoditWindowButton.Size = DpiService.Scale(this, new Size(30, 28));
             pinCheckBox.Image = IconProvider.Get(AppIcon.PinOverlay, this, 18);
             pinCheckBox.Size = DpiService.Scale(this, new Size(30, 28));
             folderCheckBox.Image = IconProvider.Get(AppIcon.Folder, this, 18);
@@ -643,41 +399,7 @@ namespace DocSets
             accordion?.PerformLayout();
             PerformLayout();
         }
-        private string CurrentCommentText => markdownComment3Dirty ? markdownComment3.CommentText :
-            markdownCommentDirty && dirtyMarkdownComment != null ? dirtyMarkdownComment.CommentText : loadedCommentText ?? string.Empty;
-
-        private MarkdownCommentControl SelectedMarkdownComment =>
-            string.Equals(dockWorkspace.SelectedPanelId, "comment2", StringComparison.OrdinalIgnoreCase) ? markdownComment2 : markdownComment;
-
-        public void FocusMarkdownEditor()
-        {
-            if (string.Equals(dockWorkspace.SelectedPanelId, "comment3", StringComparison.OrdinalIgnoreCase))
-                markdownComment3.FocusEditorFromHost();
-            else
-                (focusMarkdownComment ?? SelectedMarkdownComment).FocusEditorFromHost();
-        }
-        public void RequestMarkdownEditorFocus() => MarkdownDropFocusRequested?.Invoke(this, EventArgs.Empty);
-
-        public void SetAssetDirectory(string path) => markdownComment3.SetAssetDirectory(path);
-
-        public void InsertImageAsset(string assetReference, string originalName, string requestId = "")
-            => markdownComment3.InsertImage(assetReference,
-                string.IsNullOrWhiteSpace(originalName) ? "Изображение" : Path.GetFileNameWithoutExtension(originalName),
-                requestId);
-
-        public void InsertResolvedExternalSymbol(DocumentLink link, int position)
-        {
-            if (pendingToastDrop)
-            {
-                pendingToastDrop = false;
-                markdownComment3.InsertResolvedLink(link);
-                return;
-            }
-            var target = pendingExternalDropComment ?? SelectedMarkdownComment;
-            pendingExternalDropComment = null;
-            focusMarkdownComment = target;
-            target.InsertResolvedLink(link, position);
-        }
+        public void FocusCommentEditor() => joditComment.FocusEditor();
 
         private void BreadcrumbMouseDown(object sender, MouseEventArgs e)
         {
@@ -887,7 +609,6 @@ namespace DocSets
 
         private void SetSectionContentEnabled(bool enabled)
         {
-            if (commentSection != null) commentSection.ContentEnabled = enabled;
             if (codeSection != null) codeSection.ContentEnabled = enabled;
             if (previewSection != null) previewSection.ContentEnabled = enabled;
             if (propertiesSection != null) propertiesSection.ContentEnabled = enabled;

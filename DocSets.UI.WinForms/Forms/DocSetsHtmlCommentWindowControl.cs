@@ -3,6 +3,8 @@ using Microsoft.VisualStudio.Shell.Interop;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Net;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -165,6 +167,17 @@ namespace DocSets
             Focus();
             editor.Enabled = true;
             editor.FocusEditor();
+        }
+
+        internal void ShowSearchResult(int start, int length, int occurrenceIndex)
+        {
+            var content = item?.Content ?? string.Empty;
+            if (start < 0 || start >= content.Length || length <= 0) return;
+            var fragment = content.Substring(start, Math.Min(length, content.Length - start));
+            var visibleText = WebUtility.HtmlDecode(
+                Regex.Replace(fragment, @"<[^>]+>", string.Empty));
+            if (string.IsNullOrWhiteSpace(visibleText)) return;
+            editor.HighlightSearchMatch(visibleText, occurrenceIndex);
         }
 
         private void Source_CurrentCommentItemChanged(DocumentItem selectedItem)

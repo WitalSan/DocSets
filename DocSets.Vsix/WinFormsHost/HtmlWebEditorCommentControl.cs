@@ -6,6 +6,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -208,6 +209,15 @@ namespace DocSets
             if (!ready || webView.CoreWebView2 == null) return;
             webView.Focus();
             _ = webView.ExecuteScriptAsync("window.docsetsFocusEditor && window.docsetsFocusEditor()");
+        }
+
+        public void HighlightSearchMatch(string value, int occurrenceIndex)
+        {
+            if (!ready || string.IsNullOrEmpty(value) || webView.CoreWebView2 == null) return;
+            _ = webView.ExecuteScriptAsync(
+                "window.docsetsHighlightSearch && window.docsetsHighlightSearch(" +
+                JsonConvert.SerializeObject(value) + "," + Math.Max(0, occurrenceIndex) + ")");
+            FocusEditor();
         }
 
         private async void OnHandleCreated(object sender, EventArgs e)
@@ -444,13 +454,30 @@ namespace DocSets
                 var data = new DataObject();
                 data.SetData(DataFormats.UnicodeText, plainText ?? string.Empty);
                 data.SetData(DataFormats.Text, plainText ?? string.Empty);
-                data.SetData(DataFormats.Html, ToastCommentControl.BuildClipboardHtml(fragment));
+                data.SetData(DataFormats.Html, BuildClipboardHtml(fragment));
                 Clipboard.SetDataObject(data, true);
             }
             catch (Exception exception)
             {
                 DocSetsLog.Current.Error("Изображения", "Не удалось скопировать HTML-заметку.", exception);
             }
+        }
+
+        internal static string BuildClipboardHtml(string fragment)
+        {
+            const string headerTemplate =
+                "Version:0.9\r\nStartHTML:{0:D10}\r\nEndHTML:{1:D10}\r\n" +
+                "StartFragment:{2:D10}\r\nEndFragment:{3:D10}\r\n";
+            const string fragmentStart = "<!--StartFragment-->";
+            const string fragmentEnd = "<!--EndFragment-->";
+            var body = "<html><body>" + fragmentStart + (fragment ?? string.Empty) +
+                fragmentEnd + "</body></html>";
+            var emptyHeader = string.Format(headerTemplate, 0, 0, 0, 0);
+            var startHtml = Encoding.UTF8.GetByteCount(emptyHeader);
+            var startFragment = startHtml + Encoding.UTF8.GetByteCount("<html><body>" + fragmentStart);
+            var endFragment = startFragment + Encoding.UTF8.GetByteCount(fragment ?? string.Empty);
+            var endHtml = startHtml + Encoding.UTF8.GetByteCount(body);
+            return string.Format(headerTemplate, startHtml, endHtml, startFragment, endFragment) + body;
         }
 
         private static string GetImageMimeType(string path)
