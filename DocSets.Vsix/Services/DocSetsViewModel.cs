@@ -24,6 +24,7 @@ namespace DocSets
         private readonly IUserDialogService _dialogs;
         private readonly IClipboardService _clipboard;
         private readonly INavigationService _navigation;
+        private readonly IActiveDocumentService _activeDocument;
         private readonly DocumentTreeService treeService;
         private readonly NavigationHistoryService historyService;
         private readonly RecentBookmarksService recentBookmarksService;
@@ -62,13 +63,15 @@ namespace DocSets
             IEditorTrackingService fileTracking,
             IUserDialogService dialogs,
             IClipboardService clipboard,
-            INavigationService navigation)
+            INavigationService navigation,
+            IActiveDocumentService activeDocument)
         {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.fileTracking = fileTracking ?? throw new ArgumentNullException(nameof(fileTracking));
             _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
             _clipboard = clipboard ?? throw new ArgumentNullException(nameof(clipboard));
             _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
+            _activeDocument = activeDocument ?? throw new ArgumentNullException(nameof(activeDocument));
             treeService = new DocumentTreeService();
             historyService = new NavigationHistoryService();
             recentBookmarksService = new RecentBookmarksService();
@@ -740,7 +743,7 @@ namespace DocSets
                 return null;
             }
 
-            var bookmark = await store.CreateBookmarkFromActiveDocumentAsync();
+            var bookmark = await _activeDocument.CreateBookmarkAsync();
             if (bookmark == null)
             {
                 if (showErrors)
@@ -882,7 +885,7 @@ namespace DocSets
                 return null;
             }
 
-            var context = await store.GetActiveDocumentContextAsync();
+            var context = await _activeDocument.GetContextAsync();
             if (context == null)
             {
                 Show("Не найден активный документ редактора.");
@@ -901,7 +904,7 @@ namespace DocSets
 
             if (kind == ActiveDocumentFolderKind.File)
             {
-                folder = await store.CreateBookmarkFromActiveDocumentAsync();
+                folder = await _activeDocument.CreateBookmarkAsync();
                 if (folder == null)
                 {
                     Show("Не удалось создать ссылку на текущий файл.");
@@ -919,7 +922,7 @@ namespace DocSets
             }
             else if (kind == ActiveDocumentFolderKind.Class)
             {
-                folder = await store.CreateClassBookmarkFromActiveDocumentAsync();
+                folder = await _activeDocument.CreateClassBookmarkAsync();
                 if (folder == null || string.IsNullOrWhiteSpace(folder.Symbol))
                 {
                     Show("Не удалось определить класс в текущей позиции редактора.");
@@ -970,7 +973,7 @@ namespace DocSets
                 return null;
             }
 
-            return await store.GetActiveDocumentContextAsync();
+            return await _activeDocument.GetContextAsync();
         }
 
         private static string GetContextFolderName(ActiveDocumentContext context, ActiveDocumentFolderKind kind)
@@ -1024,7 +1027,7 @@ namespace DocSets
                 return;
             }
 
-            var updated = await store.CreateBookmarkFromActiveDocumentAsync();
+            var updated = await _activeDocument.CreateBookmarkAsync();
             if (updated == null)
             {
                 Show("Не найден активный документ редактора.");
@@ -1078,7 +1081,7 @@ namespace DocSets
         {
             item = ResolvePin(item);
             if (!IsBookmark(item)) return;
-            var updated = await store.CreateBookmarkFromActiveDocumentAsync();
+            var updated = await _activeDocument.CreateBookmarkAsync();
             if (updated == null)
             {
                 Show("Не найден активный документ редактора.");
@@ -1921,7 +1924,7 @@ namespace DocSets
             historyProbeInProgress = true;
             try
             {
-                var item = await store.CreateBookmarkFromActiveDocumentAsync();
+                var item = await _activeDocument.CreateBookmarkAsync();
                 if (item == null || string.IsNullOrWhiteSpace(item.Path))
                 {
                     historyService.ResetCurrentLocation();
@@ -2072,7 +2075,7 @@ namespace DocSets
 
         public Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
         {
-            return store.GetActiveSymbolReferenceAsync(draggedText);
+            return _activeDocument.GetSymbolReferenceAsync(draggedText);
         }
 
         public Task<bool> OpenSymbolAsync(DocumentItem item, string symbol, string project)
@@ -2478,7 +2481,7 @@ namespace DocSets
             return SaveCoreAsync();
         }
 
-        public bool CanSave => IsLoaded && store.HasOpenDocument;
+        public bool CanSave => IsLoaded && store.HasOpenDocSet;
 
         private async Task SaveCoreAsync()
         {

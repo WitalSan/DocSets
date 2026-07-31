@@ -52,7 +52,7 @@ namespace DocSets
         public bool IsSharedWorkspace => isSharedWorkspace;
 
         public string StateFilePath => stateFilePath;
-        public bool HasOpenDocument => currentDocument != null;
+        public bool HasOpenDocSet => currentDocument != null;
         public string AssetDirectory => string.IsNullOrWhiteSpace(activeDocSetDirectory)
             ? "" : Path.Combine(activeDocSetDirectory, "assets");
 
@@ -240,67 +240,6 @@ namespace DocSets
             }
         }
 
-        public async Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync()
-        {
-            if (!await EnsureInitializedAsync())
-            {
-                return null;
-            }
-
-            var sourceId = "";
-            var item = await roslyn.CreateBookmarkFromActiveDocumentAsync(
-                StorageDirectory,
-                path => ToSourceRelativePath(path, out sourceId));
-            if (item != null) item.SourceId = sourceId;
-            return item;
-        }
-
-
-        public async Task<DocumentItem> CreateClassBookmarkFromActiveDocumentAsync()
-        {
-            if (!await EnsureInitializedAsync())
-            {
-                return null;
-            }
-
-            var sourceId = "";
-            var item = await roslyn.CreateClassBookmarkFromActiveDocumentAsync(
-                StorageDirectory,
-                path => ToSourceRelativePath(path, out sourceId));
-            if (item != null) item.SourceId = sourceId;
-            return item;
-        }
-
-
-        public async Task<ActiveDocumentContext> GetActiveDocumentContextAsync()
-        {
-            if (!await EnsureInitializedAsync())
-            {
-                return null;
-            }
-
-            var context = await roslyn.GetActiveDocumentContextAsync();
-            if (context == null)
-            {
-                return null;
-            }
-
-            context.SolutionName = Path.GetFileNameWithoutExtension(solutionFilePath) ?? "";
-            return context;
-        }
-
-        public async Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText)
-        {
-            var reference = await roslyn.GetActiveSymbolReferenceAsync(draggedText);
-            if (reference == null) return null;
-            var source = sourceLocator.FindForFile(sourceStatuses, reference.Path);
-            var defaultSource = sourceLocator.GetDefault(sourceStatuses);
-            reference.SourceId = source == null || ReferenceEquals(source, defaultSource)
-                ? ""
-                : source.Source.Id ?? "";
-            return reference;
-        }
-
         public async Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken)
         {
             if (item == null || item.NodeType == NodeType.Folder || string.IsNullOrWhiteSpace(item.Path))
@@ -320,7 +259,7 @@ namespace DocSets
                 cancellationToken);
         }
 
-        private async Task<bool> EnsureInitializedAsync()
+        internal async Task<bool> EnsureInitializedAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -545,7 +484,7 @@ namespace DocSets
             }
         }
 
-        private string ToSourceRelativePath(string fullPath, out string sourceId)
+        internal string ToSourceRelativePath(string fullPath, out string sourceId)
         {
             var source = sourceLocator.FindForFile(sourceStatuses, fullPath);
             var defaultSource = sourceLocator.GetDefault(sourceStatuses);

@@ -17,7 +17,7 @@ namespace DocSets
         string AssetDirectory { get; }
         string CurrentWorkspaceRelativePath { get; }
         bool IsSharedWorkspace { get; }
-        bool HasOpenDocument { get; }
+        bool HasOpenDocSet { get; }
         SourceReferenceContext CurrentSourceContext { get; }
 
         Task<IReadOnlyList<WorkspaceInfo>> GetWorkspacesAsync();
@@ -28,10 +28,6 @@ namespace DocSets
         Task SaveAsync(DocumentSetsState state);
         Task<bool> HasExternalChangesAsync();
 
-        Task<DocumentItem> CreateBookmarkFromActiveDocumentAsync();
-        Task<DocumentItem> CreateClassBookmarkFromActiveDocumentAsync();
-        Task<ActiveDocumentContext> GetActiveDocumentContextAsync();
-        Task<ActiveSymbolReference> GetActiveSymbolReferenceAsync(string draggedText);
         Task<string> GetLivePreviewAsync(DocumentItem item, CancellationToken cancellationToken);
 
         Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName);
