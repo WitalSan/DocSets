@@ -106,6 +106,51 @@ namespace DocSets.Tests
                         (await editor.GetCurrentCommentAsync()).Contains("изменение"),
                         "Jodit не создал изменение для истории.");
 
+                    const string codeHtml =
+                        "<pre class=\"docsets-code-block\" data-language=\"python\">" +
+                        "<code class=\"language-python\">" +
+                        "def calculate(value):\n" +
+                        "    if value &gt; 0:\n" +
+                        "        return \"ok\"\n" +
+                        "    return \"none\"" +
+                        "</code></pre><p><br></p>";
+                    editor.LoadComment(codeHtml);
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("def calculate"),
+                        "Jodit не загрузил блок Python для проверки подсветки.");
+                    var htmlBeforeHighlight = await editor.GetCurrentCommentAsync();
+                    Assert.True(await editor.ApplySyntaxHighlightAsync(),
+                        "WebView2 не применил визуальную подсветку синтаксиса.");
+                    var htmlAfterHighlight = await editor.GetCurrentCommentAsync();
+                    Assert.Equal(htmlBeforeHighlight, htmlAfterHighlight,
+                        "Подсветка синтаксиса изменила исходный HTML заметки.");
+                    StringAssert.Contains(htmlAfterHighlight,
+                        "    if value &gt; 0:\n        return \"ok\"",
+                        "Подсветка синтаксиса повредила отступы или переводы строк.");
+                    Assert.False(htmlAfterHighlight.Contains("token keyword"),
+                        "Токены подсветки попали в сохраняемый HTML заметки.");
+
+                    var clipboardHtml = await editor.BuildCodeClipboardHtmlAsync(
+                        "def calculate(value):\n" +
+                        "    if value > 0:\n" +
+                        "        return \"ok\"",
+                        "python");
+                    StringAssert.Contains(clipboardHtml, "<br>");
+                    StringAssert.Contains(clipboardHtml,
+                        "&nbsp;&nbsp;&nbsp;&nbsp;");
+                    StringAssert.Contains(clipboardHtml, "color:#0000ff");
+                    StringAssert.Contains(clipboardHtml, "font-family:Consolas");
+                    Assert.False(clipboardHtml.Contains("class=\"token"),
+                        "В HTML-буфер попали внешние классы Prism вместо inline-стилей.");
+
+                    editor.LoadComment("<p>Сессия A</p>");
+                    await editor.SimulateMixedPasteAsync(
+                        string.Empty, " изменение", string.Empty,
+                        "image/png", "unused.png", "text");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("изменение"),
+                        "Jodit не восстановил тестовое изменение после проверки подсветки.");
+
                     var sessionHtml = await editor.GetCurrentCommentAsync();
                     var session = await editor.CaptureEditingSessionAsync();
                     Assert.True(!string.IsNullOrWhiteSpace(session));

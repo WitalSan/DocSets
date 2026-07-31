@@ -49,6 +49,7 @@
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit-editor.js" LogicalName="DocSets.Jodit.jodit-editor.js" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.js" LogicalName="DocSets.Jodit.jodit.min.js" />
     <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\jodit.min.css" LogicalName="DocSets.Jodit.jodit.min.css" />
+    <EmbeddedResource Include="..\DocSets.Vsix\WebAssets\Jodit\Prism\*.js" LogicalName="DocSets.Jodit.Prism.%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="$(VsIdeDir)Extensions\Microsoft\Web Live Preview\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll">

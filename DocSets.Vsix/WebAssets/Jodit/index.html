@@ -56,6 +56,35 @@
       font: 11px "Segoe UI", sans-serif;
       text-transform: uppercase;
     }
+    ::highlight(docsets-code-comment) { color: #008000; }
+    ::highlight(docsets-code-prolog),
+    ::highlight(docsets-code-doctype),
+    ::highlight(docsets-code-cdata) { color: #808080; }
+    ::highlight(docsets-code-punctuation) { color: #303030; }
+    ::highlight(docsets-code-property),
+    ::highlight(docsets-code-tag),
+    ::highlight(docsets-code-boolean),
+    ::highlight(docsets-code-number),
+    ::highlight(docsets-code-constant),
+    ::highlight(docsets-code-symbol),
+    ::highlight(docsets-code-deleted) { color: #098658; }
+    ::highlight(docsets-code-selector),
+    ::highlight(docsets-code-attr-name),
+    ::highlight(docsets-code-string),
+    ::highlight(docsets-code-char),
+    ::highlight(docsets-code-builtin),
+    ::highlight(docsets-code-inserted) { color: #a31515; }
+    ::highlight(docsets-code-operator),
+    ::highlight(docsets-code-entity),
+    ::highlight(docsets-code-url) { color: #303030; }
+    ::highlight(docsets-code-atrule),
+    ::highlight(docsets-code-attr-value),
+    ::highlight(docsets-code-keyword) { color: #0000ff; }
+    ::highlight(docsets-code-function),
+    ::highlight(docsets-code-class-name) { color: #795e26; }
+    ::highlight(docsets-code-regex),
+    ::highlight(docsets-code-important),
+    ::highlight(docsets-code-variable) { color: #811f3f; }
     .docsets-image-pending { color: #666; background: #eee; padding: 2px 6px; }
     .docsets-paste-options {
       position: fixed;
@@ -93,6 +122,15 @@
     <textarea id="editor"></textarea>
   </div>
   <script src="jodit.min.js"></script>
+  <script>window.Prism = window.Prism || {}; window.Prism.manual = true;</script>
+  <script src="prism.js"></script>
+  <script src="prism-csharp.min.js"></script>
+  <script src="prism-typescript.min.js"></script>
+  <script src="prism-json.min.js"></script>
+  <script src="prism-sql.min.js"></script>
+  <script src="prism-python.min.js"></script>
+  <script src="prism-powershell.min.js"></script>
+  <script src="prism-bash.min.js"></script>
   <script src="jodit-editor.js"></script>
 </body>
 </html>

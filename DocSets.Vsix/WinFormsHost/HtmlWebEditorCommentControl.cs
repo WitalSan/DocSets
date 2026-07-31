@@ -100,6 +100,22 @@ namespace DocSets
                 JsonConvert.SerializeObject(text ?? string.Empty) + "," +
                 JsonConvert.SerializeObject(language ?? "plaintext") + ")");
 
+        internal async Task<bool> ApplySyntaxHighlightAsync()
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "window.docsetsApplySyntaxHighlight && window.docsetsApplySyntaxHighlight()");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal async Task<string> BuildCodeClipboardHtmlAsync(string source, string language)
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "window.docsetsBuildCodeClipboardHtml(" +
+                JsonConvert.SerializeObject(source ?? string.Empty) + "," +
+                JsonConvert.SerializeObject(language ?? "plaintext") + ")");
+            return JsonConvert.DeserializeObject<string>(result) ?? string.Empty;
+        }
+
         internal Task SimulateHistoryCommandAsync(string command)
             => webView.ExecuteScriptAsync("window.docsetsTestHistoryCommand(" +
                 JsonConvert.SerializeObject(command ?? "undo") + ")");

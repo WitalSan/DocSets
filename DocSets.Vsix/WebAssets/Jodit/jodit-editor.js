@@ -9,6 +9,9 @@
   let requestNumber = 0;
   let pasteOptions = null;
   let lastPastedPlainText = null;
+  let syntaxHighlightTimer = 0;
+  let syntaxHighlightFrame = 0;
+  const syntaxHighlightNames = new Set();
 
   const send = value => {
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(value);
@@ -47,6 +50,177 @@
   const toEditorHtml = value => transformHtml(value, true);
   const fromEditorHtml = value => transformHtml(value, false);
   const currentHtml = () => editor ? fromEditorHtml(editor.value || '') : '';
+
+  function clearSyntaxHighlights() {
+    if (!window.CSS || !CSS.highlights) return;
+    syntaxHighlightNames.forEach(name => CSS.highlights.delete(name));
+    syntaxHighlightNames.clear();
+  }
+
+  function codeLanguage(code) {
+    const className = String(code.className || '');
+    const match = /(?:^|\s)language-([a-z0-9_+-]+)/i.exec(className);
+    if (match) return match[1].toLowerCase();
+    const parent = code.closest('pre');
+    return String(parent && parent.getAttribute('data-language') || 'plaintext').toLowerCase();
+  }
+
+  function collectTokenRanges(token, offset, result, inheritedType) {
+    if (typeof token === 'string') return offset + token.length;
+    if (Array.isArray(token)) {
+      token.forEach(child => { offset = collectTokenRanges(child, offset, result, inheritedType); });
+      return offset;
+    }
+    if (!token || token.content == null) return offset;
+    const start = offset;
+    offset = collectTokenRanges(token.content, offset, result, token.type || inheritedType);
+    const type = token.type || inheritedType;
+    if (type && offset > start) result.push({ start, end: offset, type });
+    return offset;
+  }
+
+  function textPosition(nodes, absoluteOffset) {
+    let offset = Math.max(0, absoluteOffset);
+    for (const node of nodes) {
+      const length = node.data.length;
+      if (offset <= length) return { node, offset };
+      offset -= length;
+    }
+    const last = nodes[nodes.length - 1];
+    return last ? { node: last, offset: last.data.length } : null;
+  }
+
+  function applySyntaxHighlights() {
+    clearSyntaxHighlights();
+    if (!editor || !window.Prism || !window.Highlight ||
+        !window.CSS || !CSS.highlights) return false;
+
+    const grouped = new Map();
+    editor.editor.querySelectorAll('pre > code').forEach(code => {
+      const language = codeLanguage(code);
+      const grammar = Prism.languages[language] ||
+        (language === 'html' ? Prism.languages.markup : null);
+      if (!grammar) return;
+
+      const text = code.textContent || '';
+      const tokenRanges = [];
+      collectTokenRanges(Prism.tokenize(text, grammar), 0, tokenRanges, null);
+      const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      let node;
+      while ((node = walker.nextNode())) nodes.push(node);
+
+      tokenRanges.forEach(item => {
+        const start = textPosition(nodes, item.start);
+        const end = textPosition(nodes, item.end);
+        if (!start || !end) return;
+        const range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset);
+        const type = String(item.type).replace(/[^a-z0-9_-]/gi, '-').toLowerCase();
+        if (!grouped.has(type)) grouped.set(type, []);
+        grouped.get(type).push(range);
+      });
+    });
+
+    grouped.forEach((ranges, type) => {
+      const name = 'docsets-code-' + type;
+      CSS.highlights.set(name, new Highlight(...ranges));
+      syntaxHighlightNames.add(name);
+    });
+    return true;
+  }
+
+  function scheduleSyntaxHighlight(delay) {
+    clearTimeout(syntaxHighlightTimer);
+    if (syntaxHighlightFrame) cancelAnimationFrame(syntaxHighlightFrame);
+    syntaxHighlightTimer = setTimeout(() => {
+      // Jodit нормализует текстовые узлы после собственного обработчика события.
+      // Строим Range только на окончательной версии DOM в следующем кадре.
+      syntaxHighlightFrame = requestAnimationFrame(() => {
+        syntaxHighlightFrame = 0;
+        applySyntaxHighlights();
+      });
+    }, Math.max(0, Number(delay) || 0));
+  }
+
+  const clipboardTokenStyles = {
+    comment: 'color:#008000;font-style:italic',
+    prolog: 'color:#808080',
+    doctype: 'color:#808080',
+    cdata: 'color:#808080',
+    punctuation: 'color:#303030',
+    property: 'color:#098658',
+    tag: 'color:#800000',
+    boolean: 'color:#0000ff',
+    number: 'color:#098658',
+    constant: 'color:#098658',
+    symbol: 'color:#098658',
+    selector: 'color:#800000',
+    'attr-name': 'color:#ff0000',
+    string: 'color:#a31515',
+    char: 'color:#a31515',
+    builtin: 'color:#267f99',
+    operator: 'color:#303030',
+    entity: 'color:#303030',
+    url: 'color:#303030',
+    atrule: 'color:#0000ff',
+    'attr-value': 'color:#0000ff',
+    keyword: 'color:#0000ff;font-weight:600',
+    function: 'color:#795e26',
+    'class-name': 'color:#267f99',
+    regex: 'color:#811f3f',
+    important: 'color:#0000ff;font-weight:600',
+    variable: 'color:#001080'
+  };
+
+  function buildCodeClipboardHtml(source, language) {
+    const normalizedLanguage = String(language || 'plaintext').toLowerCase();
+    const grammar = window.Prism && (Prism.languages[normalizedLanguage] ||
+      (normalizedLanguage === 'html' ? Prism.languages.markup : null));
+    const highlighted = grammar
+      ? Prism.highlight(String(source || ''), grammar, normalizedLanguage)
+      : escapeHtml(source || '');
+    const template = document.createElement('template');
+    template.innerHTML = highlighted;
+    template.content.querySelectorAll('span.token').forEach(span => {
+      const tokenClass = Array.from(span.classList).find(name => name !== 'token');
+      const style = clipboardTokenStyles[tokenClass];
+      if (style) span.setAttribute('style', style);
+      span.removeAttribute('class');
+    });
+
+    // Word надёжнее сохраняет отступы в HTML-буфере, когда они представлены
+    // не только CSS white-space, но также NBSP и явными BR.
+    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) textNodes.push(node);
+    textNodes.forEach(textNode => {
+      const fragment = document.createDocumentFragment();
+      const lines = String(textNode.data || '').split('\n');
+      lines.forEach((line, index) => {
+        if (index) fragment.appendChild(document.createElement('br'));
+        fragment.appendChild(document.createTextNode(
+          line.replace(/\t/g, '\u00a0\u00a0\u00a0\u00a0').replace(/ /g, '\u00a0')));
+      });
+      textNode.replaceWith(fragment);
+    });
+
+    const container = document.createElement('div');
+    container.appendChild(template.content.cloneNode(true));
+    return '<pre style="margin:0;padding:8px 10px;border:1px solid #d0d0d0;' +
+      'background:#f6f8fa;color:#303030;white-space:pre-wrap;' +
+      'font-family:Consolas,&quot;Courier New&quot;,monospace;font-size:10pt;' +
+      'line-height:1.35"><code>' + container.innerHTML + '</code></pre>';
+  }
+
+  function closestCode(node) {
+    const element = node && node.nodeType === Node.ELEMENT_NODE
+      ? node
+      : node && node.parentElement;
+    return element && element.closest ? element.closest('pre > code') : null;
+  }
 
   function fromEditorLink(target) {
     if (!target) return '';
@@ -332,15 +506,41 @@
     const editable = editor.editor;
     editable.tabIndex = 0;
     editable.addEventListener('mousedown', () => {
-        lastPastedPlainText = null;
+      lastPastedPlainText = null;
+      scheduleSyntaxHighlight();
     }, true);
+    editable.addEventListener('focusin', () => scheduleSyntaxHighlight(), true);
+    editable.addEventListener('click', () => scheduleSyntaxHighlight(), true);
+    editable.addEventListener('input', () => scheduleSyntaxHighlight(30), true);
+    editable.addEventListener('compositionend', () => scheduleSyntaxHighlight(30), true);
     editable.addEventListener('beforeinput', event => {
-        if (event.inputType !== 'insertFromPaste') {
-            lastPastedPlainText = null;
-        }
+      if (event.inputType !== 'insertFromPaste') {
+        lastPastedPlainText = null;
+      }
     }, true);
 
+    // Некоторые команды Jodit заменяют текстовые узлы без немедленного события
+    // change. Старые CSS Range после этого недействительны, поэтому наблюдаем
+    // непосредственно за DOM редактора. Сама подсветка DOM не изменяет и цикла
+    // MutationObserver не создаёт.
+    const syntaxObserver = new MutationObserver(mutations => {
+      if (mutations.some(mutation =>
+        mutation.type === 'characterData' ||
+        mutation.type === 'childList' ||
+        (mutation.type === 'attributes' &&
+          (mutation.attributeName === 'class' || mutation.attributeName === 'data-language'))))
+        scheduleSyntaxHighlight(30);
+    });
+    syntaxObserver.observe(editable, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['class', 'data-language']
+    });
+
     editor.events.on('change', () => {
+      scheduleSyntaxHighlight(30);
       if (suppressChanges) return;
       // Передаём актуальный снимок вместе с признаком изменения. При закрытии
       // Visual Studio нельзя синхронно запрашивать DOM WebView2: это приводит
@@ -398,8 +598,22 @@
     editable.addEventListener('copy', event => {
       const selection = window.getSelection();
       if (!selection || !selection.rangeCount) return;
+      const range = selection.getRangeAt(0);
+      const startCode = closestCode(range.startContainer);
+      const endCode = closestCode(range.endContainer);
+      if (startCode && startCode === endCode && !range.collapsed) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const text = selection.toString();
+        send({
+          type: 'copyContent',
+          html: buildCodeClipboardHtml(text, codeLanguage(startCode)),
+          text
+        });
+        return;
+      }
       const container = document.createElement('div');
-      container.appendChild(selection.getRangeAt(0).cloneContents());
+      container.appendChild(range.cloneContents());
       if (!container.querySelector('img')) return;
       event.preventDefault();
       send({ type: 'copyContent', html: container.innerHTML, text: selection.toString() });
@@ -434,6 +648,7 @@
     try {
       editor.value = toEditorHtml(html || '');
       editor.history.clear();
+      scheduleSyntaxHighlight();
     }
     finally { suppressChanges = false; }
     return true;
@@ -492,6 +707,7 @@
       history.updateTick = Number(session.updateTick) || 0;
       history.fireChangeStack();
       editor.synchronizeValues();
+      scheduleSyntaxHighlight();
     } finally {
       suppressChanges = false;
     }
@@ -550,6 +766,11 @@
 
   window.docsetsInsertCodeBlock = (language, source) =>
     insertCodeBlock(language, source);
+
+  window.docsetsApplySyntaxHighlight = () => applySyntaxHighlights();
+
+  window.docsetsBuildCodeClipboardHtml = (source, language) =>
+    buildCodeClipboardHtml(source, language);
 
   window.docsetsCompleteImage = (requestId, assetUrl) => {
     const marker = document.querySelector('[data-docsets-image-request="' + requestId + '"]');
