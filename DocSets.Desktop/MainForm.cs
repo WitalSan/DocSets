@@ -1,4 +1,5 @@
 using DocSets.Desktop.Panels;
+using DocSets.Desktop.OneNote;
 using WeifenLuo.WinFormsUI.Docking;
 
 namespace DocSets.Desktop;
@@ -83,6 +84,10 @@ internal sealed class MainForm : Form
         file.DropDownItems.Add(Item("Открыть…", Keys.Control | Keys.O,
             async (_, __) => await OpenAsync()));
         file.DropDownItems.Add(_recentMenu);
+        var import = new ToolStripMenuItem("Импорт");
+        import.DropDownItems.Add(Item("OneNote...", Keys.None,
+            async (_, __) => await ImportOneNoteAsync()));
+        file.DropDownItems.Add(import);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(Item("Сохранить", Keys.Control | Keys.S,
             async (_, __) => await SaveAsync()));
@@ -187,6 +192,56 @@ internal sealed class MainForm : Form
         catch (Exception exception)
         {
             ReportError("Не удалось сохранить DocSet.", exception);
+        }
+    }
+
+    private async Task ImportOneNoteAsync()
+    {
+        if (!_viewModel.CanSave)
+        {
+            MessageBox.Show(this, "Сначала откройте или создайте DocSet.",
+                "Импорт из OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            await _composition.Owner.CommitPendingCommentAsync();
+            var service = new OneNoteImportService(_viewModel.SaveImageAssetAsync);
+            var notebooks = await service.GetNotebooksAsync(CancellationToken.None);
+            if (notebooks.Count == 0)
+            {
+                MessageBox.Show(this, "OneNote не вернул доступных записных книжек.",
+                    "Импорт из OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var notebook = OneNoteNotebookDialog.Select(this, notebooks);
+            if (notebook == null) return;
+            var result = OneNoteProgressDialog.Run(this,
+                (progress, token) => service.ImportAsync(notebook, progress, token));
+            if (result.Cancelled || result.Root == null)
+            {
+                MessageBox.Show(this, "Импорт отменён. Дерево DocSets не изменено.",
+                    "Импорт из OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            await _viewModel.AddImportedRootAsync(result.Root, "Импорт OneNote: " + notebook.Name);
+            _composition.Owner.RefreshAll();
+            var details = result.Errors.Count == 0 ? "" :
+                Environment.NewLine + Environment.NewLine + "Ошибки отдельных страниц:" + Environment.NewLine +
+                string.Join(Environment.NewLine, result.Errors.Take(10)) +
+                (result.Errors.Count > 10 ? Environment.NewLine + "…" : "");
+            MessageBox.Show(this,
+                $"Импорт завершён.\r\nПапок: {result.Folders}\r\nСтраниц: {result.Pages}\r\n" +
+                $"Изображений: {result.Images}\r\nОшибок страниц: {result.FailedPages}" + details,
+                "Импорт из OneNote", MessageBoxButtons.OK,
+                result.FailedPages == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        catch (Exception exception)
+        {
+            ReportError("Не удалось импортировать записную книжку OneNote.", exception);
         }
     }
 

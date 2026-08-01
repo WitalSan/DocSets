@@ -19,6 +19,7 @@ namespace DocSets
     public abstract class HtmlWebEditorCommentControl : UserControl
     {
         private const string AssetHostPrefix = "https://docsets.assets/";
+        private static readonly TimeSpan WebViewInitializationTimeout = TimeSpan.FromSeconds(20);
         private readonly WebView2 webView = new WebView2 { Dock = DockStyle.Fill, AllowExternalDrop = true };
         private readonly Label status = new Label
         {
@@ -99,6 +100,10 @@ namespace DocSets
         internal Task SimulatePlainTextCodePasteAsync(string text, string language)
             => webView.ExecuteScriptAsync("window.docsetsTestPasteAndCode(" +
                 JsonConvert.SerializeObject(text ?? string.Empty) + "," +
+                JsonConvert.SerializeObject(language ?? "plaintext") + ")");
+
+        internal Task SimulateSelectedCodeBlockAsync(string language)
+            => webView.ExecuteScriptAsync("window.docsetsTestSelectAllAndCode(" +
                 JsonConvert.SerializeObject(language ?? "plaintext") + ")");
 
         internal async Task<bool> ApplySyntaxHighlightAsync()
@@ -265,12 +270,21 @@ namespace DocSets
             {
                 initializationStage = "creating-environment";
                 var userDataFolder = string.IsNullOrWhiteSpace(webViewUserDataFolder)
-                    ? Path.Combine(Path.GetTempPath(), "DocSets", defaultProfileName)
+                    ? GetDefaultUserDataFolder()
                     : webViewUserDataFolder;
                 Directory.CreateDirectory(userDataFolder);
-                var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+                DocSetsLog.Current.Info("Jodit", editorName +
+                    ": creating WebView2 environment in " + userDataFolder + ".");
+
+                var environmentTask = CoreWebView2Environment.CreateAsync(
+                    userDataFolder: userDataFolder);
+                var environment = await WaitWithTimeoutAsync(
+                    environmentTask, WebViewInitializationTimeout, initializationStage);
                 initializationStage = "ensuring-core-webview2";
-                await webView.EnsureCoreWebView2Async(environment);
+                await WaitWithTimeoutAsync(
+                    webView.EnsureCoreWebView2Async(environment),
+                    WebViewInitializationTimeout,
+                    initializationStage);
                 await WebEditorExternalDropBridge.InstallAsync(webView.CoreWebView2);
                 initializationStage = "configuring-webview2";
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
@@ -291,6 +305,52 @@ namespace DocSets
                 initializationStage = "error at " + failedStage + ": " + exception.Message;
                 ShowError("WebView2/" + editorName + " недоступен (" + failedStage + "): " + exception.Message);
             }
+        }
+
+        private string GetDefaultUserDataFolder()
+        {
+            // Desktop, devenv и тесты не должны совместно использовать один Chromium-профиль.
+            // Иначе аварийно завершённый Desktop способен заблокировать редактор внутри VS.
+            var hostName = AppDomain.CurrentDomain.FriendlyName ?? "DocSets";
+            foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
+                hostName = hostName.Replace(invalidCharacter, '_');
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DocSets",
+                "WebView2",
+                hostName,
+                defaultProfileName);
+        }
+
+        private static async Task<T> WaitWithTimeoutAsync<T>(
+            Task<T> task, TimeSpan timeout, string stage)
+        {
+            var completed = await Task.WhenAny(task, Task.Delay(timeout));
+            if (ReferenceEquals(completed, task)) return await task;
+            ObserveLateFailure(task);
+            throw new TimeoutException(
+                "WebView2 initialization timed out at " + stage + ".");
+        }
+
+        private static async Task WaitWithTimeoutAsync(
+            Task task, TimeSpan timeout, string stage)
+        {
+            var completed = await Task.WhenAny(task, Task.Delay(timeout));
+            if (ReferenceEquals(completed, task))
+            {
+                await task;
+                return;
+            }
+            ObserveLateFailure(task);
+            throw new TimeoutException(
+                "WebView2 initialization timed out at " + stage + ".");
+        }
+
+        private static void ObserveLateFailure(Task task)
+        {
+            _ = task.ContinueWith(
+                completed => { _ = completed.Exception; },
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         private void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)

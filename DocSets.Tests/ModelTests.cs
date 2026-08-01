@@ -87,6 +87,27 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void EnsureReadableIdsDoesNotUseVirtualRootIds()
+        {
+            var state = new DocumentSetsState();
+            var history = Bookmark("History", "history.cs", BookmarkType.File);
+            history.Id = "history";
+            var recent = Folder("Recent");
+            recent.Id = "recent";
+            var pin = Folder("Pin");
+            pin.Id = "pin";
+            state.Sets.Add(history);
+            state.Sets.Add(recent);
+            state.Sets.Add(pin);
+
+            state.EnsureReadableIds();
+
+            Assert.Equal("history-2", history.Id);
+            Assert.Equal("recent-2", recent.Id);
+            Assert.Equal("pin-2", pin.Id);
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void RegenerateAllReadableIdsUsesNamesAndReturnsMigration()
         {
             var state = new DocumentSetsState();

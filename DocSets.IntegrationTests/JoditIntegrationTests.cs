@@ -137,6 +137,32 @@ namespace DocSets.Tests
                     Assert.False(htmlAfterHighlight.Contains("token keyword"),
                         "Токены подсветки попали в сохраняемый HTML заметки.");
 
+                    editor.LoadComment(
+                        "static void test(CancellationToken token){" +
+                        "<div style=\"text-align:left;margin-left:24px\">while(true){" +
+                        "<div style=\"font-family:Consolas;margin-left:24px\">Task.Delay(100);</div>" +
+                        "<div style=\"margin-left:24px\">if(token.IsCancellationRequested){" +
+                        "<div style=\"font-family:Consolas;margin-left:24px\">token.ThrowIfCancellationRequested();</div>" +
+                        "</div><div style=\"margin-left:24px\">}</div></div>" +
+                        "<div style=\"margin-left:24px\">}</div><div>}</div>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("Task.Delay(100)"),
+                        "Jodit не загрузил OneNote-HTML для проверки отступов.");
+                    await editor.SimulateSelectedCodeBlockAsync("csharp");
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return value.Contains(
+                            "static void test(CancellationToken token){\n" +
+                            "    while(true){\n" +
+                            "        Task.Delay(100);\n" +
+                            "        if(token.IsCancellationRequested){\n" +
+                            "            token.ThrowIfCancellationRequested();\n" +
+                            "        }\n" +
+                            "    }\n" +
+                            "}");
+                    }, "Код/C# потерял визуальные отступы OneNote-HTML.");
+
                     var clipboardHtml = await editor.BuildCodeClipboardHtmlAsync(
                         "def calculate(value):\n" +
                         "    if value > 0:\n" +

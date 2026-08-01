@@ -27,7 +27,14 @@ namespace DocSets.Tests
                 if (filter == "all" || filter == "drop")
                     new ExternalSymbolDropIntegrationTests()
                         .ExternalDropPipelineInsertsJoditHtmlLink();
-                Console.WriteLine("Интеграционные тесты Jodit и Clipboard пройдены.");
+                if (filter == "onenote")
+                {
+                    var notebookPath = args.Length > 1 ? args[1] :
+                        @"D:\-Projects-\VS\DocSets\-OneNote.Test-\SigmaIT-Собеседования";
+                    new OneNoteImportIntegrationTests()
+                        .ImportsLocalNotebookThroughComAndProductionService(notebookPath);
+                }
+                Console.WriteLine("Интеграционные тесты пройдены.");
                 Trace("Тест пройден.");
                 return 0;
             }

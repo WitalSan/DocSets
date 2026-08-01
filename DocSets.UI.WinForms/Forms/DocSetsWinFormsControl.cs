@@ -2360,8 +2360,10 @@ namespace DocSets
             _experimentalPropertiesPanel.RestoreDockLayout(local.PropertiesDockLayout);
             _experimentalPropertiesPanel.ApplySelectedContentTab(local.PropertiesContentTab);
 
-            var byId = EnumerateItems(_viewModel.Root.Children).Where(x => !string.IsNullOrWhiteSpace(x.Id))
-                .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+            var byId = EnumerateItems(_viewModel.Root.Children)
+                .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+                .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
             _collapsedItemsByView.Clear();
             _selectedItemsByView.Clear();
             foreach (var pair in local.Views ?? new Dictionary<string, TreeViewLocalState>())

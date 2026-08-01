@@ -329,6 +329,60 @@
   const escapeHtml = value => String(value || '').replace(/[&<>"']/g, character =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 
+  function selectedCodeText(selection) {
+    if (!selection || !selection.rangeCount || selection.isCollapsed) return '';
+    const range = selection.getRangeAt(0);
+    const startCode = closestCode(range.startContainer);
+    const endCode = closestCode(range.endContainer);
+    if (startCode && startCode === endCode) return selection.toString();
+
+    const fragment = range.cloneContents();
+    const blockNames = new Set([
+      'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DIV', 'FIGCAPTION', 'FIGURE',
+      'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEADER', 'LI', 'MAIN',
+      'NAV', 'OL', 'P', 'PRE', 'SECTION', 'TABLE', 'TBODY', 'TD', 'TH', 'TR', 'UL'
+    ]);
+    const lines = [''];
+    const appendLineBreak = () => {
+      if (lines[lines.length - 1] !== '') lines.push('');
+    };
+    const appendText = (value, margin) => {
+      const normalized = String(value || '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ');
+      if (!normalized || (/^\s+$/.test(normalized) && /\n/.test(normalized))) return;
+      normalized.split('\n').forEach((part, index) => {
+        if (index) lines.push('');
+        if (!part) return;
+        const current = lines.length - 1;
+        if (!lines[current]) lines[current] = ' '.repeat(Math.max(0, Math.round(margin / 6)));
+        lines[current] += part;
+      });
+    };
+    const visit = (node, inheritedMargin) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        appendText(node.data, inheritedMargin);
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE)
+        return;
+      if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === 'BR') {
+        appendLineBreak();
+        return;
+      }
+
+      const isElement = node.nodeType === Node.ELEMENT_NODE;
+      const isBlock = isElement && blockNames.has(node.nodeName);
+      const ownMargin = isElement ? Math.max(0, parseFloat(node.style.marginLeft) || 0) : 0;
+      const margin = inheritedMargin + ownMargin;
+      if (isBlock) appendLineBreak();
+      Array.from(node.childNodes || []).forEach(child => visit(child, margin));
+      if (isBlock) appendLineBreak();
+    };
+    visit(fragment, 0);
+    while (lines.length && lines[0] === '') lines.shift();
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines.join('\n');
+  }
+
   function insertCodeBlock(language, source) {
     if (!editor) return false;
     const normalizedLanguage = String(language || 'plaintext')
@@ -338,7 +392,7 @@
     const code = source == null
       ? (lastPastedPlainText != null
         ? lastPastedPlainText
-        : (selection ? selection.toString() : ''))
+        : selectedCodeText(selection))
       : String(source);
     lastPastedPlainText = null;
     editor.s.insertHTML(
@@ -644,6 +698,7 @@
 
   window.docsetsSetHtml = html => {
     if (!editor) return false;
+    lastPastedPlainText = null;
     suppressChanges = true;
     try {
       editor.value = toEditorHtml(html || '');
@@ -682,6 +737,7 @@
 
   window.docsetsRestoreSession = (session, expectedHtml) => {
     if (!editor) return false;
+    lastPastedPlainText = null;
     const expected = String(expectedHtml || '');
     if (!session || session.version !== 1 || String(session.html || '') !== expected ||
         !session.current || !Array.isArray(session.commands)) {
@@ -890,6 +946,16 @@
   window.docsetsTestPasteAndCode = (text, language) => {
     if (!editor) return false;
     insertPlainText(text);
+    return insertCodeBlock(language);
+  };
+
+  window.docsetsTestSelectAllAndCode = language => {
+    if (!editor) return false;
+    const range = document.createRange();
+    range.selectNodeContents(editor.editor);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
     return insertCodeBlock(language);
   };
 })();

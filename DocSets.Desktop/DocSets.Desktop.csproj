@@ -19,6 +19,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="Microsoft.Office.Interop.OneNote, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c, processorArchitecture=MSIL">
+      <HintPath>$(WINDIR)\assembly\GAC_MSIL\Microsoft.Office.Interop.OneNote\15.0.0.0__71e9bce111e9429c\Microsoft.Office.Interop.OneNote.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DocSets.Model\DocSets.Model.csproj" />
     <ProjectReference Include="..\DocSets.Serialization\DocSets.Serialization.csproj" />
     <ProjectReference Include="..\DocSets.Core\DocSets.Core.csproj" />

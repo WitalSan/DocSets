@@ -159,6 +159,30 @@ namespace DocSets
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
             => _workspace.SaveImageAssetAsync(content, mimeType, originalName);
 
+        /// <summary>
+        /// Atomically attaches a tree produced by a platform-specific importer.
+        /// Import protocol details deliberately stay outside DocSets.Core.
+        /// </summary>
+        public Task AddImportedRootAsync(DocumentItem root, string operationName)
+        {
+            if (root == null) throw new ArgumentNullException(nameof(root));
+            if (!IsLoaded || !CanSave)
+                throw new InvalidOperationException("Откройте DocSet перед импортом.");
+            if (root.NodeType != NodeType.Folder)
+                throw new ArgumentException("Корень импорта должен быть папкой.", nameof(root));
+
+            return ExecuteMutationAsync(
+                string.IsNullOrWhiteSpace(operationName) ? "Импорт" : operationName,
+                () =>
+                {
+                    Sets.Add(root);
+                    SelectedSet = root;
+                    SelectedNode = root;
+                    root.IsExpanded = true;
+                    InvalidateCommands();
+                });
+        }
+
         public Task<string> NormalizeCommentAssetsAsync(string markdown,
             CancellationToken cancellationToken = default)
             => _workspace.NormalizeCommentAssetsAsync(markdown, cancellationToken);

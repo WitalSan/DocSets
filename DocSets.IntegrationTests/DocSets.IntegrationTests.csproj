@@ -5,7 +5,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <TargetFramework>net472</TargetFramework>
-    <LangVersion>9</LangVersion>
+    <LangVersion>latest</LangVersion>
     <RootNamespace>DocSets.IntegrationTests</RootNamespace>
     <AssemblyName>DocSets.IntegrationTests</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -23,6 +23,12 @@
     </Reference>
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.Office.Interop.OneNote, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c, processorArchitecture=MSIL">
+      <HintPath>$(WINDIR)\assembly\GAC_MSIL\Microsoft.Office.Interop.OneNote\15.0.0.0__71e9bce111e9429c\Microsoft.Office.Interop.OneNote.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\DocSets.Model\DocSets.Model.csproj" />
@@ -31,5 +37,7 @@
     <ProjectReference Include="..\DocSets.Editor.Jodit\DocSets.Editor.Jodit.csproj" />
     <ProjectReference Include="..\DocSets.UI.WinForms\DocSets.UI.WinForms.csproj" />
     <Compile Include="..\DocSets.Tests\TestFramework.cs" Link="TestFramework.cs" />
+    <Compile Include="..\DocSets.Desktop\OneNote\OneNoteImportModels.cs" Link="OneNote\OneNoteImportModels.cs" />
+    <Compile Include="..\DocSets.Desktop\OneNote\OneNoteImportService.cs" Link="OneNote\OneNoteImportService.cs" />
   </ItemGroup>
 </Project>

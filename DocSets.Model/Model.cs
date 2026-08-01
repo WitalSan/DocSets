@@ -245,7 +245,7 @@ namespace DocSets
         public Dictionary<string, string> RegenerateAllReadableIds()
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "root" };
+            var usedIds = CreateReservedIds();
 
             foreach (var item in EnumerateItems(Sets).Where(x => !x.IsLocalOnly))
             {
@@ -266,7 +266,7 @@ namespace DocSets
         public Dictionary<string, string> EnsureReadableIds()
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "root" };
+            var usedIds = CreateReservedIds();
 
             foreach (var item in EnumerateItems(Sets).Where(x => !x.IsLocalOnly))
             {
@@ -299,6 +299,16 @@ namespace DocSets
             Guid parsed;
             return Guid.TryParse(value, out parsed) ||
                    (value != null && value.Length == 32 && Guid.TryParseExact(value, "N", out parsed));
+        }
+
+        private static HashSet<string> CreateReservedIds()
+        {
+            // Эти идентификаторы принадлежат локальным виртуальным веткам,
+            // которые добавляются после загрузки сохраняемого дерева.
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "root", "history", "recent", "pin"
+            };
         }
 
         private static string CreateReadableId(string name, ISet<string> usedIds)
