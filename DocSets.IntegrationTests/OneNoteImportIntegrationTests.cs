@@ -2,9 +2,11 @@ using DocSets.Desktop.OneNote;
 using Microsoft.Office.Interop.OneNote;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Xml.Linq;
 
@@ -20,6 +22,7 @@ namespace DocSets.Tests
 
         public void ImportsLocalNotebookThroughComAndProductionService(string notebookPath)
         {
+            VerifyInternalLinkConversion();
             var notebookDirectory = Directory.Exists(notebookPath)
                 ? notebookPath
                 : File.Exists(notebookPath) && string.Equals(Path.GetExtension(notebookPath), ".onetoc2",
@@ -94,11 +97,82 @@ namespace DocSets.Tests
             Assert.True(Enumerate(result.Root).Any(item =>
                     (item.Content ?? "").IndexOf("margin-left:", StringComparison.OrdinalIgnoreCase) >= 0),
                 "Импортированный HTML не содержит сохранённых отступов OneNote.");
+            VerifyImportedInternalLinks(result);
             Assert.Equal(result.Images, savedImages, "Счётчик сохранённых изображений не совпал.");
             Console.WriteLine($"Import result: root={result.Root.Name}, folders={result.Folders}, " +
-                              $"pages={result.Pages}, images={result.Images}, failed={result.FailedPages}");
+                              $"pages={result.Pages}, images={result.Images}, links={result.InternalLinks}, " +
+                              $"unresolved links={result.UnresolvedInternalLinks}, failed={result.FailedPages}");
             if (result.Errors.Count > 0)
                 Console.WriteLine(string.Join(Environment.NewLine, result.Errors));
+        }
+
+        private static void VerifyImportedInternalLinks(OneNoteImportResult result)
+        {
+            var items = Enumerate(result.Root).ToList();
+            var targets = items.Where(item => !string.IsNullOrWhiteSpace(item.Id))
+                .ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+            var links = items.SelectMany(item => Regex.Matches(item.Content ?? string.Empty,
+                    "href=[\\\"'](?<url>https://docsets\\.local/bookmark/[^\\\"']+)[\\\"']",
+                    RegexOptions.IgnoreCase).Cast<Match>())
+                .Select(match => new Uri(match.Groups["url"].Value))
+                .ToList();
+
+            Assert.Equal(3, links.Count,
+                "В -OneNote.Test- должны импортироваться три внутренние ссылки.");
+            Assert.Equal(3, result.InternalLinks,
+                "Счётчик разрешённых ссылок не совпал с тестовой книгой.");
+            Assert.Equal(0, result.UnresolvedInternalLinks,
+                "Внутренние ссылки тестовой книги разрешены не полностью.");
+            Assert.False(items.Any(item => Regex.IsMatch(item.Content ?? string.Empty,
+                    "href=[\\\"']onenote:", RegexOptions.IgnoreCase)),
+                "После импорта остались не преобразованные внутренние ссылки OneNote.");
+
+            foreach (var link in links)
+            {
+                var targetId = Uri.UnescapeDataString(
+                    link.AbsolutePath.Substring("/bookmark/".Length));
+                Assert.True(targets.TryGetValue(targetId, out var target),
+                    "Ссылка указывает на отсутствующий узел DocSets: " + targetId);
+                if (string.IsNullOrWhiteSpace(link.Fragment)) continue;
+                var anchor = Uri.UnescapeDataString(link.Fragment.TrimStart('#'));
+                Assert.True((target.Content ?? string.Empty).IndexOf(
+                                "id=\"" + anchor + "\"", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Ссылка указывает на отсутствующий текстовый объект: " + anchor +
+                    ". Фактические якоря: " + string.Join(", ", Regex.Matches(
+                            target.Content ?? string.Empty, "id=\"(?<id>[^\"]+)\"")
+                        .Cast<Match>().Select(match => match.Groups["id"].Value).Take(20)));
+            }
+        }
+
+        private static void VerifyInternalLinkConversion()
+        {
+            const string pageId = "{83409AAA-3104-43DA-A05C-B9AE83813310}";
+            const string sectionId = "{BA1973BB-DD6B-4CAC-9769-B927D6E22690}";
+            const string objectId = "{233C1803-0552-08ED-2DDA-774AFE125A5B}";
+            var targets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [pageId] = "docsets-page",
+                [sectionId] = "docsets-section"
+            };
+            var source = "<a href=\"onenote:#Page&amp;section-id=" + sectionId +
+                         "&amp;page-id=" + pageId + "&amp;object-id=" + objectId +
+                         "&amp;12&amp;base-path=D:\\Notebook\\Section.one\">page object</a> " +
+                         "<a href='onenote:#Section&amp;section-id=" + sectionId +
+                         "&amp;end'>section</a> " +
+                         "<a href=\"onenote:#Outside&amp;page-id={OUTSIDE}&amp;end\">outside</a>";
+
+            var converted = OneNoteImportService.RewriteOneNoteLinks(
+                source, targets, out var resolved, out var unresolved);
+
+            Assert.Equal(2, resolved, "Не разрешены ссылки OneNote на страницу и раздел.");
+            Assert.Equal(1, unresolved, "Не учтена ссылка за пределы импортируемой книги.");
+            Assert.True(converted.Contains(
+                    "https://docsets.local/bookmark/docsets-page#onenote-object-233c1803-0552-08ed-2dda-774afe125a5b"),
+                "Ссылка на объект страницы не содержит DocSets bookmark и HTML-якорь.");
+            Assert.True(converted.Contains("https://docsets.local/bookmark/docsets-section"),
+                "Ссылка на раздел не преобразована в DocSets bookmark.");
+            Assert.True(converted.Contains("page-id={OUTSIDE}"),
+                "Неразрешённая ссылка OneNote должна быть сохранена без потери адреса.");
         }
 
         private static string ReadLocalSections(string path)

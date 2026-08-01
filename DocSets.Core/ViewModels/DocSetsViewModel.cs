@@ -2169,6 +2169,21 @@ namespace DocSets
             var target = _treeService.Flatten(_state.Root.Children, includeCollapsed: true)
                 .FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
             if (target == null) return false;
+
+            if (target.Type == BookmarkType.Empty)
+            {
+                for (var parent = target.Parent; parent != null; parent = parent.Parent)
+                    parent.IsExpanded = true;
+                var set = target;
+                while (set.Parent != null && set.Parent.Parent != null) set = set.Parent;
+                if (set.NodeType == NodeType.Folder) SelectedSet = set;
+                SelectedNode = target;
+                SetSelectedNodes(new[] { target });
+                OnPropertyChanged(nameof(CurrentNodes));
+                InvalidateCommands();
+                return true;
+            }
+
             await OpenBookmarkAsync(target);
             return true;
         }

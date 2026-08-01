@@ -40,7 +40,8 @@
           const parts = uri.pathname.replace(/^\/+/, '').split('/');
           if (parts.length >= 2 && /^(symbol|bookmark|file)$/i.test(parts[0]))
             anchor.setAttribute('href', parts[0].toLowerCase() + ':' +
-              decodeURIComponent(parts.slice(1).join('/')));
+              decodeURIComponent(parts.slice(1).join('/')) +
+              (uri.hash ? decodeURIComponent(uri.hash) : ''));
         } catch (_) { }
       }
     });
@@ -229,7 +230,8 @@
       if (uri.hostname.toLowerCase() !== 'docsets.local') return uri.href;
       const parts = uri.pathname.replace(/^\/+/, '').split('/');
       if (parts.length < 2 || !/^(symbol|bookmark|file)$/i.test(parts[0])) return uri.href;
-      return parts[0].toLowerCase() + ':' + decodeURIComponent(parts.slice(1).join('/'));
+      return parts[0].toLowerCase() + ':' + decodeURIComponent(parts.slice(1).join('/')) +
+        (uri.hash ? decodeURIComponent(uri.hash) : '');
     } catch (_) {
       return target;
     }

@@ -141,6 +141,40 @@ namespace DocSets
             => webView.ExecuteScriptAsync("window.docsetsTestHistoryCommand(" +
                 JsonConvert.SerializeObject(command ?? "undo") + ")");
 
+        internal Task SimulateFirstLinkClickAsync()
+            => webView.ExecuteScriptAsync(
+                "(() => { const link = document.querySelector('.jodit-wysiwyg a[href]'); " +
+                "if (!link) return false; link.dispatchEvent(new MouseEvent('click', " +
+                "{ bubbles:true, cancelable:true })); return true; })()");
+
+        public async Task ScrollToAnchorAsync(string anchor)
+        {
+            if (!ready || webView.CoreWebView2 == null || string.IsNullOrWhiteSpace(anchor)) return;
+            await webView.ExecuteScriptAsync(
+                "(() => { const target = document.getElementById(" +
+                JsonConvert.SerializeObject(anchor) +
+                "); if (!target) return false; " +
+                "const editable = target.closest('.jodit-wysiwyg') || " +
+                "document.querySelector('.jodit-wysiwyg'); " +
+                "if (editable) editable.focus(); " +
+                "const range = document.createRange(); range.selectNodeContents(target); range.collapse(true); " +
+                "const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); " +
+                "target.scrollIntoView({block:'center'}); return true; })()");
+        }
+
+        internal async Task<bool> IsCaretAtAnchorStartAsync(string anchor)
+        {
+            if (!ready || webView.CoreWebView2 == null || string.IsNullOrWhiteSpace(anchor)) return false;
+            var result = await webView.ExecuteScriptAsync(
+                "(() => { const target = document.getElementById(" +
+                JsonConvert.SerializeObject(anchor) +
+                "); const selection = window.getSelection(); if (!target || !selection || " +
+                "selection.rangeCount !== 1) return false; const range = selection.getRangeAt(0); " +
+                "return range.collapsed && range.startOffset === 0 && " +
+                "(range.startContainer === target || target.contains(range.startContainer)); })()");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
         public async Task<string> CaptureEditingSessionAsync()
         {
             if (!ready || webView.CoreWebView2 == null) return null;
@@ -388,7 +422,10 @@ namespace DocSets
             if (parts.Length != 2) return false;
             var kind = parts[0].ToLowerInvariant();
             if (kind != "symbol" && kind != "bookmark" && kind != "file") return false;
-            LinkActivated?.Invoke(kind + ":" + Uri.UnescapeDataString(parts[1]));
+            var target = Uri.UnescapeDataString(parts[1]);
+            if (kind == "bookmark" && !string.IsNullOrWhiteSpace(uri.Fragment))
+                target += "#" + Uri.UnescapeDataString(uri.Fragment.TrimStart('#'));
+            LinkActivated?.Invoke(kind + ":" + target);
             return true;
         }
 

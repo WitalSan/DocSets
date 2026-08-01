@@ -11,6 +11,7 @@ using System.Xml.Linq;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Microsoft.Office.Interop.OneNote;
 
 namespace DocSets.Desktop.OneNote;
@@ -21,6 +22,9 @@ internal sealed class OneNoteImportService
     private const int HierarchyNotebooks = 2;
     private const int HierarchyPages = 4;
     private readonly Func<byte[], string, string, Task<string>> _saveImage;
+    private static readonly Regex HrefPattern = new(
+        "(?<prefix>\\bhref\\s*=\\s*)(?<quote>[\\\"'])(?<value>.*?)(\\k<quote>)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public OneNoteImportService(Func<byte[], string, string, Task<string>> saveImage)
     {
@@ -91,6 +95,9 @@ internal sealed class OneNoteImportService
             totalPages += document.Descendants().Count(x => x.Name.LocalName == "Page");
         }
 
+        var links = OneNoteLinkMap.Create(application, sectionDocuments.SelectMany(document =>
+            document.Root == null ? Enumerable.Empty<XElement>() : document.Root.DescendantsAndSelf()));
+
         var currentPage = 0;
         for (var index = 0; index < sectionDocuments.Count; index++)
         {
@@ -99,10 +106,11 @@ internal sealed class OneNoteImportService
                 ? document.Root
                 : document.Descendants().FirstOrDefault(x => x.Name.LocalName == "Section");
             if (section == null) continue;
-            var folder = Folder(NameOf(section, Path.GetFileNameWithoutExtension(sectionPaths[index])));
+            var folder = Folder(NameOf(section, Path.GetFileNameWithoutExtension(sectionPaths[index])),
+                links.IdFor(section));
             result.Root.Children.Add(folder);
             result.Folders++;
-            ImportHierarchyChildren(application, section.Elements(), folder, result, totalPages,
+            ImportHierarchyChildren(application, section.Elements(), folder, links, result, totalPages,
                 ref currentPage, progress, cancellationToken);
         }
         return result;
@@ -122,13 +130,14 @@ internal sealed class OneNoteImportService
             ?? hierarchy.Descendants().FirstOrDefault(element => element.Name.LocalName == "Notebook")
             ?? throw new InvalidOperationException("OneNote не вернул структуру выбранной записной книжки.");
 
+        var links = OneNoteLinkMap.Create(application, sourceRoot.DescendantsAndSelf());
         var result = new OneNoteImportResult
         {
-            Root = Folder(NameOf(sourceRoot, notebook.Name))
+            Root = Folder(NameOf(sourceRoot, notebook.Name), links.IdFor(sourceRoot))
         };
         var pages = sourceRoot.Descendants().Count(element => element.Name.LocalName == "Page");
         var current = 0;
-        ImportHierarchyChildren(application, sourceRoot.Elements(), result.Root, result, pages,
+        ImportHierarchyChildren(application, sourceRoot.Elements(), result.Root, links, result, pages,
             ref current, progress, cancellationToken);
         result.Cancelled = cancellationToken.IsCancellationRequested;
         return result;
@@ -138,6 +147,7 @@ internal sealed class OneNoteImportService
         IApplication application,
         IEnumerable<XElement> children,
         DocumentItem targetParent,
+        OneNoteLinkMap links,
         OneNoteImportResult result,
         int totalPages,
         ref int currentPage,
@@ -151,7 +161,7 @@ internal sealed class OneNoteImportService
             if (child.Name.LocalName != "Page")
             {
                 pageParents.Clear();
-                ImportHierarchyNode(application, child, targetParent, result, totalPages,
+                ImportHierarchyNode(application, child, targetParent, links, result, totalPages,
                     ref currentPage, progress, cancellationToken);
                 continue;
             }
@@ -162,7 +172,7 @@ internal sealed class OneNoteImportService
             var parent = pageParents.Count == 0
                 ? targetParent
                 : pageParents[pageParents.Count - 1].Item;
-            var imported = ImportHierarchyNode(application, child, parent, result, totalPages,
+            var imported = ImportHierarchyNode(application, child, parent, links, result, totalPages,
                 ref currentPage, progress, cancellationToken);
             if (imported != null)
             {
@@ -187,6 +197,7 @@ internal sealed class OneNoteImportService
         IApplication application,
         XElement source,
         DocumentItem targetParent,
+        OneNoteLinkMap links,
         OneNoteImportResult result,
         int totalPages,
         ref int currentPage,
@@ -197,10 +208,11 @@ internal sealed class OneNoteImportService
         var kind = source.Name.LocalName;
         if (kind is "SectionGroup" or "Section")
         {
-            var folder = Folder(NameOf(source, kind == "Section" ? "Раздел" : "Группа разделов"));
+            var folder = Folder(NameOf(source, kind == "Section" ? "Раздел" : "Группа разделов"),
+                links.IdFor(source));
             targetParent.Children.Add(folder);
             result.Folders++;
-            ImportHierarchyChildren(application, source.Elements(), folder, result, totalPages,
+            ImportHierarchyChildren(application, source.Elements(), folder, links, result, totalPages,
                 ref currentPage, progress, cancellationToken);
             return folder;
         }
@@ -220,10 +232,12 @@ internal sealed class OneNoteImportService
             application.GetPageContent(Attribute(source, "ID"), out string pageXml,
                 PageInfo.piAll, XMLSchema.xs2013);
             var page = XDocument.Parse(pageXml, LoadOptions.PreserveWhitespace);
-            var html = ConvertPage(page, pageName, result, cancellationToken);
+            var html = ConvertPage(application, Attribute(source, "ID"), page, pageName,
+                links, result, cancellationToken);
             importedPage = new DocumentItem
             {
                 Name = pageName,
+                Id = links.IdFor(source),
                 NodeType = NodeType.Item,
                 Type = BookmarkType.Empty,
                 ContentFormat = ContentFormat.Html,
@@ -247,7 +261,7 @@ internal sealed class OneNoteImportService
         var nestedPages = source.Elements().Where(element =>
             element.Name.LocalName == "Page").ToList();
         if (nestedPages.Count > 0)
-            ImportHierarchyChildren(application, nestedPages, importedPage ?? targetParent, result,
+            ImportHierarchyChildren(application, nestedPages, importedPage ?? targetParent, links, result,
                 totalPages, ref currentPage, progress, cancellationToken);
         return importedPage;
     }
@@ -258,10 +272,13 @@ internal sealed class OneNoteImportService
             ? Math.Max(1, level)
             : 1;
 
-    private string ConvertPage(XDocument page, string pageName, OneNoteImportResult result,
+    private string ConvertPage(IApplication application, string pageId, XDocument page,
+        string pageName, OneNoteLinkMap links,
+        OneNoteImportResult result,
         CancellationToken cancellationToken)
     {
         var body = new StringBuilder();
+        var objectAnchors = BuildPageObjectAnchors(application, pageId, page, cancellationToken);
         var pageElement = page.Descendants().FirstOrDefault(x => x.Name.LocalName == "Page");
         var title = pageElement?.Elements().FirstOrDefault(x => x.Name.LocalName == "Title");
         if (title != null)
@@ -285,13 +302,14 @@ internal sealed class OneNoteImportService
             var x = GetOutlineX(outline);
             var margin = x.HasValue ? Math.Max(0, Math.Min(600, x.Value - leftEdge)) : 0;
             if (margin > 0) body.Append("<div style=\"margin-left:").Append(margin.ToString("0.##", CultureInfo.InvariantCulture)).Append("px\">");
-            body.Append(ConvertChildren(children, result, cancellationToken, 0));
+            body.Append(ConvertChildren(children, links, objectAnchors, result, cancellationToken, 0));
             if (margin > 0) body.Append("</div>");
         }
         return body.ToString();
     }
 
-    private string ConvertChildren(XElement children, OneNoteImportResult result,
+    private string ConvertChildren(XElement children, OneNoteLinkMap links,
+        IReadOnlyDictionary<string, string> objectAnchors, OneNoteImportResult result,
         CancellationToken cancellationToken, int depth)
     {
         var output = new StringBuilder();
@@ -308,16 +326,19 @@ internal sealed class OneNoteImportService
                 if (listKind != null) output.Append('<').Append(listKind).Append('>');
                 openList = listKind;
             }
-            var content = ConvertOutlineElement(element, result, cancellationToken, depth);
+            var content = ConvertOutlineElement(element, links, objectAnchors, result,
+                cancellationToken, depth);
             var style = BuildParagraphStyle(element, listKind == null && depth > 0 ? 24 : 0);
-            output.Append(listKind == null ? "<div" + style + ">" : "<li" + style + ">").Append(content)
+            var anchor = BuildObjectAnchorAttribute(element, objectAnchors);
+            output.Append(listKind == null ? "<div" + anchor + style + ">" : "<li" + anchor + style + ">").Append(content)
                 .Append(listKind == null ? "</div>" : "</li>");
         }
         if (openList != null) output.Append("</").Append(openList).Append('>');
         return output.ToString();
     }
 
-    private string ConvertOutlineElement(XElement element, OneNoteImportResult result,
+    private string ConvertOutlineElement(XElement element, OneNoteLinkMap links,
+        IReadOnlyDictionary<string, string> objectAnchors, OneNoteImportResult result,
         CancellationToken cancellationToken, int depth)
     {
         var output = new StringBuilder();
@@ -326,23 +347,29 @@ internal sealed class OneNoteImportService
             switch (child.Name.LocalName)
             {
                 case "T":
-                    output.Append(child.Value); // OneNote stores formatted text as an HTML fragment.
+                    output.Append(RewriteOneNoteLinks(child.Value, links.Targets,
+                        out var resolved, out var unresolved));
+                    result.InternalLinks += resolved;
+                    result.UnresolvedInternalLinks += unresolved;
                     break;
                 case "Table":
-                    output.Append(ConvertTable(child, result, cancellationToken, depth));
+                    output.Append(ConvertTable(child, links, objectAnchors, result,
+                        cancellationToken, depth));
                     break;
                 case "Image":
                     output.Append(ConvertImage(child, result, cancellationToken));
                     break;
                 case "OEChildren":
-                    output.Append(ConvertChildren(child, result, cancellationToken, depth + 1));
+                    output.Append(ConvertChildren(child, links, objectAnchors, result,
+                        cancellationToken, depth + 1));
                     break;
             }
         }
         return output.Length == 0 ? "<br>" : output.ToString();
     }
 
-    private string ConvertTable(XElement table, OneNoteImportResult result,
+    private string ConvertTable(XElement table, OneNoteLinkMap links,
+        IReadOnlyDictionary<string, string> objectAnchors, OneNoteImportResult result,
         CancellationToken cancellationToken, int depth)
     {
         var output = new StringBuilder("<table><tbody>");
@@ -352,7 +379,8 @@ internal sealed class OneNoteImportService
             foreach (var cell in row.Elements().Where(x => x.Name.LocalName == "Cell"))
             {
                 var children = cell.Elements().FirstOrDefault(x => x.Name.LocalName == "OEChildren");
-                output.Append("<td>").Append(children == null ? "" : ConvertChildren(children, result, cancellationToken, depth)).Append("</td>");
+                output.Append("<td>").Append(children == null ? "" : ConvertChildren(children,
+                    links, objectAnchors, result, cancellationToken, depth)).Append("</td>");
             }
             output.Append("</tr>");
         }
@@ -387,14 +415,200 @@ internal sealed class OneNoteImportService
         return "<img src=\"" + WebUtility.HtmlEncode(reference) + "\" alt=\"" + WebUtility.HtmlEncode(alt) + "\">";
     }
 
-    private static DocumentItem Folder(string name) => new()
+    internal static string RewriteOneNoteLinks(
+        string html,
+        IReadOnlyDictionary<string, string> targets,
+        out int resolved,
+        out int unresolved)
     {
+        var resolvedCount = 0;
+        var unresolvedCount = 0;
+        var rewritten = HrefPattern.Replace(html ?? string.Empty, match =>
+        {
+            var href = WebUtility.HtmlDecode(match.Groups["value"].Value);
+            if (!href.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase))
+                return match.Value;
+
+            var pageId = LinkParameter(href, "page-id");
+            var sectionId = LinkParameter(href, "section-id");
+            var sourceId = string.IsNullOrWhiteSpace(pageId) ? sectionId : pageId;
+            if (!TryResolveTarget(targets, sourceId, out var targetId))
+            {
+                unresolvedCount++;
+                return match.Value;
+            }
+
+            var target = "https://docsets.local/bookmark/" + Uri.EscapeDataString(targetId);
+            var objectId = LinkParameter(href, "object-id");
+            if (!string.IsNullOrWhiteSpace(objectId))
+                target += "#" + Uri.EscapeDataString(ObjectLinkAnchor(href, objectId));
+            resolvedCount++;
+            return match.Groups["prefix"].Value + match.Groups["quote"].Value +
+                   WebUtility.HtmlEncode(target) + match.Groups["quote"].Value;
+        });
+        resolved = resolvedCount;
+        unresolved = unresolvedCount;
+        return rewritten;
+    }
+
+    private static bool TryResolveTarget(
+        IReadOnlyDictionary<string, string> targets,
+        string sourceId,
+        out string targetId)
+    {
+        targetId = string.Empty;
+        if (string.IsNullOrWhiteSpace(sourceId) || targets == null) return false;
+        if (targets.TryGetValue(sourceId, out targetId)) return true;
+        var canonical = CanonicalOneNoteId(sourceId);
+        return !string.Equals(canonical, sourceId, StringComparison.OrdinalIgnoreCase) &&
+               targets.TryGetValue(canonical, out targetId);
+    }
+
+    private static string LinkParameter(string link, string name)
+    {
+        var match = Regex.Match(link ?? string.Empty,
+            "(?:[?&#]|^)" + Regex.Escape(name) + "=([^&#]+)",
+            RegexOptions.IgnoreCase);
+        if (!match.Success) return string.Empty;
+        try { return Uri.UnescapeDataString(match.Groups[1].Value.Replace("+", "%20")); }
+        catch (UriFormatException) { return match.Groups[1].Value; }
+    }
+
+    private static string BuildObjectAnchorAttribute(
+        XElement element,
+        IReadOnlyDictionary<string, string> objectAnchors)
+    {
+        var objectId = Attribute(element, "objectID");
+        var anchor = !string.IsNullOrWhiteSpace(objectId) && objectAnchors != null &&
+                     objectAnchors.TryGetValue(objectId, out var mapped)
+            ? mapped
+            : ObjectAnchor(objectId);
+        return string.IsNullOrWhiteSpace(objectId)
+            ? string.Empty
+            : " id=\"" + WebUtility.HtmlEncode(anchor) + "\"";
+    }
+
+    private static IReadOnlyDictionary<string, string> BuildPageObjectAnchors(
+        IApplication application,
+        string pageId,
+        XDocument page,
+        CancellationToken cancellationToken)
+    {
+        var anchors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var usedAnchors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in page.Descendants().Where(element =>
+                     !string.IsNullOrWhiteSpace(Attribute(element, "objectID"))))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var objectId = Attribute(element, "objectID");
+            try
+            {
+                application.GetHyperlinkToObject(pageId, objectId, out string hyperlink);
+                var hyperlinkObjectId = LinkParameter(WebUtility.HtmlDecode(hyperlink), "object-id");
+                if (!string.IsNullOrWhiteSpace(hyperlinkObjectId))
+                {
+                    var anchor = ObjectLinkAnchor(hyperlink, hyperlinkObjectId);
+                    anchors[objectId] = usedAnchors.Add(anchor) ? anchor : ObjectAnchor(objectId);
+                }
+            }
+            catch (COMException)
+            {
+                // Обычный objectID остаётся запасным якорем; ошибка отдельного объекта
+                // не должна прерывать импорт страницы.
+            }
+        }
+        return anchors;
+    }
+
+    private static string ObjectLinkAnchor(string link, string objectId) => ObjectAnchor(objectId);
+
+    private static string ObjectAnchor(string objectId)
+    {
+        var normalized = Regex.Replace((objectId ?? string.Empty).ToLowerInvariant(), "[^a-z0-9]+", "-")
+            .Trim('-');
+        return "onenote-object-" + normalized;
+    }
+
+    private static string CanonicalOneNoteId(string sourceId)
+    {
+        var match = Regex.Match(sourceId ?? string.Empty,
+            "\\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\}",
+            RegexOptions.IgnoreCase);
+        return match.Success ? match.Value : sourceId ?? string.Empty;
+    }
+
+    private static DocumentItem Folder(string name, string id = "") => new()
+    {
+        Id = id,
         Name = name,
         NodeType = NodeType.Folder,
         Type = BookmarkType.Empty,
         ContentFormat = ContentFormat.Html,
         IsExpanded = true
     };
+
+    private sealed class OneNoteLinkMap
+    {
+        private readonly Dictionary<string, string> _targets;
+
+        private OneNoteLinkMap(Dictionary<string, string> targets) => _targets = targets;
+
+        public IReadOnlyDictionary<string, string> Targets => _targets;
+
+        public string IdFor(XElement element)
+        {
+            var sourceId = Attribute(element, "ID");
+            return !string.IsNullOrWhiteSpace(sourceId) && _targets.TryGetValue(sourceId, out var id)
+                ? id
+                : string.Empty;
+        }
+
+        public static OneNoteLinkMap Create(IApplication application, IEnumerable<XElement> elements)
+        {
+            var targets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var importId = Guid.NewGuid().ToString("N");
+            var index = 0;
+            foreach (var element in elements ?? Enumerable.Empty<XElement>())
+            {
+                if (element.Name.LocalName is not ("Notebook" or "SectionGroup" or "Section" or "Page"))
+                    continue;
+                var sourceId = Attribute(element, "ID");
+                if (string.IsNullOrWhiteSpace(sourceId) || targets.ContainsKey(sourceId)) continue;
+                var targetId = "onenote-" + importId + "-" + ++index;
+                targets[sourceId] = targetId;
+                var canonical = CanonicalOneNoteId(sourceId);
+                if (!string.IsNullOrWhiteSpace(canonical) && !targets.ContainsKey(canonical))
+                    targets[canonical] = targetId;
+                AddHyperlinkAliases(application, sourceId, targetId, targets);
+            }
+            return new OneNoteLinkMap(targets);
+        }
+
+        private static void AddHyperlinkAliases(
+            IApplication application,
+            string hierarchyId,
+            string targetId,
+            IDictionary<string, string> targets)
+        {
+            if (application == null || string.IsNullOrWhiteSpace(hierarchyId)) return;
+            try
+            {
+                application.GetHyperlinkToObject(hierarchyId, null, out string hyperlink);
+                foreach (var name in new[] { "section-id", "page-id" })
+                {
+                    var alias = LinkParameter(WebUtility.HtmlDecode(hyperlink), name);
+                    if (!string.IsNullOrWhiteSpace(alias) && !targets.ContainsKey(alias))
+                        targets[alias] = targetId;
+                }
+            }
+            catch (COMException exception)
+            {
+                DocSetsLog.Current.Warning("OneNote",
+                    "Не удалось получить постоянный hyperlink ID узла " + hierarchyId +
+                    ": " + exception.Message);
+            }
+        }
+    }
 
     private static string Attribute(XElement element, string localName)
         => element?.Attributes().FirstOrDefault(x => x.Name.LocalName == localName)?.Value ?? "";

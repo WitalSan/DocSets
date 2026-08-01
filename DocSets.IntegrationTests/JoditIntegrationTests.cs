@@ -84,6 +84,28 @@ namespace DocSets.Tests
                     await WaitUntilAsync(async () => await editor.AreImagesLoadedAsync(),
                         "Jodit не загрузил существующее изображение из assets DocSets.");
 
+                    string activatedLink = null;
+                    editor.LinkActivated += target => activatedLink = target;
+                    editor.LoadComment("<p><a href=\"https://docsets.local/bookmark/" +
+                        "onenote-test-3#onenote-object-test\">OneNote link</a></p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains(
+                            "bookmark:onenote-test-3#onenote-object-test"),
+                        "Jodit потерял fragment внутренней ссылки при загрузке.");
+                    await editor.SimulateFirstLinkClickAsync();
+                    await WaitUntilAsync(() => activatedLink ==
+                        "bookmark:onenote-test-3#onenote-object-test",
+                        "Клик Jodit не передал bookmark и fragment в Desktop.");
+
+                    editor.LoadComment("<p>До объекта</p><div id=\"onenote-object-test\">" +
+                        "Начало целевого объекта</div><p>После объекта</p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("Начало целевого объекта"),
+                        "Jodit не загрузил объект для проверки перехода.");
+                    await editor.ScrollToAnchorAsync("onenote-object-test");
+                    Assert.True(await editor.IsCaretAtAnchorStartAsync("onenote-object-test"),
+                        "После перехода каретка не установлена в начало объекта OneNote.");
+
                     var imageRequested = false;
                     var formattedImageRequested = false;
                     editor.ImageInsertionRequested += (data, mime, name, requestId) =>

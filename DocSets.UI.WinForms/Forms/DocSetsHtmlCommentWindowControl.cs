@@ -23,6 +23,7 @@ namespace DocSets
         private readonly ToolTip toolTip = new ToolTip();
         private readonly System.Windows.Forms.Timer idleSaveTimer = new System.Windows.Forms.Timer { Interval = 3000 };
         private readonly SemaphoreSlim saveGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim switchGate = new SemaphoreSlim(1, 1);
         private readonly Dictionary<string, string> editingSessions =
             new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly LinkedList<string> editingSessionOrder = new LinkedList<string>();
@@ -266,18 +267,23 @@ namespace DocSets
 
         private async Task SwitchItemAsync(DocumentItem selectedItem)
         {
-            selectedItem = viewModel?.ResolvePin(selectedItem) ?? selectedItem;
-            if (ReferenceEquals(item, selectedItem))
+            await switchGate.WaitAsync();
+            try
             {
-                if (!dirty && item != null &&
-                    !string.Equals(editor.CommentText, item.Content ?? string.Empty, StringComparison.Ordinal))
-                    await ReloadCurrentItemAsync();
-                return;
+                selectedItem = viewModel?.ResolvePin(selectedItem) ?? selectedItem;
+                if (ReferenceEquals(item, selectedItem))
+                {
+                    if (!dirty && item != null &&
+                        !string.Equals(editor.CommentText, item.Content ?? string.Empty, StringComparison.Ordinal))
+                        await ReloadCurrentItemAsync();
+                    return;
+                }
+                await SaveAsync();
+                await CaptureCurrentEditingSessionAsync();
+                item = selectedItem;
+                await ReloadCurrentItemAsync();
             }
-            await SaveAsync();
-            await CaptureCurrentEditingSessionAsync();
-            item = selectedItem;
-            await ReloadCurrentItemAsync();
+            finally { switchGate.Release(); }
         }
 
         private async Task CaptureCurrentEditingSessionAsync()
@@ -424,7 +430,21 @@ namespace DocSets
                     await viewModel.OpenFileLinkAsync(link.Target, link.SourceId);
                     break;
                 case DocumentLinkKind.Bookmark:
-                    await viewModel.OpenBookmarkByIdAsync(link.Target);
+                    var bookmarkTarget = link.Target ?? string.Empty;
+                    var fragmentIndex = bookmarkTarget.IndexOf('#');
+                    var bookmarkId = fragmentIndex < 0
+                        ? bookmarkTarget
+                        : bookmarkTarget.Substring(0, fragmentIndex);
+                    var anchor = fragmentIndex < 0
+                        ? string.Empty
+                        : bookmarkTarget.Substring(fragmentIndex + 1);
+                    if (await viewModel.OpenBookmarkByIdAsync(bookmarkId))
+                    {
+                        source?.NavigateToSelectedItem();
+                        await SwitchItemAsync(source?.CurrentCommentItem);
+                        if (!string.IsNullOrWhiteSpace(anchor))
+                            await editor.ScrollToAnchorAsync(anchor);
+                    }
                     break;
                 case DocumentLinkKind.Url:
                     if (Uri.TryCreate(link.Target, UriKind.Absolute, out var uri))
@@ -458,6 +478,7 @@ namespace DocSets
                 idleSaveTimer.Stop();
                 editor.Dispose();
                 idleSaveTimer.Dispose();
+                switchGate.Dispose();
                 toolTip.Dispose();
                 saveButton.Image?.Dispose();
             }

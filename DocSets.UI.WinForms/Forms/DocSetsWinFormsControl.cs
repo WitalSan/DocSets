@@ -2484,6 +2484,14 @@ namespace DocSets
                 _contentSplit.Panel2Collapsed = true;
         }
 
+        public void NavigateToSelectedItem()
+        {
+            _showSetsOverview = false;
+            RefreshGroupsStrip();
+            RebuildTree(preferViewModelSelection: true);
+            RefreshStatus();
+        }
+
         private void RefreshToolbarItems()
         {
             _undoButton.Enabled = _viewModel.UndoCommand.CanExecute(null);
@@ -2807,7 +2815,7 @@ namespace DocSets
             RefreshToolbarItems();
         }
 
-        private void RebuildTree()
+        private void RebuildTree(bool preferViewModelSelection = false)
         {
             _recentCurrentSolutionOnly.Visible = !_showSetsOverview && ReferenceEquals(_viewModel.SelectedSet, _viewModel.RecentRoot);
             // Expansion and selection state belong to the displayed tab, not to the TreeView as a whole.
@@ -2821,6 +2829,9 @@ namespace DocSets
             var expansionOwner = _showSetsOverview
                 ? _setsOverviewExpansionOwner
                 : (object)_viewModel.SelectedSet;
+            if (preferViewModelSelection && expansionOwner != null)
+                _selectedItemsByView[expansionOwner] =
+                    new HashSet<DocumentItem>(_viewModel.SelectedNodes);
 
             var wasRefreshing = _refreshing;
             _refreshing = true;

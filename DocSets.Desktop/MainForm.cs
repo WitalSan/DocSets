@@ -235,7 +235,9 @@ internal sealed class MainForm : Form
                 (result.Errors.Count > 10 ? Environment.NewLine + "…" : "");
             MessageBox.Show(this,
                 $"Импорт завершён.\r\nПапок: {result.Folders}\r\nСтраниц: {result.Pages}\r\n" +
-                $"Изображений: {result.Images}\r\nОшибок страниц: {result.FailedPages}" + details,
+                $"Изображений: {result.Images}\r\nВнутренних ссылок: {result.InternalLinks}\r\n" +
+                $"Неразрешённых внутренних ссылок: {result.UnresolvedInternalLinks}\r\n" +
+                $"Ошибок страниц: {result.FailedPages}" + details,
                 "Импорт из OneNote", MessageBoxButtons.OK,
                 result.FailedPages == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
