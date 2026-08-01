@@ -159,6 +159,9 @@ namespace DocSets
         public Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName)
             => _workspace.SaveImageAssetAsync(content, mimeType, originalName);
 
+        public Task<string> SaveFileAssetAsync(byte[] content, string originalName)
+            => _workspace.SaveFileAssetAsync(content, originalName);
+
         /// <summary>
         /// Atomically attaches a tree produced by a platform-specific importer.
         /// Import protocol details deliberately stay outside DocSets.Core.

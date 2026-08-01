@@ -27,6 +27,15 @@
       else if (!toEditor && source.toLowerCase().startsWith(ASSET_PREFIX))
         image.setAttribute('src', 'asset:' + source.substring(ASSET_PREFIX.length));
     });
+    template.content.querySelectorAll('[data-docsets-attachment]').forEach(attachment => {
+      const source = attachment.getAttribute('data-docsets-attachment') || '';
+      if (toEditor && source.toLowerCase().startsWith('asset:'))
+        attachment.setAttribute('data-docsets-attachment',
+          ASSET_PREFIX + source.substring(6).replace(/^\/+/, ''));
+      else if (!toEditor && source.toLowerCase().startsWith(ASSET_PREFIX))
+        attachment.setAttribute('data-docsets-attachment',
+          'asset:' + source.substring(ASSET_PREFIX.length));
+    });
     template.content.querySelectorAll('a[href]').forEach(anchor => {
       const href = anchor.getAttribute('href') || '';
       if (toEditor) {
@@ -708,6 +717,43 @@
       event.stopPropagation();
       event.stopImmediatePropagation();
       send({ type: 'link', target: fromEditorLink(anchor.getAttribute('href') || anchor.href) });
+    }, true);
+    editable.addEventListener('dblclick', event => {
+      const attachment = event.target && event.target.closest
+        ? event.target.closest('[data-docsets-attachment]') : null;
+      if (!attachment) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      send({ type: 'attachment', action: 'open',
+        target: attachment.getAttribute('data-docsets-attachment') || '' });
+    }, true);
+    editable.addEventListener('contextmenu', event => {
+      const attachment = event.target && event.target.closest
+        ? event.target.closest('[data-docsets-attachment]') : null;
+      if (!attachment) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closePasteOptions();
+      const menu = document.createElement('div');
+      menu.className = 'docsets-paste-options';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Открыть с помощью...';
+      button.addEventListener('click', click => {
+        click.preventDefault();
+        click.stopPropagation();
+        closePasteOptions();
+        send({ type: 'attachment', action: 'openWith',
+          target: attachment.getAttribute('data-docsets-attachment') || '' });
+      });
+      menu.appendChild(button);
+      document.body.appendChild(menu);
+      pasteOptions = menu;
+      menu.style.left = Math.max(4, Math.min(event.clientX,
+        window.innerWidth - menu.offsetWidth - 4)) + 'px';
+      menu.style.top = Math.max(4, Math.min(event.clientY,
+        window.innerHeight - menu.offsetHeight - 4)) + 'px';
+      button.focus();
     }, true);
 
     send({

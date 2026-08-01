@@ -67,11 +67,20 @@ namespace DocSets.Tests
             Console.WriteLine("First page XML: " + pageXml.Length + " chars");
 
             var savedImages = 0;
+            var savedAttachments = 0;
             var service = new OneNoteImportService((bytes, mime, name) =>
             {
                 Assert.True(bytes != null && bytes.Length > 0, "Импортёр передал пустое изображение.");
                 savedImages++;
                 return System.Threading.Tasks.Task.FromResult("asset:test/" + name);
+            }, (bytes, name) =>
+            {
+                Assert.True(bytes != null && bytes.Length > 0,
+                    "Импортёр передал пустой вложенный файл.");
+                Assert.False(string.IsNullOrWhiteSpace(name),
+                    "Импортёр потерял исходное имя вложенного файла.");
+                savedAttachments++;
+                return System.Threading.Tasks.Task.FromResult("asset:files/test-" + name);
             });
             var result = RunStage("Production ImportLocalNotebookAsync", () =>
                 service.ImportLocalNotebookAsync(notebookPath, new Progress<OneNoteImportProgress>(value =>
@@ -99,8 +108,15 @@ namespace DocSets.Tests
                 "Импортированный HTML не содержит сохранённых отступов OneNote.");
             VerifyImportedInternalLinks(result);
             Assert.Equal(result.Images, savedImages, "Счётчик сохранённых изображений не совпал.");
+            Assert.True(result.Attachments > 0,
+                "Импортёр не обнаружил вложенный документ в тестовой книге OneNote.");
+            Assert.Equal(result.Attachments, savedAttachments,
+                "Не все вложенные документы были переданы в asset-хранилище.");
+            Assert.Equal(result.Attachments, Enumerate(result.Root).Sum(item =>
+                    CountOccurrences(item.Content, "data-docsets-attachment=")),
+                "Не для каждого вложения создан HTML-элемент DocSets.");
             Console.WriteLine($"Import result: root={result.Root.Name}, folders={result.Folders}, " +
-                              $"pages={result.Pages}, images={result.Images}, links={result.InternalLinks}, " +
+                              $"pages={result.Pages}, images={result.Images}, attachments={result.Attachments}, links={result.InternalLinks}, " +
                               $"unresolved links={result.UnresolvedInternalLinks}, failed={result.FailedPages}");
             if (result.Errors.Count > 0)
                 Console.WriteLine(string.Join(Environment.NewLine, result.Errors));

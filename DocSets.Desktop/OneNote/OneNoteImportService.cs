@@ -22,13 +22,17 @@ internal sealed class OneNoteImportService
     private const int HierarchyNotebooks = 2;
     private const int HierarchyPages = 4;
     private readonly Func<byte[], string, string, Task<string>> _saveImage;
+    private readonly Func<byte[], string, Task<string>> _saveFile;
     private static readonly Regex HrefPattern = new(
         "(?<prefix>\\bhref\\s*=\\s*)(?<quote>[\\\"'])(?<value>.*?)(\\k<quote>)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public OneNoteImportService(Func<byte[], string, string, Task<string>> saveImage)
+    public OneNoteImportService(Func<byte[], string, string, Task<string>> saveImage,
+        Func<byte[], string, Task<string>> saveFile = null)
     {
         _saveImage = saveImage ?? throw new ArgumentNullException(nameof(saveImage));
+        _saveFile = saveFile ?? ((_, name) => throw new InvalidOperationException(
+            "Хранилище вложенных файлов не настроено: " + name));
     }
 
     public Task<IReadOnlyList<OneNoteNotebook>> GetNotebooksAsync(CancellationToken cancellationToken)
@@ -359,6 +363,9 @@ internal sealed class OneNoteImportService
                 case "Image":
                     output.Append(ConvertImage(child, result, cancellationToken));
                     break;
+                case "InsertedFile":
+                    output.Append(ConvertInsertedFile(child, result, cancellationToken));
+                    break;
                 case "OEChildren":
                     output.Append(ConvertChildren(child, links, objectAnchors, result,
                         cancellationToken, depth + 1));
@@ -413,6 +420,49 @@ internal sealed class OneNoteImportService
         result.Images++;
         var alt = image.Elements().FirstOrDefault(x => x.Name.LocalName == "OCRText")?.Value ?? "";
         return "<img src=\"" + WebUtility.HtmlEncode(reference) + "\" alt=\"" + WebUtility.HtmlEncode(alt) + "\">";
+    }
+
+    private string ConvertInsertedFile(XElement file, OneNoteImportResult result,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var name = Attribute(file, "preferredName");
+        var cachePath = Attribute(file, "pathCache");
+        var sourcePath = Attribute(file, "pathSource");
+        if (string.IsNullOrWhiteSpace(name))
+            name = Path.GetFileName(!string.IsNullOrWhiteSpace(sourcePath) ? sourcePath : cachePath);
+        if (string.IsNullOrWhiteSpace(name)) name = "attachment.bin";
+        try
+        {
+            byte[] bytes = null;
+            var data = file.Elements().FirstOrDefault(element => element.Name.LocalName == "Data")?.Value;
+            if (!string.IsNullOrWhiteSpace(data)) bytes = Convert.FromBase64String(data);
+            var availablePath = new[] { cachePath, sourcePath }
+                .FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path));
+            if (bytes == null && availablePath != null) bytes = File.ReadAllBytes(availablePath);
+            if (bytes == null || bytes.Length == 0)
+                throw new FileNotFoundException("OneNote не предоставил содержимое вложения.", name);
+            var reference = _saveFile(bytes, name).GetAwaiter().GetResult();
+            result.Attachments++;
+            var extension = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+            var type = string.IsNullOrWhiteSpace(extension) ? "FILE" : extension;
+            return "<span class=\"docsets-attachment\" data-docsets-attachment=\"" +
+                WebUtility.HtmlEncode(reference) + "\" data-docsets-attachment-name=\"" +
+                WebUtility.HtmlEncode(name) + "\" contenteditable=\"false\" title=\"" +
+                WebUtility.HtmlEncode("Двойной щелчок — открыть " + name) +
+                "\"><span class=\"docsets-attachment-icon\">📄</span>" +
+                "<span class=\"docsets-attachment-type\">" + WebUtility.HtmlEncode(type) +
+                "</span><span class=\"docsets-attachment-name\">" + WebUtility.HtmlEncode(name) +
+                "</span></span>";
+        }
+        catch (Exception exception) when (!(exception is OperationCanceledException))
+        {
+            result.Errors.Add("Вложение " + name + ": " + exception.Message);
+            DocSetsLog.Current.Warning("OneNote", "Не удалось импортировать вложение '" + name + "': " + exception.Message);
+            return "<span class=\"docsets-attachment docsets-attachment-missing\" " +
+                "contenteditable=\"false\">📄 " + WebUtility.HtmlEncode(name) +
+                " (файл не импортирован)</span>";
+        }
     }
 
     internal static string RewriteOneNoteLinks(

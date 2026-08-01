@@ -27,6 +27,7 @@ internal sealed class OneNoteImportResult
     public int Folders { get; set; }
     public int Pages { get; set; }
     public int Images { get; set; }
+    public int Attachments { get; set; }
     public int InternalLinks { get; set; }
     public int UnresolvedInternalLinks { get; set; }
     public int FailedPages { get; set; }

@@ -97,6 +97,18 @@ namespace DocSets.Tests
                         "bookmark:onenote-test-3#onenote-object-test",
                         "Клик Jodit не передал bookmark и fragment в Desktop.");
 
+                    editor.LoadComment("<p><span class=\"docsets-attachment\" " +
+                        "data-docsets-attachment=\"asset:files/sample.docx\" " +
+                        "data-docsets-attachment-name=\"sample.docx\" contenteditable=\"false\">" +
+                        "<span class=\"docsets-attachment-icon\">file</span>" +
+                        "<span class=\"docsets-attachment-name\">sample.docx</span></span></p>");
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return value.Contains("data-docsets-attachment=\"asset:files/sample.docx\"") &&
+                               value.Contains("sample.docx");
+                    }, "Jodit потерял относительную asset-ссылку вложенного файла.");
+
                     editor.LoadComment("<p>До объекта</p><div id=\"onenote-object-test\">" +
                         "Начало целевого объекта</div><p>После объекта</p>");
                     await WaitUntilAsync(async () =>

@@ -13,7 +13,7 @@ namespace DocSets
     {
         public const string AssetPrefix = "asset:";
         private static readonly Regex AssetPattern = new Regex(
-            @"asset:(?<path>images/[A-Za-z0-9._-]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            @"asset:(?<path>(?:images|files)/[A-Za-z0-9._-]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex DataImagePattern = new Regex(
             @"data:(?<mime>image/(?:png|jpeg|gif|webp));base64,(?<data>[A-Za-z0-9+/=\r\n]+)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -29,6 +29,30 @@ namespace DocSets
             var extension = GetImageExtension(mimeType, originalName);
             var hash = ComputeHash(content);
             var relativePath = Path.Combine("images", hash + extension);
+            var fullPath = ResolveAssetPath(docSetDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+            if (!File.Exists(fullPath))
+            {
+                using (var stream = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write,
+                    FileShare.Read, 81920, true))
+                    await stream.WriteAsync(content, 0, content.Length, cancellationToken).ConfigureAwait(false);
+            }
+            return AssetPrefix + relativePath.Replace(Path.DirectorySeparatorChar, '/');
+        }
+
+        public async Task<string> SaveFileAsync(string docSetDirectory, byte[] content,
+            string originalName, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(docSetDirectory))
+                throw new ArgumentException("Необходимо указать каталог DocSet.", nameof(docSetDirectory));
+            if (content == null || content.Length == 0)
+                throw new ArgumentException("Вложенный файл пуст.", nameof(content));
+            var safeName = Path.GetFileName(originalName ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(safeName)) safeName = "attachment.bin";
+            safeName = string.Concat(safeName.Select(character =>
+                Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+            var hash = ComputeHash(content);
+            var relativePath = Path.Combine("files", hash + "-" + safeName);
             var fullPath = ResolveAssetPath(docSetDirectory, relativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
             if (!File.Exists(fullPath))

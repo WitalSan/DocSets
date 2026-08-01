@@ -29,6 +29,7 @@ namespace DocSets
         Task<bool> HasExternalChangesAsync();
 
         Task<string> SaveImageAssetAsync(byte[] content, string mimeType, string originalName);
+        Task<string> SaveFileAssetAsync(byte[] content, string originalName);
         Task<string> NormalizeCommentAssetsAsync(string content, CancellationToken cancellationToken = default);
         IReadOnlyList<string> FindAssetReferences(string content);
         byte[] ReadAsset(string assetReference);

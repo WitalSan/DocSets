@@ -62,6 +62,13 @@ namespace DocSets
             return _assetStorage.SaveImageAsync(_activeDocSetDirectory, content, mimeType, originalName);
         }
 
+        public Task<string> SaveFileAssetAsync(byte[] content, string originalName)
+        {
+            if (string.IsNullOrWhiteSpace(_activeDocSetDirectory))
+                throw new InvalidOperationException("DocSet не открыт.");
+            return _assetStorage.SaveFileAsync(_activeDocSetDirectory, content, originalName);
+        }
+
         public Task<string> NormalizeCommentAssetsAsync(string markdown,
             CancellationToken cancellationToken = default)
         {

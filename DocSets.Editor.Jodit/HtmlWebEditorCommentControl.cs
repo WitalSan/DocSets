@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Drawing;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -550,6 +551,10 @@ namespace DocSets
                 case "copyContent":
                     CopyContentToClipboard((string)message["html"], (string)message["text"]);
                     break;
+                case "attachment":
+                    OpenAttachment((string)message["target"],
+                        string.Equals((string)message["action"], "openWith", StringComparison.Ordinal));
+                    break;
                 case "error":
                     DocSetsLog.Current.Error("Заметки", "Ошибка " + editorName + ": " + ((string)message["message"] ?? string.Empty));
                     break;
@@ -679,6 +684,39 @@ namespace DocSets
             catch (Exception exception)
             {
                 DocSetsLog.Current.Error("Изображения", "Не удалось скопировать HTML-заметку.", exception);
+            }
+        }
+
+        private void OpenAttachment(string target, bool openWith)
+        {
+            try
+            {
+                if (!Uri.TryCreate(target, UriKind.Absolute, out var uri) ||
+                    !string.Equals(uri.Host, "docsets.assets", StringComparison.OrdinalIgnoreCase) ||
+                    !TryResolveAssetPath(uri, out var path))
+                    throw new InvalidDataException("Некорректный путь вложения.");
+                if (!File.Exists(path))
+                    throw new FileNotFoundException("Вложенный файл не найден.", path);
+                if (openWith)
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "rundll32.exe",
+                        Arguments = "shell32.dll,OpenAs_RunDLL \"" + path.Replace("\"", "") + "\"",
+                        UseShellExecute = true
+                    });
+                }
+                else
+                {
+                    Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                }
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Attachments", "Не удалось открыть вложенный файл.", exception);
+                MessageBox.Show(this,
+                    "Не удалось открыть вложенный файл.\r\n\r\n" + exception.Message,
+                    "Вложение DocSets", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 

@@ -207,7 +207,8 @@ internal sealed class MainForm : Form
         try
         {
             await _composition.Owner.CommitPendingCommentAsync();
-            var service = new OneNoteImportService(_viewModel.SaveImageAssetAsync);
+            var service = new OneNoteImportService(
+                _viewModel.SaveImageAssetAsync, _viewModel.SaveFileAssetAsync);
             var notebooks = await service.GetNotebooksAsync(CancellationToken.None);
             if (notebooks.Count == 0)
             {
@@ -235,7 +236,8 @@ internal sealed class MainForm : Form
                 (result.Errors.Count > 10 ? Environment.NewLine + "…" : "");
             MessageBox.Show(this,
                 $"Импорт завершён.\r\nПапок: {result.Folders}\r\nСтраниц: {result.Pages}\r\n" +
-                $"Изображений: {result.Images}\r\nВнутренних ссылок: {result.InternalLinks}\r\n" +
+                $"Изображений: {result.Images}\r\nВложенных файлов: {result.Attachments}\r\n" +
+                $"Внутренних ссылок: {result.InternalLinks}\r\n" +
                 $"Неразрешённых внутренних ссылок: {result.UnresolvedInternalLinks}\r\n" +
                 $"Ошибок страниц: {result.FailedPages}" + details,
                 "Импорт из OneNote", MessageBoxButtons.OK,
