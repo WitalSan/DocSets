@@ -43,6 +43,11 @@ namespace DocSets.Tests
             Directory.CreateDirectory(root);
             try
             {
+                var assetDirectory = Path.Combine(root, "assets");
+                var imageDirectory = Path.Combine(assetDirectory, "images");
+                Directory.CreateDirectory(imageDirectory);
+                File.WriteAllBytes(Path.Combine(imageDirectory, "test.png"), Convert.FromBase64String(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z9WQAAAAASUVORK5CYII="));
                 using (var form = new Form { Width = 900, Height = 600, ShowInTaskbar = false })
                 using (var editor = new JoditCommentControl(Path.Combine(root, "WebView2"))
                 {
@@ -51,6 +56,7 @@ namespace DocSets.Tests
                 {
                     form.Controls.Add(editor);
                     form.Show();
+                    editor.SetAssetDirectory(assetDirectory);
                     await WaitUntilAsync(() => editor.IsReady,
                         "Jodit не инициализирован. Этап: " + editor.InitializationStage);
 
@@ -75,12 +81,17 @@ namespace DocSets.Tests
                                value.Contains("symbol:test|DocSets.DocumentItem.Display") &&
                                value.Contains("asset:images/test.png");
                     }, "Jodit не сохранил таблицу, ссылку или asset-ссылку.");
+                    await WaitUntilAsync(async () => await editor.AreImagesLoadedAsync(),
+                        "Jodit не загрузил существующее изображение из assets DocSets.");
 
                     var imageRequested = false;
+                    var formattedImageRequested = false;
                     editor.ImageInsertionRequested += (data, mime, name, requestId) =>
                     {
                         imageRequested = data == "AQID" && mime == "image/png" &&
                                          name == "clipboard.png";
+                        formattedImageRequested = data == "AQID" && mime == "image/png" &&
+                                                  name == "formatted.png";
                         editor.CompleteImage("asset:images/clipboard.png", requestId);
                     };
                     await editor.SimulateImageInsertionAsync("AQID", "image/png", "clipboard.png");
@@ -88,6 +99,21 @@ namespace DocSets.Tests
                         (await editor.GetCurrentCommentAsync()).Contains(
                             "asset:images/clipboard.png"),
                         "Jodit не провёл изображение через общее asset-хранилище.");
+
+                    editor.LoadComment("<p>Форматированное изображение</p>");
+                    await editor.SimulateMixedPasteAsync(
+                        "<p><img src=\"https://example.test/external.png\" " +
+                        "alt=\"Picture background\" width=\"184\" height=\"184\"></p>",
+                        "Picture background", "AQID", "image/png", "formatted.png", "formatted");
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return formattedImageRequested &&
+                               value.Contains("asset:images/clipboard.png") &&
+                               !value.Contains("example.test/external.png") &&
+                               value.Contains("alt=\"Picture background\"") &&
+                               value.Contains("width=\"184\"");
+                    }, "Форматированная вставка не перенесла изображение в assets или потеряла атрибуты.");
 
                     editor.LoadComment("<p>Начало</p>");
                     await WaitUntilAsync(async () =>

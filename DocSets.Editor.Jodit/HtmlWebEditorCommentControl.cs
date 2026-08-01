@@ -129,6 +129,14 @@ namespace DocSets
             return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
         }
 
+        internal async Task<bool> AreImagesLoadedAsync()
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "Array.from(document.querySelectorAll('.jodit-wysiwyg img')).every(" +
+                "image => image.complete && image.naturalWidth > 0)");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal Task SimulateHistoryCommandAsync(string command)
             => webView.ExecuteScriptAsync("window.docsetsTestHistoryCommand(" +
                 JsonConvert.SerializeObject(command ?? "undo") + ")");

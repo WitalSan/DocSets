@@ -2459,6 +2459,7 @@ namespace DocSets
 
         public void RefreshAll()
         {
+            _experimentalPropertiesPanel.SetJoditAssetDirectory(_viewModel.AssetDirectory);
             if (_viewModel.IsLoaded && !_localStateRestored)
                 RestoreLocalState();
 

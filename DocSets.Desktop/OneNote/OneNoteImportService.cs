@@ -51,15 +51,24 @@ internal sealed class OneNoteImportService
             cancellationToken);
 
     internal Task<OneNoteImportResult> ImportLocalNotebookAsync(
-        string notebookDirectory,
+        string notebookPath,
         IProgress<OneNoteImportProgress> progress,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(notebookDirectory) || !Directory.Exists(notebookDirectory))
-            throw new DirectoryNotFoundException("Папка записной книжки не найдена: " + notebookDirectory);
+        var notebookDirectory = ResolveNotebookDirectory(notebookPath);
         return RunStaAsync<OneNoteImportResult>(application =>
             (OneNoteImportResult)ImportLocalCore(application, notebookDirectory, progress, cancellationToken),
             cancellationToken);
+    }
+
+    private static string ResolveNotebookDirectory(string notebookPath)
+    {
+        if (!string.IsNullOrWhiteSpace(notebookPath) && Directory.Exists(notebookPath))
+            return Path.GetFullPath(notebookPath);
+        if (!string.IsNullOrWhiteSpace(notebookPath) && File.Exists(notebookPath) &&
+            string.Equals(Path.GetExtension(notebookPath), ".onetoc2", StringComparison.OrdinalIgnoreCase))
+            return Path.GetDirectoryName(Path.GetFullPath(notebookPath));
+        throw new DirectoryNotFoundException("Записная книжка OneNote не найдена: " + notebookPath);
     }
 
     private OneNoteImportResult ImportLocalCore(IApplication application, string notebookDirectory,
@@ -93,9 +102,8 @@ internal sealed class OneNoteImportService
             var folder = Folder(NameOf(section, Path.GetFileNameWithoutExtension(sectionPaths[index])));
             result.Root.Children.Add(folder);
             result.Folders++;
-            foreach (var child in section.Elements())
-                ImportHierarchyNode(application, child, folder, result, totalPages, ref currentPage,
-                    progress, cancellationToken);
+            ImportHierarchyChildren(application, section.Elements(), folder, result, totalPages,
+                ref currentPage, progress, cancellationToken);
         }
         return result;
     }
@@ -120,13 +128,62 @@ internal sealed class OneNoteImportService
         };
         var pages = sourceRoot.Descendants().Count(element => element.Name.LocalName == "Page");
         var current = 0;
-        foreach (var child in sourceRoot.Elements())
-            ImportHierarchyNode(application, child, result.Root, result, pages, ref current, progress, cancellationToken);
+        ImportHierarchyChildren(application, sourceRoot.Elements(), result.Root, result, pages,
+            ref current, progress, cancellationToken);
         result.Cancelled = cancellationToken.IsCancellationRequested;
         return result;
     }
 
-    private void ImportHierarchyNode(
+    private void ImportHierarchyChildren(
+        IApplication application,
+        IEnumerable<XElement> children,
+        DocumentItem targetParent,
+        OneNoteImportResult result,
+        int totalPages,
+        ref int currentPage,
+        IProgress<OneNoteImportProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        var pageParents = new List<(int Level, DocumentItem Item)>();
+        foreach (var child in children)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (child.Name.LocalName != "Page")
+            {
+                pageParents.Clear();
+                ImportHierarchyNode(application, child, targetParent, result, totalPages,
+                    ref currentPage, progress, cancellationToken);
+                continue;
+            }
+
+            var level = PageLevel(child);
+            while (pageParents.Count > 0 && pageParents[pageParents.Count - 1].Level >= level)
+                pageParents.RemoveAt(pageParents.Count - 1);
+            var parent = pageParents.Count == 0
+                ? targetParent
+                : pageParents[pageParents.Count - 1].Item;
+            var imported = ImportHierarchyNode(application, child, parent, result, totalPages,
+                ref currentPage, progress, cancellationToken);
+            if (imported != null)
+            {
+                PromoteToFolderWhenItHasChildren(parent, result);
+                pageParents.Add((level, imported));
+            }
+        }
+    }
+
+    private static void PromoteToFolderWhenItHasChildren(
+        DocumentItem item,
+        OneNoteImportResult result)
+    {
+        if (item.NodeType == NodeType.Folder || item.Children.Count == 0) return;
+
+        item.NodeType = NodeType.Folder;
+        item.IsExpanded = true;
+        result.Folders++;
+    }
+
+    private DocumentItem ImportHierarchyNode(
         IApplication application,
         XElement source,
         DocumentItem targetParent,
@@ -143,12 +200,12 @@ internal sealed class OneNoteImportService
             var folder = Folder(NameOf(source, kind == "Section" ? "Раздел" : "Группа разделов"));
             targetParent.Children.Add(folder);
             result.Folders++;
-            foreach (var child in source.Elements())
-                ImportHierarchyNode(application, child, folder, result, totalPages, ref currentPage, progress, cancellationToken);
-            return;
+            ImportHierarchyChildren(application, source.Elements(), folder, result, totalPages,
+                ref currentPage, progress, cancellationToken);
+            return folder;
         }
 
-        if (kind != "Page") return;
+        if (kind != "Page") return null;
         currentPage++;
         var pageName = NameOf(source, "Страница");
         progress?.Report(new OneNoteImportProgress
@@ -157,20 +214,22 @@ internal sealed class OneNoteImportService
             Total = totalPages,
             Message = pageName
         });
+        DocumentItem importedPage = null;
         try
         {
             application.GetPageContent(Attribute(source, "ID"), out string pageXml,
                 PageInfo.piAll, XMLSchema.xs2013);
             var page = XDocument.Parse(pageXml, LoadOptions.PreserveWhitespace);
             var html = ConvertPage(page, pageName, result, cancellationToken);
-            targetParent.Children.Add(new DocumentItem
+            importedPage = new DocumentItem
             {
                 Name = pageName,
                 NodeType = NodeType.Item,
                 Type = BookmarkType.Empty,
                 ContentFormat = ContentFormat.Html,
                 Content = html
-            });
+            };
+            targetParent.Children.Add(importedPage);
             result.Pages++;
         }
         catch (OperationCanceledException) { throw; }
@@ -180,7 +239,24 @@ internal sealed class OneNoteImportService
             result.Errors.Add(pageName + ": " + exception.Message);
             DocSetsLog.Current.Error("OneNote", "Не удалось импортировать страницу '" + pageName + "'.", exception);
         }
+
+        // В OneNote дочерние страницы представлены вложенными элементами Page.
+        // DocumentItem поддерживает дочерние узлы и для заметок, поэтому сохраняем
+        // эту структуру напрямую. При ошибке родительской страницы её дети всё равно
+        // импортируются на ближайший успешно созданный уровень.
+        var nestedPages = source.Elements().Where(element =>
+            element.Name.LocalName == "Page").ToList();
+        if (nestedPages.Count > 0)
+            ImportHierarchyChildren(application, nestedPages, importedPage ?? targetParent, result,
+                totalPages, ref currentPage, progress, cancellationToken);
+        return importedPage;
     }
+
+    private static int PageLevel(XElement page)
+        => int.TryParse(Attribute(page, "pageLevel"), NumberStyles.Integer,
+               CultureInfo.InvariantCulture, out var level)
+            ? Math.Max(1, level)
+            : 1;
 
     private string ConvertPage(XDocument page, string pageName, OneNoteImportResult result,
         CancellationToken cancellationToken)

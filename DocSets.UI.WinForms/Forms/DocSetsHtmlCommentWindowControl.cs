@@ -166,7 +166,7 @@ namespace DocSets
                     source.CommentContentChanged += Source_CommentContentChanged;
                 }
             }
-            editor.SetAssetDirectory(viewModel?.AssetDirectory);
+            SetAssetDirectory(viewModel?.AssetDirectory);
             var toolbarVisible = viewModel?.SolutionState?.JoditToolbarVisible ?? true;
             if (toolbarButton.Checked != toolbarVisible)
                 toolbarButton.Checked = toolbarVisible;
@@ -183,6 +183,8 @@ namespace DocSets
         }
 
         public Task CommitPendingEditAsync() => SaveAsync(forceRead: true);
+
+        public void SetAssetDirectory(string value) => editor.SetAssetDirectory(value);
 
         public Task CommitPendingEditBeforeCloseAsync()
             => SaveAsync(forceRead: true);
@@ -245,6 +247,7 @@ namespace DocSets
             switching = true;
             try
             {
+                SetAssetDirectory(viewModel?.AssetDirectory);
                 var html = item?.Content ?? string.Empty;
                 editor.Enabled = item != null;
                 var session = item?.ContentFormat == ContentFormat.Html

@@ -93,6 +93,9 @@ namespace DocSets
 
         public Task CommitPendingCommentAsync() => joditComment.CommitPendingEditAsync();
 
+        public void SetJoditAssetDirectory(string value)
+            => joditComment.SetAssetDirectory(value);
+
         public void ShowSearchTab()
         {
             if (_externalDocking)

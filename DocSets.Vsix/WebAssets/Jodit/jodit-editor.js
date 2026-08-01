@@ -315,6 +315,29 @@
     insertHtmlAndSelect(html);
   }
 
+  function insertFormattedHtmlWithImages(html, plainText, files) {
+    const images = Array.from(files || []).filter(file =>
+      file && (!file.type || file.type.toLowerCase().startsWith('image/')));
+    if (!images.length) {
+      insertFormattedHtml(html, plainText);
+      return;
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = html || '';
+    const targets = Array.from(template.content.querySelectorAll('img'));
+    images.forEach((file, index) => {
+      const target = targets[index];
+      if (!target) return;
+      const requestId = 'jodit-image-' + (++requestNumber);
+      target.setAttribute('data-docsets-image-request', requestId);
+      target.setAttribute('data-docsets-original-src', target.getAttribute('src') || '');
+      target.removeAttribute('src');
+      readImage(file, requestId);
+    });
+    insertFormattedHtml(template.innerHTML, plainText);
+  }
+
   function insertPlainText(text) {
     if (!editor) return;
     const escape = value => String(value || '').replace(/[&<>"']/g, char =>
@@ -493,7 +516,7 @@
     };
 
     const formatted = add('С форматированием', 'Вставить HTML: таблицы, цвета и шрифты', () =>
-      insertFormattedHtml(html, text));
+      insertFormattedHtmlWithImages(html, text, files));
     add('Как изображение', 'Вставить снимок из буфера обмена', () =>
       insertImageFiles(files));
     add('Только текст', 'Удалить всё форматирование', () =>
@@ -859,10 +882,16 @@
   window.docsetsCompleteImage = (requestId, assetUrl) => {
     const marker = document.querySelector('[data-docsets-image-request="' + requestId + '"]');
     if (!marker) return false;
-    const image = document.createElement('img');
-    image.src = assetUrl;
-    image.alt = 'image';
-    marker.replaceWith(image);
+    if (marker.nodeName === 'IMG') {
+      marker.src = assetUrl;
+      marker.removeAttribute('data-docsets-image-request');
+      marker.removeAttribute('data-docsets-original-src');
+    } else {
+      const image = document.createElement('img');
+      image.src = assetUrl;
+      image.alt = 'image';
+      marker.replaceWith(image);
+    }
     editor.synchronizeValues();
     editor.events.fire('change', editor.value);
     return true;
@@ -871,6 +900,13 @@
   window.docsetsFailImage = (requestId, message) => {
     const marker = document.querySelector('[data-docsets-image-request="' + requestId + '"]');
     if (!marker) return false;
+    if (marker.nodeName === 'IMG') {
+      const originalSource = marker.getAttribute('data-docsets-original-src') || '';
+      if (originalSource) marker.src = originalSource;
+      marker.removeAttribute('data-docsets-image-request');
+      marker.removeAttribute('data-docsets-original-src');
+      return true;
+    }
     marker.textContent = message || 'Не удалось сохранить изображение';
     marker.removeAttribute('data-docsets-image-request');
     return true;
@@ -939,7 +975,7 @@
     const files = [new File([bytes], name || 'clipboard.png', { type: mime || 'image/png' })];
     if (choice === 'image') return insertImageFiles(files);
     if (choice === 'text') { insertPlainText(text); return true; }
-    insertFormattedHtml(html, text);
+    insertFormattedHtmlWithImages(html, text, files);
     return true;
   };
 
