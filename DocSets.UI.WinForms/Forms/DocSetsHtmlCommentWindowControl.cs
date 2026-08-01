@@ -250,6 +250,7 @@ namespace DocSets
             {
                 SetAssetDirectory(viewModel?.AssetDirectory);
                 var html = item?.Content ?? string.Empty;
+                editor.SetLinkNodeId(item?.Id);
                 editor.Enabled = item != null;
                 var session = item?.ContentFormat == ContentFormat.Html
                     ? GetEditingSession(item)

@@ -1400,6 +1400,9 @@ namespace DocSets
             AddContextFolderMenus();
             _nodeMenu.Items.Add(new ToolStripSeparator());
             AddNodeMenu("Copy", _viewModel.CopySelectedNodesCommand, "Ctrl+C", AppIcon.Copy);
+            var copyLink = new ToolStripMenuItem("Copy Link") { Name = "CopyNodeLink" };
+            copyLink.Click += (_, __) => CopyCurrentNodeLink();
+            _nodeMenu.Items.Add(copyLink);
             AddNodeMenu("Paste", _viewModel.PasteNodesCommand, "Ctrl+V", AppIcon.Paste);
             //AddJsonMenu();
             AddNodeMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
@@ -2235,7 +2238,26 @@ namespace DocSets
                 UpdateNodeMenuEnabled(_nodeMenu.Items, current);
                 var goToOriginal = _nodeMenu.Items.Find("GoToPinOriginal", false).FirstOrDefault();
                 if (goToOriginal != null) goToOriginal.Visible = current?.IsPinItem == true;
+                var copyLink = _nodeMenu.Items.Find("CopyNodeLink", false).FirstOrDefault();
+                var linkTarget = _viewModel.ResolvePin(current) ?? current;
+                if (copyLink != null) copyLink.Enabled = linkTarget != null &&
+                    !linkTarget.IsLocalOnly && !string.IsNullOrWhiteSpace(linkTarget.Id);
             };
+        }
+
+        private void CopyCurrentNodeLink()
+        {
+            var item = _viewModel.ResolvePin(GetCurrentItem()) ?? GetCurrentItem();
+            if (item == null || item.IsLocalOnly || string.IsNullOrWhiteSpace(item.Id)) return;
+            var url = "https://docsets.local/bookmark/" + Uri.EscapeDataString(item.Id);
+            var caption = string.IsNullOrWhiteSpace(item.Name) ? url : item.Name;
+            var html = "<a href=\"" + System.Net.WebUtility.HtmlEncode(url) + "\">" +
+                System.Net.WebUtility.HtmlEncode(caption) + "</a>";
+            var data = new DataObject();
+            data.SetData(DataFormats.UnicodeText, url);
+            data.SetData(DataFormats.Text, url);
+            data.SetData(DataFormats.Html, HtmlWebEditorCommentControl.BuildClipboardHtml(html));
+            Clipboard.SetDataObject(data, true);
         }
 
 

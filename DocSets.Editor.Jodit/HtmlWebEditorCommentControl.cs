@@ -38,6 +38,7 @@ namespace DocSets
         private string pendingEditingSession;
         private string cachedHtml = string.Empty;
         private string assetDirectory = string.Empty;
+        private string linkNodeId = string.Empty;
         private string initializationStage = "created";
         private bool focusWhenReady;
         private bool toolbarVisible = true;
@@ -80,6 +81,23 @@ namespace DocSets
 
         internal Task SetTestSelectionAsync(int textOffset)
             => webView.ExecuteScriptAsync("window.docsetsSetTestSelection(" + Math.Max(0, textOffset) + ")");
+
+        internal Task SetTestSelectionAsync(int textOffset, int length)
+            => webView.ExecuteScriptAsync("window.docsetsSetTestSelection(" + Math.Max(0, textOffset) + "," +
+                Math.Max(0, length) + ")");
+
+        internal async Task<string> SimulateCreateAnchorAsync()
+        {
+            var result = await webView.ExecuteScriptAsync("window.docsetsCreateAnchor && window.docsetsCreateAnchor()");
+            var value = JObject.Parse(result);
+            return (string)value["id"] ?? string.Empty;
+        }
+
+        internal async Task<string> GetSelectedTextAsync()
+        {
+            var result = await webView.ExecuteScriptAsync("String(window.getSelection ? window.getSelection() : '')");
+            return JsonConvert.DeserializeObject<string>(result) ?? string.Empty;
+        }
 
         internal Task SimulateImageInsertionAsync(string base64, string mime, string name)
             => webView.ExecuteScriptAsync("window.docsetsTestInsertImage(" +
@@ -157,7 +175,13 @@ namespace DocSets
                 "const editable = target.closest('.jodit-wysiwyg') || " +
                 "document.querySelector('.jodit-wysiwyg'); " +
                 "if (editable) editable.focus(); " +
-                "const range = document.createRange(); range.selectNodeContents(target); range.collapse(true); " +
+                "const end = Array.from(document.querySelectorAll('[data-docsets-anchor-end]')).find(" +
+                "item => item.getAttribute('data-docsets-anchor-end') === " + JsonConvert.SerializeObject(anchor) + "); " +
+                "const range = document.createRange(); " +
+                "if (end) { range.setStartAfter(target); range.setEndBefore(end); " +
+                "if (!range.toString().replace(/\\u200b/g, '').length) range.collapse(true); } " +
+                "else { range.selectNodeContents(target); " +
+                "if (!range.toString().replace(/\\u200b/g, '').length) range.collapse(true); } " +
                 "const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); " +
                 "target.scrollIntoView({block:'center'}); return true; })()");
         }
@@ -170,8 +194,11 @@ namespace DocSets
                 JsonConvert.SerializeObject(anchor) +
                 "); const selection = window.getSelection(); if (!target || !selection || " +
                 "selection.rangeCount !== 1) return false; const range = selection.getRangeAt(0); " +
-                "return range.collapsed && range.startOffset === 0 && " +
-                "(range.startContainer === target || target.contains(range.startContainer)); })()");
+                "if (!range.collapsed) return false; " +
+                "if (range.startOffset === 0 && (range.startContainer === target || " +
+                "target.contains(range.startContainer))) return true; " +
+                "const parent = target.parentNode; return range.startContainer === parent && " +
+                "range.startOffset === Array.prototype.indexOf.call(parent.childNodes, target) + 1; })()");
             return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
         }
 
@@ -224,6 +251,8 @@ namespace DocSets
             assetDirectory = value ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(assetDirectory)) Directory.CreateDirectory(assetDirectory);
         }
+
+        public void SetLinkNodeId(string value) => linkNodeId = value ?? string.Empty;
 
         public void LoadComment(string value)
         {
@@ -332,6 +361,7 @@ namespace DocSets
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                webView.CoreWebView2.ContextMenuRequested += OnContextMenuRequested;
                 webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
                 webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
                 webView.CoreWebView2.AddWebResourceRequestedFilter(editorHostPrefix + "*", CoreWebView2WebResourceContext.All);
@@ -526,6 +556,43 @@ namespace DocSets
             }
         }
 
+        private void OnContextMenuRequested(object sender, CoreWebView2ContextMenuRequestedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(linkNodeId)) return;
+            var item = webView.CoreWebView2.Environment.CreateContextMenuItem(
+                "Copy Link", null, CoreWebView2ContextMenuItemKind.Command);
+            item.CustomItemSelected += async (_, __) => await CreateAnchorAndCopyLinkAsync();
+            e.MenuItems.Insert(0, item);
+        }
+
+        private async Task CreateAnchorAndCopyLinkAsync()
+        {
+            try
+            {
+                var result = await webView.ExecuteScriptAsync(
+                    "window.docsetsCreateAnchor && window.docsetsCreateAnchor()");
+                if (string.IsNullOrWhiteSpace(result) || result == "null") return;
+                var anchor = JObject.Parse(result);
+                var id = (string)anchor["id"];
+                if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(linkNodeId)) return;
+                var url = "https://docsets.local/bookmark/" + Uri.EscapeDataString(linkNodeId) +
+                    "#" + Uri.EscapeDataString(id);
+                var caption = (string)anchor["text"];
+                if (string.IsNullOrWhiteSpace(caption)) caption = url;
+                var html = "<a href=\"" + System.Net.WebUtility.HtmlEncode(url) + "\">" +
+                    System.Net.WebUtility.HtmlEncode(caption) + "</a>";
+                var data = new DataObject();
+                data.SetData(DataFormats.UnicodeText, url);
+                data.SetData(DataFormats.Text, url);
+                data.SetData(DataFormats.Html, BuildClipboardHtml(html));
+                Clipboard.SetDataObject(data, true);
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("Links", "Failed to create and copy a note anchor.", exception);
+            }
+        }
+
         private void OnWebResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
             if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
@@ -615,7 +682,7 @@ namespace DocSets
             }
         }
 
-        internal static string BuildClipboardHtml(string fragment)
+        public static string BuildClipboardHtml(string fragment)
         {
             const string headerTemplate =
                 "Version:0.9\r\nStartHTML:{0:D10}\r\nEndHTML:{1:D10}\r\n" +
@@ -660,6 +727,7 @@ namespace DocSets
                 if (webView.CoreWebView2 != null)
                 {
                     webView.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+                    webView.CoreWebView2.ContextMenuRequested -= OnContextMenuRequested;
                     webView.CoreWebView2.NavigationStarting -= OnNavigationStarting;
                     webView.CoreWebView2.NewWindowRequested -= OnNewWindowRequested;
                     webView.CoreWebView2.WebResourceRequested -= OnWebResourceRequested;

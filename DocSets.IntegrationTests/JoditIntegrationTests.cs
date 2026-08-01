@@ -103,8 +103,36 @@ namespace DocSets.Tests
                         (await editor.GetCurrentCommentAsync()).Contains("Начало целевого объекта"),
                         "Jodit не загрузил объект для проверки перехода.");
                     await editor.ScrollToAnchorAsync("onenote-object-test");
-                    Assert.True(await editor.IsCaretAtAnchorStartAsync("onenote-object-test"),
-                        "После перехода каретка не установлена в начало объекта OneNote.");
+                    Assert.Equal("Начало целевого объекта", await editor.GetSelectedTextAsync());
+
+                    editor.LoadComment("<p>Alpha selected range Omega</p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("selected range"),
+                        "Jodit did not load text for the range-anchor test.");
+                    await editor.SetTestSelectionAsync(6, 14);
+                    var rangeAnchor = await editor.SimulateCreateAnchorAsync();
+                    Assert.False(string.IsNullOrWhiteSpace(rangeAnchor),
+                        "Jodit did not create an anchor for selected text.");
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return value.Contains("id=\"" + rangeAnchor + "\"") &&
+                               value.Contains("data-docsets-anchor-end=\"" + rangeAnchor + "\"");
+                    }, "Jodit did not persist both range-anchor markers.");
+                    await editor.SetTestSelectionAsync(0);
+                    await editor.ScrollToAnchorAsync(rangeAnchor);
+                    Assert.Equal("selected range", await editor.GetSelectedTextAsync());
+
+                    editor.LoadComment("<p>Empty anchor</p>");
+                    await WaitUntilAsync(async () =>
+                        (await editor.GetCurrentCommentAsync()).Contains("Empty anchor"),
+                        "Jodit did not load text for the empty-anchor test.");
+                    await editor.SetTestSelectionAsync(5);
+                    var emptyAnchor = await editor.SimulateCreateAnchorAsync();
+                    await editor.SetTestSelectionAsync(0);
+                    await editor.ScrollToAnchorAsync(emptyAnchor);
+                    Assert.True(await editor.IsCaretAtAnchorStartAsync(emptyAnchor),
+                        "Navigation to an empty anchor did not position the caret.");
 
                     var imageRequested = false;
                     var formattedImageRequested = false;

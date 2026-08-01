@@ -938,16 +938,60 @@
     return true;
   };
 
-  window.docsetsSetTestSelection = offset => {
+  window.docsetsCreateAnchor = () => {
+    if (!editor) return null;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount !== 1) return null;
+    const range = selection.getRangeAt(0);
+    if (!editor.editor.contains(range.commonAncestorContainer)) return null;
+    const id = 'docsets-anchor-' + (self.crypto && crypto.randomUUID
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+    const text = selection.toString();
+    const marker = (attribute, value) => {
+      const span = document.createElement('span');
+      span.setAttribute(attribute, value);
+      span.setAttribute('aria-hidden', 'true');
+      span.style.cssText = 'display:inline-block;width:0;overflow:hidden;line-height:0';
+      span.textContent = '\u200b';
+      return span;
+    };
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(marker('data-docsets-anchor-end', id));
+    const startRange = range.cloneRange();
+    startRange.collapse(true);
+    const start = marker('data-docsets-anchor-start', id);
+    start.id = id;
+    startRange.insertNode(start);
+    editor.synchronizeValues();
+    editor.events.fire('change', editor.value);
+    return { id, text };
+  };
+
+  window.docsetsSetTestSelection = (offset, length) => {
     if (!editor) return false;
     const walker = document.createTreeWalker(editor.editor, NodeFilter.SHOW_TEXT);
     let remaining = Math.max(0, offset || 0);
+    let startNode = null;
+    let startOffset = 0;
+    let endRemaining = remaining + Math.max(0, length || 0);
+    let endNode = null;
+    let endOffset = 0;
     let node;
     while ((node = walker.nextNode())) {
-      if (remaining <= node.data.length) {
+      if (!startNode && remaining <= node.data.length) {
+        startNode = node;
+        startOffset = remaining;
+      }
+      if (endRemaining <= node.data.length) {
+        endNode = node;
+        endOffset = endRemaining;
+      }
+      if (startNode && endNode) {
         const range = document.createRange();
-        range.setStart(node, remaining);
-        range.collapse(true);
+        range.setStart(startNode, startOffset);
+        range.setEnd(endNode, endOffset);
         const selection = window.getSelection();
         selection.removeAllRanges();
         selection.addRange(range);
@@ -955,6 +999,7 @@
         return true;
       }
       remaining -= node.data.length;
+      endRemaining -= node.data.length;
     }
     return false;
   };
