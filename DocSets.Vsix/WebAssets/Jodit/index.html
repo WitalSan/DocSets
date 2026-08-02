@@ -41,6 +41,64 @@
     }
     .jodit-wysiwyg .docsets-attachment-name { user-select: text; }
     .jodit-wysiwyg .docsets-attachment-missing { color: #a4262c; }
+    .jodit-wysiwyg .docsets-note-tag {
+      --docsets-note-tag-color: #605e5c;
+      border-radius: 3px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .jodit-wysiwyg .docsets-note-tag-icon {
+      display: inline-flex;
+      width: 1.15em;
+      height: 1.15em;
+      margin-right: .28em;
+      align-items: center;
+      justify-content: center;
+      border-radius: 3px;
+      color: var(--docsets-note-tag-color);
+      font: 700 1em/1 "Segoe UI Symbol", "Segoe UI Emoji", sans-serif;
+      vertical-align: -.08em;
+      user-select: none;
+    }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-behavior="checkbox"] > .docsets-note-tag-icon,
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-behavior="toggle"] > .docsets-note-tag-icon { cursor: pointer; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="checkbox"] > .docsets-note-tag-icon::before { content: "☐"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="checkbox"][data-docsets-tag-state="completed"] > .docsets-note-tag-icon::before { content: "☑"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="important"] > .docsets-note-tag-icon::before { content: "★"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="question"] > .docsets-note-tag-icon::before { content: "?"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="tag"] > .docsets-note-tag-icon::before { content: "◆"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="definition"] > .docsets-note-tag-icon::before { content: "≡"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="highlight"] > .docsets-note-tag-icon::before { content: "✎"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="contact"] > .docsets-note-tag-icon::before,
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="client-request"] > .docsets-note-tag-icon::before { content: "●"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="address"] > .docsets-note-tag-icon::before { content: "⌂"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="phone"] > .docsets-note-tag-icon::before,
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="callback"] > .docsets-note-tag-icon::before { content: "☎"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="website"] > .docsets-note-tag-icon::before { content: "◎"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="idea"] > .docsets-note-tag-icon::before { content: "☀"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="password"] > .docsets-note-tag-icon::before { content: "⚿"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="critical"] > .docsets-note-tag-icon::before { content: "⚠"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="project-a"] > .docsets-note-tag-icon::before { content: "A"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="project-b"] > .docsets-note-tag-icon::before { content: "B"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="remember"] > .docsets-note-tag-icon::before { content: "●"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="movie"] > .docsets-note-tag-icon::before { content: "▶"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="book"] > .docsets-note-tag-icon::before { content: "▤"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="music"] > .docsets-note-tag-icon::before { content: "♪"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="article"] > .docsets-note-tag-icon::before { content: "▧"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="blog"] > .docsets-note-tag-icon::before { content: "✎"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="discuss"] > .docsets-note-tag-icon::before { content: "◉"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="email"] > .docsets-note-tag-icon::before { content: "✉"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="meeting"] > .docsets-note-tag-icon::before { content: "▦"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="priority-1"] > .docsets-note-tag-icon::before { content: "1"; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-icon="priority-2"] > .docsets-note-tag-icon::before { content: "2"; }
+    /* Icons are real text nodes. This override also prevents a duplicated legacy pseudo-icon. */
+    .jodit-wysiwyg .docsets-note-tag > .docsets-note-tag-icon::before { content: none !important; }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-state="completed"] > .docsets-note-tag-content {
+      opacity: .72;
+      text-decoration: line-through;
+    }
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-state="disabled"] > .docsets-note-tag-icon,
+    .jodit-wysiwyg .docsets-note-tag[data-docsets-tag-state="disabled"] > .docsets-note-tag-content { opacity: .5; }
     .jodit-wysiwyg .docsets-onenote-diagnostic {
       margin: 5px 0;
       padding: 8px 10px;

@@ -117,6 +117,27 @@ namespace DocSets.Tests
                     await editor.ScrollToAnchorAsync("onenote-object-test");
                     Assert.Equal("Начало целевого объекта", await editor.GetSelectedTextAsync());
 
+                    editor.LoadComment("<p><span class=\"docsets-note-tag\" " +
+                        "data-docsets-note-tag-id=\"tag-1\" data-docsets-tag-style-id=\"todo\" " +
+                        "data-docsets-tag-state=\"active\" data-docsets-tag-behavior=\"checkbox\" " +
+                        "data-docsets-tag-icon=\"checkbox\" data-docsets-tag-name=\"Todo\">" +
+                        "<span class=\"docsets-note-tag-content\">Task</span>" +
+                        "</span></p>");
+                    await WaitUntilAsync(async () => (await editor.GetCurrentCommentAsync()).Contains(
+                        "data-docsets-tag-state=\"active\""),
+                        "Jodit did not load the semantic NoteTag span.");
+                    await Task.Delay(750);
+                    Assert.True(await editor.HasFirstNoteTagIconAsync(),
+                        "Jodit removed the NoteTag icon host during delayed DOM normalization.");
+                    await editor.SimulateFirstNoteTagClickAsync();
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return value.Contains("data-docsets-tag-state=\"completed\"") &&
+                               value.Contains("data-docsets-note-tag-completed-at=") &&
+                               value.Contains("☑");
+                    }, "Jodit did not complete the NoteTag checkbox or persist its timestamp.");
+
                     editor.LoadComment("<p>Alpha selected range Omega</p>");
                     await WaitUntilAsync(async () =>
                         (await editor.GetCurrentCommentAsync()).Contains("selected range"),

@@ -12,6 +12,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using Microsoft.Office.Interop.OneNote;
 
 namespace DocSets.Desktop.OneNote;
@@ -29,6 +30,8 @@ internal sealed class OneNoteImportService
     private string _reportNodeId = "";
     private IReadOnlyDictionary<string, string> _reportAnchors =
         new Dictionary<string, string>();
+    private IReadOnlyDictionary<string, ImportedTagDefinition> _pageTagDefinitions =
+        new Dictionary<string, ImportedTagDefinition>();
     private static readonly Regex HrefPattern = new(
         "(?<prefix>\\bhref\\s*=\\s*)(?<quote>[\\\"'])(?<value>.*?)(\\k<quote>)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -329,12 +332,23 @@ internal sealed class OneNoteImportService
         _reportPageId = pageId ?? "";
         _reportNodeId = nodeId ?? "";
         _reportAnchors = objectAnchors;
+        _pageTagDefinitions = ReadTagDefinitions(page, result);
         var pageElement = page.Descendants().FirstOrDefault(x => x.Name.LocalName == "Page");
         var title = pageElement?.Elements().FirstOrDefault(x => x.Name.LocalName == "Title");
         if (title != null)
         {
             var titleText = string.Concat(title.Descendants().Where(x => x.Name.LocalName == "T").Select(x => x.Value));
-            if (!string.IsNullOrWhiteSpace(titleText)) body.Append("<h1>").Append(titleText).Append("</h1>");
+            if (!string.IsNullOrWhiteSpace(titleText))
+            {
+                var titleOutline = title.Descendants().FirstOrDefault(x => x.Name.LocalName == "OE");
+                var titleContent = titleOutline == null
+                    ? WebUtility.HtmlEncode(titleText)
+                    : ConvertOutlineElement(titleOutline, links, objectAnchors, result,
+                        cancellationToken, 0);
+                if (titleOutline != null)
+                    titleContent = WrapNoteTags(titleOutline, titleContent, result);
+                body.Append("<h1>").Append(titleContent).Append("</h1>");
+            }
             AddCurrentReport("TextBlock", "Заголовок страницы", OneNoteImportStatus.Imported, "", title);
         }
         else if (!string.IsNullOrWhiteSpace(pageName))
@@ -393,6 +407,7 @@ internal sealed class OneNoteImportService
             var reportStart = result.Report.Entries.Count;
             var content = ConvertOutlineElement(element, links, objectAnchors, result,
                 cancellationToken, depth);
+            content = WrapNoteTags(element, content, result);
             var style = BuildParagraphStyle(element, listKind == null && depth > 0 ? 24 : 0);
             var anchor = BuildObjectAnchorAttribute(element, objectAnchors);
             output.Append(listKind == null ? "<div" + anchor + style + ">" : "<li" + anchor + style + ">").Append(content)
@@ -444,6 +459,7 @@ internal sealed class OneNoteImportService
                     break;
                 case "List":
                 case "Meta":
+                case "Tag":
                     break;
                 default:
                     var unsupported = AddCurrentReport(
@@ -456,6 +472,188 @@ internal sealed class OneNoteImportService
             }
         }
         return output.Length == 0 ? "<br>" : output.ToString();
+    }
+
+    private IReadOnlyDictionary<string, ImportedTagDefinition> ReadTagDefinitions(
+        XDocument page, OneNoteImportResult result)
+    {
+        var definitions = new Dictionary<string, ImportedTagDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in page.Descendants().Where(x => x.Name.LocalName == "TagDef"))
+        {
+            var index = Attribute(element, "index");
+            if (string.IsNullOrWhiteSpace(index)) continue;
+            var type = ParseInt(Attribute(element, "type"));
+            var symbol = ParseInt(Attribute(element, "symbol"));
+            var name = Attribute(element, "name");
+            if (string.IsNullOrWhiteSpace(name)) name = "OneNote tag " + index;
+            var behavior = IsOneNoteCheckboxType(type)
+                ? NoteTagBehavior.Checkbox : NoteTagBehavior.Marker;
+            var icon = OneNoteTagIcon(type, symbol);
+            var color = OneNoteTagColor(type, Attribute(element, "fontColor"),
+                Attribute(element, "highlightColor"));
+            var signature = string.Join("|", name, type, symbol, color, behavior);
+            var style = new NoteTagStyle
+            {
+                Id = "onenote-" + StableId(signature),
+                Name = name,
+                Icon = icon,
+                Color = color,
+                Behavior = behavior,
+                Source = "onenote",
+                SourceId = "type=" + type + ";symbol=" + symbol
+            };
+            var existing = result.NoteTagStyles.FirstOrDefault(x =>
+                string.Equals(x.Id, style.Id, StringComparison.OrdinalIgnoreCase));
+            if (existing == null)
+            {
+                result.NoteTagStyles.Add(style);
+                existing = style;
+                AddCurrentReport("NoteTagStyle", name, OneNoteImportStatus.Imported, "", element);
+            }
+            definitions[index] = new ImportedTagDefinition(existing);
+        }
+        return definitions;
+    }
+
+    private string WrapNoteTags(XElement outlineElement, string content, OneNoteImportResult result)
+    {
+        var tags = outlineElement.Elements().Where(x => x.Name.LocalName == "Tag").ToList();
+        if (tags.Count == 0) return content;
+        var objectId = Attribute(outlineElement, "objectID");
+        foreach (var element in tags.AsEnumerable().Reverse())
+        {
+            var index = Attribute(element, "index");
+            if (!_pageTagDefinitions.TryGetValue(index, out var definition))
+            {
+                var missing = AddNoteTagReport("OneNote tag " + index,
+                    OneNoteImportStatus.NotImported,
+                    "Tag ссылается на отсутствующее определение TagDef index=" + index + ".",
+                    element, objectId);
+                content = DiagnosticPlaceholder(missing) + content;
+                continue;
+            }
+
+            var disabled = ParseBool(Attribute(element, "disabled"));
+            var sourceId = _reportPageId + "/" + objectId + "/tag-" + index;
+            var style = definition.Style;
+            var completed = style.Behavior == NoteTagBehavior.Marker
+                ? (bool?)null : ParseBool(Attribute(element, "completed"));
+            var tag = new NoteTag
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                StyleId = style.Id,
+                IsCompleted = completed,
+                CompletedAt = completed == true ? ParseDate(Attribute(element, "completionDate")) : null,
+                Source = "onenote",
+                SourceId = sourceId
+            };
+            var state = disabled ? "disabled" : tag.IsCompleted == true ? "completed" : "active";
+            var attributes = new StringBuilder()
+                .Append(" class=\"docsets-note-tag\"")
+                .Append(" data-docsets-note-tag-id=\"").Append(tag.Id).Append("\"")
+                .Append(" data-docsets-tag-style-id=\"").Append(WebUtility.HtmlEncode(tag.StyleId)).Append("\"")
+                .Append(" data-docsets-tag-state=\"").Append(state).Append("\"")
+                .Append(" data-docsets-tag-behavior=\"").Append(style.Behavior.ToString().ToLowerInvariant()).Append("\"")
+                .Append(" data-docsets-tag-icon=\"").Append(WebUtility.HtmlEncode(style.Icon)).Append("\"")
+                .Append(" data-docsets-tag-name=\"").Append(WebUtility.HtmlEncode(style.Name)).Append("\"")
+                .Append(" data-docsets-note-tag-source=\"").Append(WebUtility.HtmlEncode(tag.Source)).Append("\"")
+                .Append(" data-docsets-note-tag-source-id=\"").Append(WebUtility.HtmlEncode(tag.SourceId)).Append("\"");
+            if (tag.CompletedAt.HasValue)
+                attributes.Append(" data-docsets-note-tag-completed-at=\"")
+                    .Append(tag.CompletedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)).Append("\"");
+            if (Regex.IsMatch(style.Color ?? "", "^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$"))
+                attributes.Append(" style=\"--docsets-note-tag-color:")
+                    .Append(WebUtility.HtmlEncode(style.Color)).Append("\"");
+            content = "<span" + attributes + "><span class=\"docsets-note-tag-icon\" contenteditable=\"false\" title=\"" +
+                      WebUtility.HtmlEncode(style.Name) + "\" aria-label=\"" + WebUtility.HtmlEncode(style.Name) +
+                      "\">" + WebUtility.HtmlEncode(NoteTagGlyph(style.Icon, tag.IsCompleted == true)) +
+                      "</span><span class=\"docsets-note-tag-content\">" + content + "</span></span>";
+            result.NoteTags++;
+            AddNoteTagReport(style.Name, OneNoteImportStatus.Imported, "", element, objectId);
+        }
+        return content;
+    }
+
+    private OneNoteImportReportEntry AddNoteTagReport(string name, OneNoteImportStatus status,
+        string reason, XElement element, string objectId)
+        => AddReport(_reportResult, _reportApplication, "NoteTag", name, status, reason,
+            _reportPageId, objectId, _reportNodeId, AnchorFor(objectId));
+
+    private static int ParseInt(string value)
+        => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var result) ? result : -1;
+
+    private static bool ParseBool(string value)
+        => string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) || value == "1";
+
+    private static DateTimeOffset? ParseDate(string value)
+        => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var result)
+            ? result : (DateTimeOffset?)null;
+
+    private static string OneNoteTagIcon(int type, int symbol)
+    {
+        var builtIn = new[]
+        {
+            "checkbox", "important", "question", "definition", "highlight", "contact",
+            "address", "phone", "website", "idea", "password", "critical", "project-a",
+            "project-b", "remember", "movie", "book", "music", "article", "blog",
+            "discuss", "discuss", "discuss", "email", "meeting", "callback",
+            "priority-1", "priority-2", "client-request"
+        };
+        if (type >= 0 && type < builtIn.Length) return builtIn[type];
+        return symbol switch
+        {
+            3 => "checkbox",
+            13 => "important",
+            15 => "question",
+            _ => "tag"
+        };
+    }
+
+    private static bool IsOneNoteCheckboxType(int type)
+        => type == 0 || (type >= 20 && type <= 22) || (type >= 24 && type <= 28);
+
+    private static string OneNoteTagColor(int type, string fontColor, string highlightColor)
+    {
+        if (!string.IsNullOrWhiteSpace(highlightColor) &&
+            !string.Equals(highlightColor, "none", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(highlightColor, "automatic", StringComparison.OrdinalIgnoreCase))
+            return highlightColor;
+        if (!string.IsNullOrWhiteSpace(fontColor) &&
+            !string.Equals(fontColor, "none", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(fontColor, "automatic", StringComparison.OrdinalIgnoreCase))
+            return fontColor;
+        return type switch { 0 => "#107c10", 1 => "#d13438", 2 => "#0078d4", _ => "#605e5c" };
+    }
+
+    private static string NoteTagGlyph(string icon, bool completed)
+        => (icon ?? "").ToLowerInvariant() switch
+        {
+            "checkbox" => completed ? "☑" : "☐", "important" => "★", "question" => "?",
+            "definition" => "≡", "highlight" => "✎", "contact" => "●", "client-request" => "●",
+            "address" => "⌂", "phone" => "☎", "callback" => "☎", "website" => "◎",
+            "idea" => "☀", "password" => "⚿", "critical" => "⚠", "project-a" => "A",
+            "project-b" => "B", "remember" => "●", "movie" => "▶", "book" => "▤",
+            "music" => "♪", "article" => "▧", "blog" => "✎", "discuss" => "◉",
+            "email" => "✉", "meeting" => "▦", "priority-1" => "1", "priority-2" => "2",
+            _ => "◆"
+        };
+
+    private static string StableId(string value)
+    {
+        using var sha = SHA256.Create();
+        return string.Concat(sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? ""))
+            .Take(8).Select(x => x.ToString("x2", CultureInfo.InvariantCulture)));
+    }
+
+    private sealed class ImportedTagDefinition
+    {
+        public ImportedTagDefinition(NoteTagStyle style)
+        {
+            Style = style;
+        }
+
+        public NoteTagStyle Style { get; }
     }
 
     private string ConvertTable(XElement table, OneNoteLinkMap links,

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -149,6 +150,7 @@ namespace DocSets
         public DocumentItem PinRoot => _pinService.Root;
         public string CurrentSolutionName => _solutionContext.Current.Name;
         public IReadOnlyList<TagDefinition> Tags => _state.Tags;
+        public IReadOnlyList<NoteTagStyle> NoteTagStyles => _state.NoteTagStyles;
 
         public IReadOnlyList<WorkspaceInfo> Workspaces => _workspaces;
         public string SolutionDirectory => _solutionContext.Current.Directory;
@@ -166,7 +168,8 @@ namespace DocSets
         /// Atomically attaches a tree produced by a platform-specific importer.
         /// Import protocol details deliberately stay outside DocSets.Core.
         /// </summary>
-        public Task AddImportedRootAsync(DocumentItem root, string operationName)
+        public Task AddImportedRootAsync(DocumentItem root, string operationName,
+            IEnumerable<NoteTagStyle> noteTagStyles = null)
         {
             if (root == null) throw new ArgumentNullException(nameof(root));
             if (!IsLoaded || !CanSave)
@@ -178,6 +181,13 @@ namespace DocSets
                 string.IsNullOrWhiteSpace(operationName) ? "Импорт" : operationName,
                 () =>
                 {
+                    foreach (var style in noteTagStyles ?? Enumerable.Empty<NoteTagStyle>())
+                    {
+                        if (style == null || string.IsNullOrWhiteSpace(style.Id)) continue;
+                        if (!_state.NoteTagStyles.Any(x => string.Equals(
+                                x.Id, style.Id, StringComparison.OrdinalIgnoreCase)))
+                            _state.NoteTagStyles.Add(style.Clone());
+                    }
                     Sets.Add(root);
                     SelectedSet = root;
                     SelectedNode = root;
@@ -1559,12 +1569,20 @@ namespace DocSets
             }
 
             var usedTagIds = new HashSet<string>(clipboardNodes.SelectMany(x => x.TagIds ?? new List<string>()), StringComparer.OrdinalIgnoreCase);
+            var usedNoteTagStyleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var node in clipboardNodes)
+                foreach (Match match in Regex.Matches(node.Content ?? "",
+                             "data-docsets-tag-style-id\\s*=\\s*[\\\"'](?<id>[^\\\"']+)[\\\"']",
+                             RegexOptions.IgnoreCase))
+                    usedNoteTagStyleIds.Add(System.Net.WebUtility.HtmlDecode(match.Groups["id"].Value));
             var assetReferences = clipboardNodes.SelectMany(node => _workspace.FindAssetReferences(node.Content))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var envelope = new ClipboardEnvelope
             {
                 Items = clipboardNodes,
                 TagDefinitions = _state.Tags.Where(x => x != null && usedTagIds.Contains(x.Id)).Select(x => x.Clone()).ToList(),
+                NoteTagStyles = _state.NoteTagStyles.Where(x => x != null && usedNoteTagStyleIds.Contains(x.Id))
+                    .Select(x => x.Clone()).ToList(),
                 SourceContext = _workspace.CurrentSourceContext,
                 Assets = assetReferences.Select(reference => new ClipboardAsset
                 {
@@ -1584,6 +1602,10 @@ namespace DocSets
                 return BuildClipboardTree(JsonConvert.DeserializeObject<List<ClipboardNode>>(json));
             var envelope = JsonConvert.DeserializeObject<ClipboardEnvelope>(json) ?? new ClipboardEnvelope();
             _tagService.MergeDefinitions(_state, envelope.TagDefinitions);
+            foreach (var style in envelope.NoteTagStyles ?? new List<NoteTagStyle>())
+                if (style != null && !string.IsNullOrWhiteSpace(style.Id) && !_state.NoteTagStyles.Any(x =>
+                        string.Equals(x.Id, style.Id, StringComparison.OrdinalIgnoreCase)))
+                    _state.NoteTagStyles.Add(style.Clone());
             foreach (var asset in envelope.Assets ?? new List<ClipboardAsset>())
             {
                 if (asset?.Content == null || asset.Content.Length == 0) continue;
@@ -1882,6 +1904,8 @@ namespace DocSets
             public List<ClipboardNode> Items { get; set; } = new List<ClipboardNode>();
             [JsonProperty("tagDefinitions", NullValueHandling = NullValueHandling.Ignore)]
             public List<TagDefinition> TagDefinitions { get; set; } = new List<TagDefinition>();
+            [JsonProperty("noteTagStyles", NullValueHandling = NullValueHandling.Ignore)]
+            public List<NoteTagStyle> NoteTagStyles { get; set; } = new List<NoteTagStyle>();
             [JsonProperty("sourceContext", NullValueHandling = NullValueHandling.Ignore)]
             public SourceReferenceContext SourceContext { get; set; }
             [JsonProperty("assets", NullValueHandling = NullValueHandling.Ignore)]

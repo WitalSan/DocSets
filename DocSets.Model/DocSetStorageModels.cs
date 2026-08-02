@@ -61,6 +61,9 @@ namespace DocSets
         [JsonProperty("tags")]
         public List<TagDefinition> Tags { get; set; } = new List<TagDefinition>();
 
+        [JsonProperty("noteTagStyles")]
+        public List<NoteTagStyle> NoteTagStyles { get; set; } = new List<NoteTagStyle>();
+
         [JsonProperty("items")]
         public List<DocSetItemStorageDto> Items { get; set; } = new List<DocSetItemStorageDto>();
     }

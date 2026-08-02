@@ -23,6 +23,16 @@ namespace DocSets.Tests
                     Root = "../Backend",
                     Path = "Backend.sln"
                 });
+                created.NoteTagStyles.Add(new NoteTagStyle
+                {
+                    Id = "onenote-todo",
+                    Name = "Дела",
+                    Icon = "checkbox",
+                    Color = "#107c10",
+                    Behavior = NoteTagBehavior.Checkbox,
+                    Source = "onenote",
+                    SourceId = "type=0;symbol=3"
+                });
                 created.Items.Add(new DocSetItemStorageDto
                 {
                     Id = "save",
@@ -40,6 +50,9 @@ namespace DocSets.Tests
                 Assert.Equal(1, restored.FormatVersion);
                 Assert.Equal("../Backend", restored.Sources[0].Root);
                 Assert.Equal("**Important**", restored.Items[0].Content);
+                Assert.Equal(1, restored.NoteTagStyles.Count);
+                Assert.Equal(NoteTagBehavior.Checkbox, restored.NoteTagStyles[0].Behavior);
+                Assert.Equal("onenote", restored.NoteTagStyles[0].Source);
                 Assert.True(File.Exists(Path.Combine(directory, DirectoryDocSetStore.ManifestFileName)));
             });
         }

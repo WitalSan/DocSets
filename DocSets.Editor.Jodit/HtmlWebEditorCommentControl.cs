@@ -166,6 +166,24 @@ namespace DocSets
                 "if (!link) return false; link.dispatchEvent(new MouseEvent('click', " +
                 "{ bubbles:true, cancelable:true })); return true; })()");
 
+        internal Task SimulateFirstNoteTagClickAsync()
+            => webView.ExecuteScriptAsync(
+                "(() => { const icon = document.querySelector('.jodit-wysiwyg .docsets-note-tag-icon'); " +
+                "if (!icon) return false; icon.dispatchEvent(new MouseEvent('click', " +
+                "{ bubbles:true, cancelable:true })); return true; })()");
+
+        internal async Task<bool> HasFirstNoteTagIconAsync()
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "(() => { const icon = document.querySelector(" +
+                "'.jodit-wysiwyg .docsets-note-tag > .docsets-note-tag-icon'); " +
+                "if (!icon || !(icon.textContent || '').trim()) return false; " +
+                "const style = getComputedStyle(icon); const rect = icon.getBoundingClientRect(); " +
+                "return style.display !== 'none' && style.visibility !== 'hidden' && " +
+                "Number(style.opacity || 1) > 0 && rect.width > 0 && rect.height > 0; })()");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
         public async Task ScrollToAnchorAsync(string anchor)
         {
             if (!ready || webView.CoreWebView2 == null || string.IsNullOrWhiteSpace(anchor)) return;

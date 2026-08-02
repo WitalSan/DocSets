@@ -229,7 +229,8 @@ internal sealed class MainForm : Form
                 return;
             }
 
-            await _viewModel.AddImportedRootAsync(result.Root, "Импорт OneNote: " + notebook.Name);
+            await _viewModel.AddImportedRootAsync(result.Root, "Импорт OneNote: " + notebook.Name,
+                result.NoteTagStyles);
             _composition.Owner.RefreshAll();
             result.Report.ImportedRootNodeId = result.Root.Id;
             var reportDirectory = Path.Combine(_viewModel.ActiveDocSetDirectory, "reports");

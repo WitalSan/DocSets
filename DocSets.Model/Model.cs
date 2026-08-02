@@ -155,6 +155,66 @@ namespace DocSets
         public TagDefinition Clone() => (TagDefinition)MemberwiseClone();
     }
 
+    public enum NoteTagBehavior
+    {
+        Marker,
+        Toggle,
+        Checkbox
+    }
+
+    /// <summary>
+    /// Describes the visual and interactive semantics of a tag embedded in note content.
+    /// This catalog is intentionally separate from TagDefinition, which classifies tree nodes.
+    /// </summary>
+    public sealed class NoteTagStyle
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; } = "";
+
+        [JsonProperty("name")]
+        public string Name { get; set; } = "";
+
+        [JsonProperty("icon", NullValueHandling = NullValueHandling.Ignore)]
+        public string Icon { get; set; } = "";
+
+        [JsonProperty("color", NullValueHandling = NullValueHandling.Ignore)]
+        public string Color { get; set; } = "";
+
+        [JsonProperty("behavior")]
+        [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public NoteTagBehavior Behavior { get; set; }
+
+        [JsonProperty("source", NullValueHandling = NullValueHandling.Ignore)]
+        public string Source { get; set; } = "";
+
+        [JsonProperty("sourceId", NullValueHandling = NullValueHandling.Ignore)]
+        public string SourceId { get; set; } = "";
+
+        public NoteTagStyle Clone() => (NoteTagStyle)MemberwiseClone();
+    }
+
+    /// <summary>One occurrence of a semantic tag in an HTML note.</summary>
+    public sealed class NoteTag
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; } = "";
+
+        [JsonProperty("styleId")]
+        public string StyleId { get; set; } = "";
+
+        [JsonProperty("isCompleted", NullValueHandling = NullValueHandling.Ignore)]
+        public bool? IsCompleted { get; set; }
+
+        [JsonProperty("completedAt", NullValueHandling = NullValueHandling.Ignore)]
+        public DateTimeOffset? CompletedAt { get; set; }
+
+        [JsonProperty("source", NullValueHandling = NullValueHandling.Ignore)]
+        public string Source { get; set; } = "";
+
+        [JsonProperty("sourceId", NullValueHandling = NullValueHandling.Ignore)]
+        public string SourceId { get; set; } = "";
+    }
+
     public sealed class ActiveSymbolReference
     {
         public string Name { get; set; } = "";
@@ -176,12 +236,20 @@ namespace DocSets
         };
         private DocumentSetsUiSettings ui = new DocumentSetsUiSettings();
         private List<TagDefinition> tags = new List<TagDefinition>();
+        private List<NoteTagStyle> noteTagStyles = new List<NoteTagStyle>();
 
         [JsonProperty("tags")]
         public List<TagDefinition> Tags
         {
             get => tags;
             set => tags = value ?? new List<TagDefinition>();
+        }
+
+        [JsonProperty("noteTagStyles")]
+        public List<NoteTagStyle> NoteTagStyles
+        {
+            get => noteTagStyles;
+            set => noteTagStyles = value ?? new List<NoteTagStyle>();
         }
 
         [JsonProperty("activeSet")]

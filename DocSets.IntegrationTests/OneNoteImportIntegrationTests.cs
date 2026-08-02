@@ -115,6 +115,34 @@ namespace DocSets.Tests
             Assert.Equal(result.Attachments, Enumerate(result.Root).Sum(item =>
                     CountOccurrences(item.Content, "data-docsets-attachment=")),
                 "Не для каждого вложения создан HTML-элемент DocSets.");
+            Assert.Equal(3, result.NoteTagStyles.Count,
+                "Три определения TagDef тестовой страницы должны образовать три NoteTagStyle.");
+            Assert.Equal(5, result.NoteTags,
+                "Все пять экземпляров Tag тестовой страницы должны быть импортированы.");
+            Assert.Equal(result.NoteTags, Enumerate(result.Root).Sum(item =>
+                    CountOccurrences(item.Content, "data-docsets-note-tag-id=")),
+                "Не для каждого OneNote Tag создан семантический span DocSets.");
+            Assert.False(Enumerate(result.Root).Any(item => item.TagIds.Count > 0),
+                "NoteTag не должен создавать назначения TagIds у узлов дерева.");
+            Assert.True(result.NoteTagStyles.Any(style => style.Name == "Дела" &&
+                    style.Behavior == NoteTagBehavior.Checkbox && style.Icon == "checkbox"),
+                "OneNote To Do должен импортироваться как интерактивный Checkbox.");
+            Assert.True(result.NoteTagStyles.Where(style => style.Name is "Важно" or "Вопрос")
+                    .All(style => style.Behavior == NoteTagBehavior.Marker),
+                "Информационные теги OneNote не должны становиться флажками.");
+            var tagHtml = string.Join("", Enumerate(result.Root).Select(item => item.Content));
+            foreach (var glyph in new[] { "☐", "☑", "★", "?" })
+                Assert.True(tagHtml.Contains(glyph),
+                    "Импортированный HTML NoteTag не содержит устойчивую текстовую иконку " + glyph + ".");
+            Assert.Equal(1, CountOccurrences(tagHtml, "data-docsets-tag-state=\"completed\""),
+                "Состояние completed применимо только к отмеченному checkbox, не к маркерам.");
+            Assert.True(result.Report.Entries.Any(entry => entry.ObjectType == "NoteTagStyle") &&
+                        result.Report.Entries.Count(entry => entry.ObjectType == "NoteTag") == 5,
+                "Отчёт импорта должен перечислять определения и экземпляры тегов OneNote.");
+            Assert.True(result.Report.Entries.Where(entry => entry.ObjectType == "NoteTag")
+                    .All(entry => !string.IsNullOrWhiteSpace(entry.OneNoteObjectId) &&
+                                  !string.IsNullOrWhiteSpace(entry.DocSetsAnchorId)),
+                "Экземпляр NoteTag должен быть связан с исходным OE и якорем DocSets.");
             Assert.NotNull(result.Report, "Импортёр не создал подробный отчёт.");
             foreach (var type in new[] { "Notebook", "Section", "Page", "TextBlock",
                          "Image", "Table", "Link", "Attachment" })
@@ -321,12 +349,24 @@ namespace DocSets.Tests
                 var imageCount = 0;
                 var imageDataCount = 0;
                 var styledOutlineCount = 0;
+                var tagDefinitionCount = 0;
+                var tagInstanceCount = 0;
                 string imageSample = null;
                 string outlineSample = null;
                 foreach (var pageId in pageIds)
                 {
                     application.GetPageContent(pageId, out var xml, PageInfo.piAll, XMLSchema.xs2013);
                     var document = XDocument.Parse(xml);
+                    foreach (var tagDefinition in document.Descendants().Where(x => x.Name.LocalName == "TagDef"))
+                    {
+                        tagDefinitionCount++;
+                        Console.WriteLine("TagDef sample: " + tagDefinition);
+                    }
+                    foreach (var tag in document.Descendants().Where(x => x.Name.LocalName == "Tag"))
+                    {
+                        tagInstanceCount++;
+                        Console.WriteLine("Tag sample: " + tag);
+                    }
                     foreach (var image in document.Descendants().Where(x => x.Name.LocalName == "Image"))
                     {
                         imageCount++;
@@ -342,6 +382,7 @@ namespace DocSets.Tests
                     }
                 }
                 Console.WriteLine($"Formatting scan: styled OE={styledOutlineCount}, images={imageCount}, images with Data={imageDataCount}");
+                Console.WriteLine($"Tag scan: definitions={tagDefinitionCount}, instances={tagInstanceCount}");
                 Assert.True(imageCount > 0, "В тестовой notebook ожидались изображения.");
                 Assert.Equal(imageCount, imageDataCount, "Не для всех изображений OneNote вернул Data при piAll.");
                 if (outlineSample != null) Console.WriteLine("OE sample: " + outlineSample);

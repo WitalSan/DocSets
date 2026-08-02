@@ -17,9 +17,45 @@
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(value);
   };
 
+  function noteTagGlyph(tag) {
+    const icon = (tag && tag.getAttribute('data-docsets-tag-icon') || 'tag').toLowerCase();
+    const completed = (tag && tag.getAttribute('data-docsets-tag-state') || '').toLowerCase() === 'completed';
+    const glyphs = {
+      checkbox: completed ? '☑' : '☐', important: '★', question: '?', tag: '◆',
+      definition: '≡', highlight: '✎', contact: '●', 'client-request': '●',
+      address: '⌂', phone: '☎', callback: '☎', website: '◎', idea: '☀',
+      password: '⚿', critical: '⚠', 'project-a': 'A', 'project-b': 'B',
+      remember: '●', movie: '▶', book: '▤', music: '♪', article: '▧',
+      blog: '✎', discuss: '◉', email: '✉', meeting: '▦',
+      'priority-1': '1', 'priority-2': '2'
+    };
+    return glyphs[icon] || '◆';
+  }
+
+  function refreshNoteTagIcon(tag) {
+    if (!tag) return;
+    const icon = Array.from(tag.children || []).find(child =>
+      child.classList && child.classList.contains('docsets-note-tag-icon'));
+    if (icon) icon.textContent = noteTagGlyph(tag);
+  }
+
   function transformHtml(value, toEditor) {
     const template = document.createElement('template');
     template.innerHTML = value || '';
+    template.content.querySelectorAll('.docsets-note-tag').forEach(tag => {
+      let icon = Array.from(tag.children || []).find(child =>
+        child.classList && child.classList.contains('docsets-note-tag-icon'));
+      // Repair notes saved by older builds after Jodit removed the empty icon host.
+      if (toEditor && !icon) {
+        icon = document.createElement('span');
+        icon.className = 'docsets-note-tag-icon';
+        icon.setAttribute('contenteditable', 'false');
+        icon.setAttribute('title', tag.getAttribute('data-docsets-tag-name') || '');
+        tag.insertBefore(icon, tag.firstChild);
+      }
+      if (icon && (!(icon.textContent || '').trim() || icon.textContent === '\uFEFF'))
+        icon.textContent = noteTagGlyph(tag);
+    });
     template.content.querySelectorAll('img[src]').forEach(image => {
       const source = image.getAttribute('src') || '';
       if (toEditor && source.toLowerCase().startsWith('asset:'))
@@ -599,6 +635,27 @@
     }, true);
     editable.addEventListener('focusin', () => scheduleSyntaxHighlight(), true);
     editable.addEventListener('click', () => scheduleSyntaxHighlight(), true);
+    editable.addEventListener('click', event => {
+      const icon = event.target && event.target.closest
+        ? event.target.closest('.docsets-note-tag-icon') : null;
+      const tag = icon && icon.parentElement && icon.parentElement.classList.contains('docsets-note-tag')
+        ? icon.parentElement : null;
+      if (!tag) return;
+      const behavior = (tag.getAttribute('data-docsets-tag-behavior') || 'marker').toLowerCase();
+      if (behavior !== 'checkbox' && behavior !== 'toggle') return;
+      if ((tag.getAttribute('data-docsets-tag-state') || '').toLowerCase() === 'disabled') return;
+      event.preventDefault();
+      event.stopPropagation();
+      const completed = (tag.getAttribute('data-docsets-tag-state') || '').toLowerCase() === 'completed';
+      tag.setAttribute('data-docsets-tag-state', completed ? 'active' : 'completed');
+      if (behavior === 'checkbox') {
+        if (completed) tag.removeAttribute('data-docsets-note-tag-completed-at');
+        else tag.setAttribute('data-docsets-note-tag-completed-at', new Date().toISOString());
+      }
+      refreshNoteTagIcon(tag);
+      editor.synchronizeValues();
+      editor.events.fire('change', editor.value);
+    }, true);
     editable.addEventListener('input', () => scheduleSyntaxHighlight(30), true);
     editable.addEventListener('compositionend', () => scheduleSyntaxHighlight(30), true);
     editable.addEventListener('beforeinput', event => {

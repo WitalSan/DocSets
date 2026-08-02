@@ -140,6 +140,7 @@ namespace DocSets
             RequireValue(manifest.Name, "manifest.name");
             manifest.Sources = manifest.Sources ?? new System.Collections.Generic.List<CodeSource>();
             manifest.Tags = manifest.Tags ?? new System.Collections.Generic.List<TagDefinition>();
+            manifest.NoteTagStyles = manifest.NoteTagStyles ?? new System.Collections.Generic.List<NoteTagStyle>();
             manifest.Items = manifest.Items ?? new System.Collections.Generic.List<DocSetItemStorageDto>();
 
             foreach (var item in manifest.Items)

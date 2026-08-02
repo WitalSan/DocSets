@@ -97,7 +97,8 @@ namespace DocSets
             var manifest = await store.OpenAsync(directoryPath, cancellationToken).ConfigureAwait(false);
             var state = new DocumentSetsState
             {
-                Tags = manifest.Tags.Where(x => x != null).Select(x => x.Clone()).ToList()
+                Tags = manifest.Tags.Where(x => x != null).Select(x => x.Clone()).ToList(),
+                NoteTagStyles = manifest.NoteTagStyles.Where(x => x != null).Select(x => x.Clone()).ToList()
             };
             state.Sets = await BuildTreeAsync(directoryPath, manifest.Items, cancellationToken).ConfigureAwait(false);
             logger.Info("Хранилище", "DocSet открыт: " + Path.GetFullPath(directoryPath));
@@ -110,6 +111,7 @@ namespace DocSets
             if (document == null) throw new ArgumentNullException(nameof(document));
             document.State.EnsureReadableIds();
             document.Manifest.Tags = document.State.Tags.Where(x => x != null).Select(x => x.Clone()).ToList();
+            document.Manifest.NoteTagStyles = document.State.NoteTagStyles.Where(x => x != null).Select(x => x.Clone()).ToList();
             document.Manifest.Items = new List<DocSetItemStorageDto>();
             foreach (var root in document.State.Sets.Where(x => x != null && !x.IsLocalOnly))
                 await AppendAsync(document.DirectoryPath, root, "", document.Manifest.Items, cancellationToken)

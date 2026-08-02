@@ -35,9 +35,11 @@ internal sealed class OneNoteImportResult
     public int InternalLinks { get; set; }
     public int UnresolvedInternalLinks { get; set; }
     public int FailedPages { get; set; }
+    public int NoteTags { get; set; }
     public bool Cancelled { get; set; }
     public List<string> Errors { get; } = new();
     public OneNoteImportReport Report { get; set; } = new();
+    public List<NoteTagStyle> NoteTagStyles { get; } = new();
 }
 
 [JsonConverter(typeof(StringEnumConverter))]
