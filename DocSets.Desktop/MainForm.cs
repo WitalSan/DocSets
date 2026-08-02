@@ -1,6 +1,7 @@
 using DocSets.Desktop.Panels;
 using DocSets.Desktop.OneNote;
 using WeifenLuo.WinFormsUI.Docking;
+using System.Text;
 
 namespace DocSets.Desktop;
 
@@ -230,18 +231,31 @@ internal sealed class MainForm : Form
 
             await _viewModel.AddImportedRootAsync(result.Root, "Импорт OneNote: " + notebook.Name);
             _composition.Owner.RefreshAll();
-            var details = result.Errors.Count == 0 ? "" :
-                Environment.NewLine + Environment.NewLine + "Ошибки отдельных страниц:" + Environment.NewLine +
-                string.Join(Environment.NewLine, result.Errors.Take(10)) +
-                (result.Errors.Count > 10 ? Environment.NewLine + "…" : "");
-            MessageBox.Show(this,
-                $"Импорт завершён.\r\nПапок: {result.Folders}\r\nСтраниц: {result.Pages}\r\n" +
-                $"Изображений: {result.Images}\r\nВложенных файлов: {result.Attachments}\r\n" +
-                $"Внутренних ссылок: {result.InternalLinks}\r\n" +
-                $"Неразрешённых внутренних ссылок: {result.UnresolvedInternalLinks}\r\n" +
-                $"Ошибок страниц: {result.FailedPages}" + details,
-                "Импорт из OneNote", MessageBoxButtons.OK,
-                result.FailedPages == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            result.Report.ImportedRootNodeId = result.Root.Id;
+            var reportDirectory = Path.Combine(_viewModel.ActiveDocSetDirectory, "reports");
+            Directory.CreateDirectory(reportDirectory);
+            var reportPath = Path.Combine(reportDirectory,
+                "onenote-import-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".json");
+            File.WriteAllText(reportPath,
+                Newtonsoft.Json.JsonConvert.SerializeObject(result.Report,
+                    Newtonsoft.Json.Formatting.Indented), Encoding.UTF8);
+            OneNoteImportReportDialog.Show(this, result.Report, reportPath, async entry =>
+            {
+                if (string.IsNullOrWhiteSpace(entry?.DocSetsNodeId) ||
+                    !await _viewModel.OpenBookmarkByIdAsync(entry.DocSetsNodeId))
+                {
+                    MessageBox.Show(this, "Связанный объект DocSets не найден.",
+                        "Отчёт импорта OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                _composition.Owner.NavigateToSelectedItem();
+                ShowPanel(DocSetsPanelIds.Note);
+                var note = _composition.GetPanel(DocSetsPanelIds.Note)?.Controls
+                    .OfType<DocSetsHtmlCommentWindowControl>().FirstOrDefault();
+                if (note != null)
+                    await note.NavigateToAnchorAsync(_composition.Owner.CurrentCommentItem,
+                        entry.DocSetsAnchorId);
+            });
         }
         catch (Exception exception)
         {

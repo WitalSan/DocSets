@@ -176,6 +176,13 @@ namespace DocSets
             await SwitchItemAsync(selectedItem);
         }
 
+        public async Task NavigateToAnchorAsync(DocumentItem selectedItem, string anchor)
+        {
+            await SwitchItemAsync(selectedItem);
+            if (!string.IsNullOrWhiteSpace(anchor))
+                await editor.ScrollToAnchorAsync(anchor);
+        }
+
         private void UpdateToolbarButtonToolTip()
         {
             toolTip.SetToolTip(toolbarButton, toolbarButton.Checked

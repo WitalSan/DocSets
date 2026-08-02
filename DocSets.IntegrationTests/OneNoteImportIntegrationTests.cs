@@ -115,9 +115,35 @@ namespace DocSets.Tests
             Assert.Equal(result.Attachments, Enumerate(result.Root).Sum(item =>
                     CountOccurrences(item.Content, "data-docsets-attachment=")),
                 "Не для каждого вложения создан HTML-элемент DocSets.");
+            Assert.NotNull(result.Report, "Импортёр не создал подробный отчёт.");
+            foreach (var type in new[] { "Notebook", "Section", "Page", "TextBlock",
+                         "Image", "Table", "Link", "Attachment" })
+                Assert.True(result.Report.Entries.Any(entry => entry.ObjectType == type),
+                    "В отчёте отсутствуют объекты типа " + type + ".");
+            Assert.True(result.Report.Entries.Where(entry => entry.ObjectType is "Page" or
+                    "TextBlock" or "Image" or "Table" or "Link" or "Attachment")
+                    .All(entry => !string.IsNullOrWhiteSpace(entry.OneNotePageId) &&
+                                  !string.IsNullOrWhiteSpace(entry.DocSetsNodeId)),
+                "Отчёт потерял Page ID или DocSets Node ID дочернего объекта.");
+            Assert.True(result.Report.Entries.Where(entry => !string.IsNullOrWhiteSpace(entry.OneNoteObjectId))
+                    .All(entry => !string.IsNullOrWhiteSpace(entry.DocSetsAnchorId)),
+                "Для объекта с OneNote Object ID отсутствует DocSets Anchor ID.");
+            var reportJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Report,
+                Newtonsoft.Json.Formatting.Indented);
+            Assert.True(reportJson.Contains("\"Status\": \"Imported\""),
+                "Статусы отчёта JSON должны сохраняться текстовыми значениями.");
+            Assert.True(result.Report.Entries.Where(entry => entry.IsAggregate).All(entry =>
+                    entry.RelatedProblemIds.Count > 0 && entry.Reason.StartsWith("Содержит:")),
+                "Агрегированные предупреждения не объясняют первичную проблему.");
+            Assert.Equal(result.Report.Entries.Count(entry =>
+                    entry.Status != OneNoteImportStatus.Imported && !entry.IsAggregate),
+                result.Report.PrimaryProblems,
+                "Счётчик первичных проблем отчёта неверен.");
             Console.WriteLine($"Import result: root={result.Root.Name}, folders={result.Folders}, " +
                               $"pages={result.Pages}, images={result.Images}, attachments={result.Attachments}, links={result.InternalLinks}, " +
                               $"unresolved links={result.UnresolvedInternalLinks}, failed={result.FailedPages}");
+            Console.WriteLine("Report: " + string.Join(", ", result.Report.Entries
+                .GroupBy(entry => entry.Status).Select(group => group.Key + "=" + group.Count())));
             if (result.Errors.Count > 0)
                 Console.WriteLine(string.Join(Environment.NewLine, result.Errors));
         }

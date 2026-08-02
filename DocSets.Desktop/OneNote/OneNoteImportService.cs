@@ -23,6 +23,12 @@ internal sealed class OneNoteImportService
     private const int HierarchyPages = 4;
     private readonly Func<byte[], string, string, Task<string>> _saveImage;
     private readonly Func<byte[], string, Task<string>> _saveFile;
+    private IApplication _reportApplication;
+    private OneNoteImportResult _reportResult;
+    private string _reportPageId = "";
+    private string _reportNodeId = "";
+    private IReadOnlyDictionary<string, string> _reportAnchors =
+        new Dictionary<string, string>();
     private static readonly Regex HrefPattern = new(
         "(?<prefix>\\bhref\\s*=\\s*)(?<quote>[\\\"'])(?<value>.*?)(\\k<quote>)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -86,6 +92,9 @@ internal sealed class OneNoteImportService
             .Where(path => string.Equals(Path.GetExtension(path), ".one", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         var result = new OneNoteImportResult { Root = Folder(Path.GetFileName(notebookDirectory)) };
+        result.Report.NotebookName = result.Root.Name;
+        result.Report.ImportedRootNodeId = result.Root.Id;
+        RecordHierarchy(result, application, "Notebook", result.Root.Name, "", result.Root.Id);
         var sectionDocuments = new List<XDocument>();
         var totalPages = 0;
         foreach (var sectionPath in sectionPaths)
@@ -114,6 +123,8 @@ internal sealed class OneNoteImportService
                 links.IdFor(section));
             result.Root.Children.Add(folder);
             result.Folders++;
+            RecordHierarchy(result, application, "Section", folder.Name,
+                Attribute(section, "ID"), folder.Id);
             ImportHierarchyChildren(application, section.Elements(), folder, links, result, totalPages,
                 ref currentPage, progress, cancellationToken);
         }
@@ -139,6 +150,10 @@ internal sealed class OneNoteImportService
         {
             Root = Folder(NameOf(sourceRoot, notebook.Name), links.IdFor(sourceRoot))
         };
+        result.Report.NotebookName = result.Root.Name;
+        result.Report.NotebookId = notebook.Id;
+        result.Report.ImportedRootNodeId = result.Root.Id;
+        RecordHierarchy(result, application, "Notebook", result.Root.Name, notebook.Id, result.Root.Id);
         var pages = sourceRoot.Descendants().Count(element => element.Name.LocalName == "Page");
         var current = 0;
         ImportHierarchyChildren(application, sourceRoot.Elements(), result.Root, links, result, pages,
@@ -216,6 +231,7 @@ internal sealed class OneNoteImportService
                 links.IdFor(source));
             targetParent.Children.Add(folder);
             result.Folders++;
+            RecordHierarchy(result, application, kind, folder.Name, Attribute(source, "ID"), folder.Id);
             ImportHierarchyChildren(application, source.Elements(), folder, links, result, totalPages,
                 ref currentPage, progress, cancellationToken);
             return folder;
@@ -233,15 +249,18 @@ internal sealed class OneNoteImportService
         DocumentItem importedPage = null;
         try
         {
-            application.GetPageContent(Attribute(source, "ID"), out string pageXml,
+            var pageId = Attribute(source, "ID");
+            var nodeId = links.IdFor(source);
+            application.GetPageContent(pageId, out string pageXml,
                 PageInfo.piAll, XMLSchema.xs2013);
             var page = XDocument.Parse(pageXml, LoadOptions.PreserveWhitespace);
-            var html = ConvertPage(application, Attribute(source, "ID"), page, pageName,
+            var reportStart = result.Report.Entries.Count;
+            var html = ConvertPage(application, pageId, nodeId, page, pageName,
                 links, result, cancellationToken);
             importedPage = new DocumentItem
             {
                 Name = pageName,
-                Id = links.IdFor(source),
+                Id = nodeId,
                 NodeType = NodeType.Item,
                 Type = BookmarkType.Empty,
                 ContentFormat = ContentFormat.Html,
@@ -249,6 +268,13 @@ internal sealed class OneNoteImportService
             };
             targetParent.Children.Add(importedPage);
             result.Pages++;
+            var pageProblems = PrimaryProblemsSince(result.Report, reportStart);
+            var pageEntry = AddReport(result, application, "Page", pageName,
+                pageProblems.Count == 0 ? OneNoteImportStatus.Imported :
+                    OneNoteImportStatus.ImportedWithWarnings,
+                AggregateReason(pageProblems),
+                pageId, "", nodeId, "");
+            SetAggregate(pageEntry, pageProblems);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception exception)
@@ -256,6 +282,21 @@ internal sealed class OneNoteImportService
             result.FailedPages++;
             result.Errors.Add(pageName + ": " + exception.Message);
             DocSetsLog.Current.Error("OneNote", "Не удалось импортировать страницу '" + pageName + "'.", exception);
+            var failedNodeId = links.IdFor(source);
+            var reportEntry = AddReport(result, application, "Page", pageName,
+                OneNoteImportStatus.NotImported, exception.Message, Attribute(source, "ID"), "",
+                failedNodeId, "");
+            importedPage = new DocumentItem
+            {
+                Name = pageName,
+                Id = failedNodeId,
+                NodeType = NodeType.Item,
+                Type = BookmarkType.Empty,
+                ContentFormat = ContentFormat.Html,
+                Content = DiagnosticPlaceholder(reportEntry)
+            };
+            targetParent.Children.Add(importedPage);
+            result.Pages++;
         }
 
         // В OneNote дочерние страницы представлены вложенными элементами Page.
@@ -276,19 +317,25 @@ internal sealed class OneNoteImportService
             ? Math.Max(1, level)
             : 1;
 
-    private string ConvertPage(IApplication application, string pageId, XDocument page,
+    private string ConvertPage(IApplication application, string pageId, string nodeId, XDocument page,
         string pageName, OneNoteLinkMap links,
         OneNoteImportResult result,
         CancellationToken cancellationToken)
     {
         var body = new StringBuilder();
         var objectAnchors = BuildPageObjectAnchors(application, pageId, page, cancellationToken);
+        _reportApplication = application;
+        _reportResult = result;
+        _reportPageId = pageId ?? "";
+        _reportNodeId = nodeId ?? "";
+        _reportAnchors = objectAnchors;
         var pageElement = page.Descendants().FirstOrDefault(x => x.Name.LocalName == "Page");
         var title = pageElement?.Elements().FirstOrDefault(x => x.Name.LocalName == "Title");
         if (title != null)
         {
             var titleText = string.Concat(title.Descendants().Where(x => x.Name.LocalName == "T").Select(x => x.Value));
             if (!string.IsNullOrWhiteSpace(titleText)) body.Append("<h1>").Append(titleText).Append("</h1>");
+            AddCurrentReport("TextBlock", "Заголовок страницы", OneNoteImportStatus.Imported, "", title);
         }
         else if (!string.IsNullOrWhiteSpace(pageName))
         {
@@ -308,6 +355,19 @@ internal sealed class OneNoteImportService
             if (margin > 0) body.Append("<div style=\"margin-left:").Append(margin.ToString("0.##", CultureInfo.InvariantCulture)).Append("px\">");
             body.Append(ConvertChildren(children, links, objectAnchors, result, cancellationToken, 0));
             if (margin > 0) body.Append("</div>");
+        }
+        var unsupportedTopLevel = pageElement?.Elements().Where(element =>
+            element.Name.LocalName is "InkDrawing" or "InkParagraph" or "InkWord" or
+                "Media" or "Audio" or "Video" or "Math" or "Equation").ToList()
+            ?? new List<XElement>();
+        foreach (var unsupported in unsupportedTopLevel)
+        {
+            var entry = AddCurrentReport(IsFormula(unsupported) ? "Formula" :
+                    unsupported.Name.LocalName.StartsWith("Ink", StringComparison.OrdinalIgnoreCase)
+                        ? "Ink" : unsupported.Name.LocalName,
+                unsupported.Name.LocalName, OneNoteImportStatus.NotImported,
+                "Тип объекта OneNote пока не поддерживается.", unsupported);
+            body.Append(DiagnosticPlaceholder(entry));
         }
         return body.ToString();
     }
@@ -330,12 +390,22 @@ internal sealed class OneNoteImportService
                 if (listKind != null) output.Append('<').Append(listKind).Append('>');
                 openList = listKind;
             }
+            var reportStart = result.Report.Entries.Count;
             var content = ConvertOutlineElement(element, links, objectAnchors, result,
                 cancellationToken, depth);
             var style = BuildParagraphStyle(element, listKind == null && depth > 0 ? 24 : 0);
             var anchor = BuildObjectAnchorAttribute(element, objectAnchors);
             output.Append(listKind == null ? "<div" + anchor + style + ">" : "<li" + anchor + style + ">").Append(content)
                 .Append(listKind == null ? "</div>" : "</li>");
+            var objectId = Attribute(element, "objectID");
+            var blockProblems = PrimaryProblemsSince(result.Report, reportStart);
+            var blockEntry = AddReport(result, _reportApplication, "TextBlock", "Текстовый блок",
+                blockProblems.Count == 0 ? OneNoteImportStatus.Imported :
+                    OneNoteImportStatus.ImportedWithWarnings,
+                AggregateReason(blockProblems),
+                _reportPageId, objectId,
+                _reportNodeId, AnchorFor(objectId));
+            SetAggregate(blockEntry, blockProblems);
         }
         if (openList != null) output.Append("</").Append(openList).Append('>');
         return output.ToString();
@@ -351,10 +421,12 @@ internal sealed class OneNoteImportService
             switch (child.Name.LocalName)
             {
                 case "T":
-                    output.Append(RewriteOneNoteLinks(child.Value, links.Targets,
-                        out var resolved, out var unresolved));
+                    var convertedText = RewriteOneNoteLinks(child.Value, links.Targets,
+                        out var resolved, out var unresolved);
+                    output.Append(convertedText);
                     result.InternalLinks += resolved;
                     result.UnresolvedInternalLinks += unresolved;
+                    RecordTextDetails(child, links, convertedText);
                     break;
                 case "Table":
                     output.Append(ConvertTable(child, links, objectAnchors, result,
@@ -369,6 +441,17 @@ internal sealed class OneNoteImportService
                 case "OEChildren":
                     output.Append(ConvertChildren(child, links, objectAnchors, result,
                         cancellationToken, depth + 1));
+                    break;
+                case "List":
+                case "Meta":
+                    break;
+                default:
+                    var unsupported = AddCurrentReport(
+                        IsFormula(child) ? "Formula" :
+                        child.Name.LocalName.StartsWith("Ink", StringComparison.OrdinalIgnoreCase) ? "Ink" : child.Name.LocalName,
+                        child.Name.LocalName, OneNoteImportStatus.NotImported,
+                        "Тип объекта OneNote пока не поддерживается.", child);
+                    output.Append(DiagnosticPlaceholder(unsupported));
                     break;
             }
         }
@@ -391,35 +474,53 @@ internal sealed class OneNoteImportService
             }
             output.Append("</tr>");
         }
+        AddCurrentReport("Table", "Таблица", OneNoteImportStatus.Imported, "", table);
         return output.Append("</tbody></table>").ToString();
     }
 
     private string ConvertImage(XElement image, OneNoteImportResult result,
         CancellationToken cancellationToken)
     {
-        var data = image.Elements().FirstOrDefault(x => x.Name.LocalName == "Data")?.Value;
-        if (string.IsNullOrWhiteSpace(data)) return "";
-        cancellationToken.ThrowIfCancellationRequested();
-        var bytes = Convert.FromBase64String(data);
-        var mime = Attribute(image, "format");
-        if (string.IsNullOrWhiteSpace(mime)) mime = "image/png";
-        if (!mime.Contains('/')) mime = "image/" + mime.ToLowerInvariant().TrimStart('.');
-        var extension = mime.Split('/').LastOrDefault() ?? "png";
-        if (string.Equals(extension, "emf", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(extension, "wmf", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            using var input = new MemoryStream(bytes);
-            using var bitmap = Image.FromStream(input);
-            using var output = new MemoryStream();
-            bitmap.Save(output, ImageFormat.Png);
-            bytes = output.ToArray();
-            mime = "image/png";
-            extension = "png";
+            var data = image.Elements().FirstOrDefault(x => x.Name.LocalName == "Data")?.Value;
+            if (string.IsNullOrWhiteSpace(data))
+                throw new InvalidDataException("OneNote не вернул данные изображения.");
+            cancellationToken.ThrowIfCancellationRequested();
+            var bytes = Convert.FromBase64String(data);
+            var mime = Attribute(image, "format");
+            if (string.IsNullOrWhiteSpace(mime)) mime = "image/png";
+            if (!mime.Contains('/')) mime = "image/" + mime.ToLowerInvariant().TrimStart('.');
+            var extension = mime.Split('/').LastOrDefault() ?? "png";
+            var sourceExtension = extension.ToUpperInvariant();
+            var convertedWithLoss = false;
+            if (string.Equals(extension, "emf", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(extension, "wmf", StringComparison.OrdinalIgnoreCase))
+            {
+                using var input = new MemoryStream(bytes);
+                using var bitmap = Image.FromStream(input);
+                using var output = new MemoryStream();
+                bitmap.Save(output, ImageFormat.Png);
+                bytes = output.ToArray();
+                mime = "image/png";
+                extension = "png";
+                convertedWithLoss = true;
+            }
+            var reference = _saveImage(bytes, mime, "onenote-image." + extension).GetAwaiter().GetResult();
+            result.Images++;
+            AddCurrentReport("Image", "Изображение (" + sourceExtension + ")",
+                convertedWithLoss ? OneNoteImportStatus.ConvertedWithLoss : OneNoteImportStatus.Imported,
+                convertedWithLoss ? "Метафайл преобразован в PNG." : "", image);
+            var alt = image.Elements().FirstOrDefault(x => x.Name.LocalName == "OCRText")?.Value ?? "";
+            return "<img src=\"" + WebUtility.HtmlEncode(reference) + "\" alt=\"" + WebUtility.HtmlEncode(alt) + "\">";
         }
-        var reference = _saveImage(bytes, mime, "onenote-image." + extension).GetAwaiter().GetResult();
-        result.Images++;
-        var alt = image.Elements().FirstOrDefault(x => x.Name.LocalName == "OCRText")?.Value ?? "";
-        return "<img src=\"" + WebUtility.HtmlEncode(reference) + "\" alt=\"" + WebUtility.HtmlEncode(alt) + "\">";
+        catch (Exception exception) when (!(exception is OperationCanceledException))
+        {
+            var entry = AddCurrentReport("Image", "Изображение", OneNoteImportStatus.NotImported,
+                exception.Message, image);
+            result.Errors.Add("Изображение: " + exception.Message);
+            return DiagnosticPlaceholder(entry);
+        }
     }
 
     private string ConvertInsertedFile(XElement file, OneNoteImportResult result,
@@ -444,6 +545,7 @@ internal sealed class OneNoteImportService
                 throw new FileNotFoundException("OneNote не предоставил содержимое вложения.", name);
             var reference = _saveFile(bytes, name).GetAwaiter().GetResult();
             result.Attachments++;
+            AddCurrentReport("Attachment", name, OneNoteImportStatus.Imported, "", file);
             var extension = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
             var type = string.IsNullOrWhiteSpace(extension) ? "FILE" : extension;
             return "<span class=\"docsets-attachment\" data-docsets-attachment=\"" +
@@ -459,10 +561,127 @@ internal sealed class OneNoteImportService
         {
             result.Errors.Add("Вложение " + name + ": " + exception.Message);
             DocSetsLog.Current.Warning("OneNote", "Не удалось импортировать вложение '" + name + "': " + exception.Message);
-            return "<span class=\"docsets-attachment docsets-attachment-missing\" " +
-                "contenteditable=\"false\">📄 " + WebUtility.HtmlEncode(name) +
-                " (файл не импортирован)</span>";
+            var entry = AddCurrentReport("Attachment", name, OneNoteImportStatus.NotImported,
+                exception.Message, file);
+            return DiagnosticPlaceholder(entry);
         }
+    }
+
+    private void RecordTextDetails(XElement text, OneNoteLinkMap links, string convertedText)
+    {
+        if (IsFormula(text) || Regex.IsMatch(text.Value ?? "", "<(?:mml:)?math\\b", RegexOptions.IgnoreCase))
+            AddCurrentReport("Formula", "Формула", OneNoteImportStatus.ConvertedWithLoss,
+                "Формула сохранена как HTML без гарантии полного соответствия OneNote.", text);
+
+        foreach (Match match in HrefPattern.Matches(text.Value ?? string.Empty))
+        {
+            var href = WebUtility.HtmlDecode(match.Groups["value"].Value);
+            var status = OneNoteImportStatus.Imported;
+            var reason = "";
+            if (href.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase))
+            {
+                var pageId = LinkParameter(href, "page-id");
+                var sectionId = LinkParameter(href, "section-id");
+                if (!TryResolveTarget(links.Targets,
+                        string.IsNullOrWhiteSpace(pageId) ? sectionId : pageId, out _))
+                {
+                    status = OneNoteImportStatus.NotImported;
+                    reason = "Внутренняя ссылка OneNote не разрешена в импортированном дереве.";
+                }
+            }
+            AddCurrentReport("Link", href, status, reason, text);
+        }
+    }
+
+    private static bool IsFormula(XElement element)
+        => element != null && (element.Name.LocalName.IndexOf("Math", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            element.Name.LocalName.IndexOf("Equation", StringComparison.OrdinalIgnoreCase) >= 0);
+
+    private OneNoteImportReportEntry AddCurrentReport(string type, string name,
+        OneNoteImportStatus status, string reason, XElement source)
+    {
+        var objectId = Attribute(source, "objectID");
+        if (string.IsNullOrWhiteSpace(objectId))
+            objectId = source?.AncestorsAndSelf()
+                .Select(element => Attribute(element, "objectID"))
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+        return AddReport(_reportResult, _reportApplication, type, name, status, reason,
+            _reportPageId, objectId, _reportNodeId, AnchorFor(objectId));
+    }
+
+    private string AnchorFor(string objectId)
+        => string.IsNullOrWhiteSpace(objectId) ? "" :
+            (_reportAnchors.TryGetValue(objectId, out var anchor) ? anchor : ObjectAnchor(objectId));
+
+    private static void RecordHierarchy(OneNoteImportResult result, IApplication application,
+        string type, string name, string sourceId, string nodeId)
+        => AddReport(result, application, type, name, OneNoteImportStatus.Imported, "",
+            sourceId, "", nodeId, "");
+
+    private static List<OneNoteImportReportEntry> PrimaryProblemsSince(
+        OneNoteImportReport report, int startIndex)
+        => report.Entries.Skip(Math.Max(0, startIndex)).Where(entry =>
+            entry.Status != OneNoteImportStatus.Imported && !entry.IsAggregate).ToList();
+
+    private static string AggregateReason(IReadOnlyList<OneNoteImportReportEntry> problems)
+    {
+        if (problems == null || problems.Count == 0) return "";
+        var descriptions = problems.Select(problem => problem.ObjectType +
+                (string.IsNullOrWhiteSpace(problem.Name) ? "" : " «" + problem.Name + "»") +
+                (string.IsNullOrWhiteSpace(problem.Reason) ? "" : ": " + problem.Reason))
+            .Distinct(StringComparer.Ordinal).Take(3).ToList();
+        var suffix = problems.Count > descriptions.Count ? $"; ещё {problems.Count - descriptions.Count}" : "";
+        return "Содержит: " + string.Join("; ", descriptions) + suffix;
+    }
+
+    private static void SetAggregate(OneNoteImportReportEntry entry,
+        IReadOnlyList<OneNoteImportReportEntry> problems)
+    {
+        if (entry == null || problems == null || problems.Count == 0) return;
+        entry.IsAggregate = true;
+        entry.RelatedProblemIds = problems.Select(problem => problem.Id).Distinct().ToList();
+    }
+
+    private static OneNoteImportReportEntry AddReport(OneNoteImportResult result,
+        IApplication application, string type, string name, OneNoteImportStatus status,
+        string reason, string pageId, string objectId, string nodeId, string anchorId)
+    {
+        if (result == null) return null;
+        var entry = new OneNoteImportReportEntry
+        {
+            ObjectType = type ?? "Unknown",
+            Name = name ?? "",
+            Status = status,
+            Reason = reason ?? "",
+            OneNotePageId = pageId ?? "",
+            OneNoteObjectId = objectId ?? "",
+            DocSetsNodeId = nodeId ?? "",
+            DocSetsAnchorId = anchorId ?? "",
+            OneNoteLink = GetSourceLink(application, pageId, objectId)
+        };
+        result.Report.Entries.Add(entry);
+        return entry;
+    }
+
+    private static string GetSourceLink(IApplication application, string pageId, string objectId)
+    {
+        if (application == null || string.IsNullOrWhiteSpace(pageId)) return "";
+        try
+        {
+            application.GetHyperlinkToObject(pageId,
+                string.IsNullOrWhiteSpace(objectId) ? null : objectId, out string hyperlink);
+            return hyperlink ?? "";
+        }
+        catch (COMException) { return ""; }
+    }
+
+    private static string DiagnosticPlaceholder(OneNoteImportReportEntry entry)
+    {
+        if (entry == null) return "";
+        return "<div class=\"docsets-onenote-diagnostic\" data-onenote-report-id=\"" +
+            WebUtility.HtmlEncode(entry.Id) + "\" contenteditable=\"false\"><strong>OneNote: " +
+            WebUtility.HtmlEncode(entry.ObjectType) + " не импортирован</strong><br>" +
+            WebUtility.HtmlEncode(entry.Reason) + "</div>";
     }
 
     internal static string RewriteOneNoteLinks(
