@@ -185,6 +185,23 @@ namespace DocSets.Tests
             var profileJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Report.Profile);
             Assert.False(profileJson.Contains("<one:") || profileJson.Contains("<html"),
                 "Профиль не должен сохранять XML или HTML содержимое страниц.");
+            var linkTiming = result.Report.Profile.Timings.First(item =>
+                item.Path == OneNoteImportService.ProfileLinks);
+            Assert.True(linkTiming.Calls <= Math.Max(1, result.InternalLinks),
+                "Обработка ссылок снова выполняется для каждого текстового блока.");
+            var tagTiming = result.Report.Profile.Timings.First(item =>
+                item.Path == OneNoteImportService.ProfileTags);
+            Assert.True(tagTiming.Calls <= result.Pages + result.NoteTags,
+                "Импорт тегов снова профилируется/выполняется для каждого OE без тегов.");
+            Assert.True(result.Report.Entries.Where(entry =>
+                    entry.Status == OneNoteImportStatus.Imported).All(entry =>
+                    string.IsNullOrWhiteSpace(entry.OneNoteLink)),
+                "Успешные объекты не должны запускать дорогой COM-вызов только ради ссылки отчёта.");
+            Console.WriteLine("Profile: " + string.Join(", ", result.Report.Profile.Timings
+                .Where(timing => timing.Path.Contains("ссыл") || timing.Path.Contains("якор") ||
+                                 timing.Path.Contains("HTML") || timing.Path.Contains("тег"))
+                .Select(timing => timing.Path.Split('/').Last() + "=" +
+                    timing.ElapsedMilliseconds.ToString("N1") + "ms/" + timing.Calls)));
             Console.WriteLine($"Import result: root={result.Root.Name}, folders={result.Folders}, " +
                               $"pages={result.Pages}, images={result.Images}, attachments={result.Attachments}, links={result.InternalLinks}, " +
                               $"unresolved links={result.UnresolvedInternalLinks}, failed={result.FailedPages}");

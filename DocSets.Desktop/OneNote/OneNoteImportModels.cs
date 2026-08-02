@@ -107,6 +107,7 @@ internal sealed class OneNotePageTiming
 internal sealed class OneNoteImportProfile
 {
     private readonly object _sync = new();
+    private Stopwatch _overallStopwatch;
     public List<OneNoteImportTiming> Timings { get; set; } = new();
     public List<OneNotePageTiming> Pages { get; set; } = new();
     public int DocSetSaveCalls { get; set; }
@@ -116,6 +117,24 @@ internal sealed class OneNoteImportProfile
 
     public IDisposable Measure(string path)
         => new TimingScope(this, path);
+
+    public void StartOverall()
+    {
+        lock (_sync) _overallStopwatch = Stopwatch.StartNew();
+    }
+
+    public void StopOverall(string path)
+    {
+        Stopwatch stopwatch;
+        lock (_sync)
+        {
+            stopwatch = _overallStopwatch;
+            _overallStopwatch = null;
+        }
+        if (stopwatch == null) return;
+        stopwatch.Stop();
+        Record(path, stopwatch.Elapsed);
+    }
 
     public IDisposable Measure(string path, OneNotePageTiming page, string pageStage)
         => new TimingScope(this, path, page, pageStage);
@@ -129,7 +148,8 @@ internal sealed class OneNoteImportProfile
     public OneNoteImportProfile Snapshot()
     {
         lock (_sync)
-            return new OneNoteImportProfile
+        {
+            var snapshot = new OneNoteImportProfile
             {
                 Timings = Timings.Select(item => new OneNoteImportTiming
                 {
@@ -148,6 +168,18 @@ internal sealed class OneNoteImportProfile
                 DocSetSavedAfterEachPage = DocSetSavedAfterEachPage,
                 TreeUpdatedAfterEachPage = TreeUpdatedAfterEachPage
             };
+            if (_overallStopwatch != null)
+            {
+                snapshot.Timings.RemoveAll(item => item.Path == OneNoteImportService.ProfileRoot);
+                snapshot.Timings.Add(new OneNoteImportTiming
+                {
+                    Path = OneNoteImportService.ProfileRoot,
+                    Calls = 1,
+                    ElapsedMilliseconds = _overallStopwatch.Elapsed.TotalMilliseconds
+                });
+            }
+            return snapshot;
+        }
     }
 
     public void Record(string path, TimeSpan elapsed, long calls = 1)

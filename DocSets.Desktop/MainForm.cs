@@ -222,7 +222,7 @@ internal sealed class MainForm : Form
 
             var notebook = OneNoteNotebookDialog.Select(this, notebooks);
             if (notebook == null) return;
-            var totalStopwatch = Stopwatch.StartNew();
+            profiler.StartOverall();
             var result = OneNoteProgressDialog.Run(this,
                 (progress, token) => service.ImportAsync(notebook, progress, token),
                 async importedResult =>
@@ -234,8 +234,7 @@ internal sealed class MainForm : Form
                     await _viewModel.AddImportedRootAsync(importedResult.Root,
                         "Импорт OneNote: " + notebook.Name, importedResult.NoteTagStyles);
                     _composition.Owner.RefreshAll();
-                    totalStopwatch.Stop();
-                    profiler.Record(OneNoteImportService.ProfileRoot, totalStopwatch.Elapsed);
+                    profiler.StopOverall(OneNoteImportService.ProfileRoot);
                     profiler.DocSetSaveCalls = (int)Math.Max(0,
                         _viewModel.SaveInvocationCount - saveCallsBefore);
                     profiler.TreeUpdateCalls = (int)Math.Max(0,

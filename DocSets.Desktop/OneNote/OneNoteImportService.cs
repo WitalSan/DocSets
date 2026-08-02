@@ -568,7 +568,7 @@ internal sealed class OneNoteImportService
                         using (_profile.Measure(ProfileLinks, _currentPageTiming,
                                    "Обработка внутренних ссылок"))
                         {
-                            TrackObjectLinkTargets(child.Value);
+                            TrackObjectLinkTargets(child.Value, links.Targets);
                             var convertedText = RewriteOneNoteLinks(child.Value, links.Targets,
                                 out var resolved, out var unresolved);
                             output.Append(convertedText);
@@ -1039,10 +1039,11 @@ internal sealed class OneNoteImportService
         if (_sourceLinkCache.TryGetValue(key, out var cached)) return cached;
         try
         {
+            string hyperlink;
             using (_profile.Measure(ProfileReportCom, _currentPageTiming,
                        "COM: ссылки диагностического отчёта"))
                 application.GetHyperlinkToObject(pageId,
-                    string.IsNullOrWhiteSpace(objectId) ? null : objectId, out string hyperlink);
+                    string.IsNullOrWhiteSpace(objectId) ? null : objectId, out hyperlink);
             return _sourceLinkCache[key] = hyperlink ?? "";
         }
         catch (COMException) { return _sourceLinkCache[key] = ""; }
@@ -1158,7 +1159,7 @@ internal sealed class OneNoteImportService
         _sourceLinkCache.Clear();
     }
 
-    private void TrackObjectLinkTargets(string html)
+    private void TrackObjectLinkTargets(string html, IReadOnlyDictionary<string, string> targets)
     {
         foreach (Match match in HrefPattern.Matches(html ?? ""))
         {
@@ -1167,10 +1168,10 @@ internal sealed class OneNoteImportService
             var pageId = LinkParameter(href, "page-id");
             var objectId = LinkParameter(href, "object-id");
             if (string.IsNullOrWhiteSpace(pageId) || string.IsNullOrWhiteSpace(objectId)) continue;
-            var canonicalPageId = CanonicalOneNoteId(pageId);
-            var key = canonicalPageId + "|" + CanonicalOneNoteId(objectId);
+            if (!TryResolveTarget(targets, pageId, out var targetNodeId)) continue;
+            var key = targetNodeId + "|" + CanonicalOneNoteId(objectId);
             if (!_pendingObjectAnchors.ContainsKey(key))
-                _pendingObjectAnchors[key] = new PendingObjectAnchor(pageId, objectId);
+                _pendingObjectAnchors[key] = new PendingObjectAnchor(pageId, objectId, targetNodeId);
         }
     }
 
@@ -1180,8 +1181,9 @@ internal sealed class OneNoteImportService
         var state = new ImportedPageAnchorState(pageId, item,
             page.Descendants().Select(element => Attribute(element, "objectID"))
                 .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), _currentPageTiming);
         _importedAnchorPages[pageId] = state;
+        if (!string.IsNullOrWhiteSpace(item.Id)) _importedAnchorPages[item.Id] = state;
         var canonical = CanonicalOneNoteId(pageId);
         if (!string.IsNullOrWhiteSpace(canonical)) _importedAnchorPages[canonical] = state;
     }
@@ -1191,7 +1193,8 @@ internal sealed class OneNoteImportService
         foreach (var pending in _pendingObjectAnchors.Values)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_importedAnchorPages.TryGetValue(pending.PageId, out var state) &&
+            if (!_importedAnchorPages.TryGetValue(pending.TargetNodeId, out var state) &&
+                !_importedAnchorPages.TryGetValue(pending.PageId, out state) &&
                 !_importedAnchorPages.TryGetValue(CanonicalOneNoteId(pending.PageId), out state))
                 continue;
             var targetObjectId = CanonicalOneNoteId(pending.ObjectId);
@@ -1204,7 +1207,9 @@ internal sealed class OneNoteImportService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string hyperlinkObjectId;
-                using (_profile.Measure(ProfileAnchorCom))
+                var anchorStopwatch = Stopwatch.StartNew();
+                using (_profile.Measure(ProfileAnchorCom, state.PageTiming,
+                           "COM: целевые объектные якоря"))
                 {
                     try
                     {
@@ -1213,8 +1218,12 @@ internal sealed class OneNoteImportService
                         hyperlinkObjectId = CanonicalOneNoteId(LinkParameter(
                             WebUtility.HtmlDecode(hyperlink), "object-id"));
                     }
-                    catch (COMException) { continue; }
+                    catch (COMException) { hyperlinkObjectId = ""; }
                 }
+                anchorStopwatch.Stop();
+                if (state.PageTiming != null)
+                    state.PageTiming.TotalMilliseconds += anchorStopwatch.Elapsed.TotalMilliseconds;
+                _profile.Record(ProfileRoot + "/Импорт страниц", anchorStopwatch.Elapsed, 0);
                 if (!string.Equals(hyperlinkObjectId, targetObjectId,
                         StringComparison.OrdinalIgnoreCase)) continue;
                 var fallbackAnchor = ObjectAnchor(sourceObjectId);
@@ -1235,26 +1244,31 @@ internal sealed class OneNoteImportService
 
     private sealed class ImportedPageAnchorState
     {
-        public ImportedPageAnchorState(string pageId, DocumentItem item, List<string> sourceObjectIds)
+        public ImportedPageAnchorState(string pageId, DocumentItem item,
+            List<string> sourceObjectIds, OneNotePageTiming pageTiming)
         {
             PageId = pageId;
             Item = item;
             SourceObjectIds = sourceObjectIds;
+            PageTiming = pageTiming;
         }
         public string PageId { get; }
         public DocumentItem Item { get; }
         public List<string> SourceObjectIds { get; }
+        public OneNotePageTiming PageTiming { get; }
     }
 
     private sealed class PendingObjectAnchor
     {
-        public PendingObjectAnchor(string pageId, string objectId)
+        public PendingObjectAnchor(string pageId, string objectId, string targetNodeId)
         {
             PageId = pageId;
             ObjectId = objectId;
+            TargetNodeId = targetNodeId;
         }
         public string PageId { get; }
         public string ObjectId { get; }
+        public string TargetNodeId { get; }
     }
 
     private static string CanonicalOneNoteId(string sourceId)
