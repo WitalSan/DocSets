@@ -2479,8 +2479,17 @@ namespace DocSets
             _viewModel.SaveSolutionState();
         }
 
+        public long RefreshAllInvocationCount { get; private set; }
+        private long _refreshAllElapsedTicks;
+        public TimeSpan TotalRefreshAllDuration =>
+            TimeSpan.FromTicks(Interlocked.Read(ref _refreshAllElapsedTicks));
+
         public void RefreshAll()
         {
+            RefreshAllInvocationCount++;
+            var refreshStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
             _experimentalPropertiesPanel.SetJoditAssetDirectory(_viewModel.AssetDirectory);
             if (_viewModel.IsLoaded && !_localStateRestored)
                 RestoreLocalState();
@@ -2504,6 +2513,12 @@ namespace DocSets
             RestoreSplitterPosition();
             if (_externalDocking)
                 _contentSplit.Panel2Collapsed = true;
+            }
+            finally
+            {
+                refreshStopwatch.Stop();
+                Interlocked.Add(ref _refreshAllElapsedTicks, refreshStopwatch.Elapsed.Ticks);
+            }
         }
 
         public void NavigateToSelectedItem()

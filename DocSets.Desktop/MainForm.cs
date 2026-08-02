@@ -2,6 +2,7 @@ using DocSets.Desktop.Panels;
 using DocSets.Desktop.OneNote;
 using WeifenLuo.WinFormsUI.Docking;
 using System.Text;
+using System.Diagnostics;
 
 namespace DocSets.Desktop;
 
@@ -208,8 +209,9 @@ internal sealed class MainForm : Form
         try
         {
             await _composition.Owner.CommitPendingCommentAsync();
+            var profiler = new OneNoteImportProfile();
             var service = new OneNoteImportService(
-                _viewModel.SaveImageAssetAsync, _viewModel.SaveFileAssetAsync);
+                _viewModel.SaveImageAssetAsync, _viewModel.SaveFileAssetAsync, profiler);
             var notebooks = await service.GetNotebooksAsync(CancellationToken.None);
             if (notebooks.Count == 0)
             {
@@ -220,43 +222,78 @@ internal sealed class MainForm : Form
 
             var notebook = OneNoteNotebookDialog.Select(this, notebooks);
             if (notebook == null) return;
+            var totalStopwatch = Stopwatch.StartNew();
             var result = OneNoteProgressDialog.Run(this,
-                (progress, token) => service.ImportAsync(notebook, progress, token));
+                (progress, token) => service.ImportAsync(notebook, progress, token),
+                async importedResult =>
+                {
+                    var saveCallsBefore = _viewModel.SaveInvocationCount;
+                    var saveDurationBefore = _viewModel.TotalSaveDuration;
+                    var treeUpdatesBefore = _composition.Owner.RefreshAllInvocationCount;
+                    var treeUpdateDurationBefore = _composition.Owner.TotalRefreshAllDuration;
+                    await _viewModel.AddImportedRootAsync(importedResult.Root,
+                        "Импорт OneNote: " + notebook.Name, importedResult.NoteTagStyles);
+                    _composition.Owner.RefreshAll();
+                    totalStopwatch.Stop();
+                    profiler.Record(OneNoteImportService.ProfileRoot, totalStopwatch.Elapsed);
+                    profiler.DocSetSaveCalls = (int)Math.Max(0,
+                        _viewModel.SaveInvocationCount - saveCallsBefore);
+                    profiler.TreeUpdateCalls = (int)Math.Max(0,
+                        _composition.Owner.RefreshAllInvocationCount - treeUpdatesBefore);
+                    profiler.Record(OneNoteImportService.ProfileSave,
+                        _viewModel.TotalSaveDuration - saveDurationBefore, profiler.DocSetSaveCalls);
+                    profiler.Record(OneNoteImportService.ProfileUi,
+                        _composition.Owner.TotalRefreshAllDuration - treeUpdateDurationBefore,
+                        profiler.TreeUpdateCalls);
+                    profiler.DocSetSavedAfterEachPage = importedResult.Pages > 0 &&
+                        profiler.DocSetSaveCalls >= importedResult.Pages;
+                    profiler.TreeUpdatedAfterEachPage = importedResult.Pages > 0 &&
+                        profiler.TreeUpdateCalls >= importedResult.Pages;
+                    importedResult.Report.Profile = profiler;
+                    importedResult.Report.ImportedRootNodeId = importedResult.Root.Id;
+                    var reportDirectory = Path.Combine(_viewModel.ActiveDocSetDirectory, "reports");
+                    Directory.CreateDirectory(reportDirectory);
+                    var reportPath = Path.Combine(reportDirectory,
+                        "onenote-import-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".json");
+                    File.WriteAllText(reportPath,
+                        Newtonsoft.Json.JsonConvert.SerializeObject(importedResult.Report,
+                            Newtonsoft.Json.Formatting.Indented), Encoding.UTF8);
+                    var profilePath = Path.Combine(reportDirectory,
+                        Path.GetFileNameWithoutExtension(reportPath) + "-profile.json");
+                    File.WriteAllText(profilePath,
+                        Newtonsoft.Json.JsonConvert.SerializeObject(profiler,
+                            Newtonsoft.Json.Formatting.Indented), Encoding.UTF8);
+                    return new OneNoteImportPresentation
+                    {
+                        Result = importedResult,
+                        ReportPath = reportPath,
+                        ProfilePath = profilePath,
+                        OpenDocSets = async entry =>
+                        {
+                            if (string.IsNullOrWhiteSpace(entry?.DocSetsNodeId) ||
+                                !await _viewModel.OpenBookmarkByIdAsync(entry.DocSetsNodeId))
+                            {
+                                MessageBox.Show(this, "Связанный объект DocSets не найден.",
+                                    "Отчёт импорта OneNote", MessageBoxButtons.OK,
+                                    MessageBoxIcon.Information);
+                                return;
+                            }
+                            _composition.Owner.NavigateToSelectedItem();
+                            ShowPanel(DocSetsPanelIds.Note);
+                            var note = _composition.GetPanel(DocSetsPanelIds.Note)?.Controls
+                                .OfType<DocSetsHtmlCommentWindowControl>().FirstOrDefault();
+                            if (note != null)
+                                await note.NavigateToAnchorAsync(_composition.Owner.CurrentCommentItem,
+                                    entry.DocSetsAnchorId);
+                        }
+                    };
+                });
             if (result.Cancelled || result.Root == null)
             {
                 MessageBox.Show(this, "Импорт отменён. Дерево DocSets не изменено.",
                     "Импорт из OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-
-            await _viewModel.AddImportedRootAsync(result.Root, "Импорт OneNote: " + notebook.Name,
-                result.NoteTagStyles);
-            _composition.Owner.RefreshAll();
-            result.Report.ImportedRootNodeId = result.Root.Id;
-            var reportDirectory = Path.Combine(_viewModel.ActiveDocSetDirectory, "reports");
-            Directory.CreateDirectory(reportDirectory);
-            var reportPath = Path.Combine(reportDirectory,
-                "onenote-import-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".json");
-            File.WriteAllText(reportPath,
-                Newtonsoft.Json.JsonConvert.SerializeObject(result.Report,
-                    Newtonsoft.Json.Formatting.Indented), Encoding.UTF8);
-            OneNoteImportReportDialog.Show(this, result.Report, reportPath, async entry =>
-            {
-                if (string.IsNullOrWhiteSpace(entry?.DocSetsNodeId) ||
-                    !await _viewModel.OpenBookmarkByIdAsync(entry.DocSetsNodeId))
-                {
-                    MessageBox.Show(this, "Связанный объект DocSets не найден.",
-                        "Отчёт импорта OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                _composition.Owner.NavigateToSelectedItem();
-                ShowPanel(DocSetsPanelIds.Note);
-                var note = _composition.GetPanel(DocSetsPanelIds.Note)?.Controls
-                    .OfType<DocSetsHtmlCommentWindowControl>().FirstOrDefault();
-                if (note != null)
-                    await note.NavigateToAnchorAsync(_composition.Owner.CurrentCommentItem,
-                        entry.DocSetsAnchorId);
-            });
         }
         catch (Exception exception)
         {

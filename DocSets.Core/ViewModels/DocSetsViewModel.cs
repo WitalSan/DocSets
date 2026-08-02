@@ -44,6 +44,8 @@ namespace DocSets
         private bool _isApplyingState;
         private bool _isReloadingExternalChanges;
         private int _activeSaveCount;
+        private long _saveInvocationCount;
+        private long _saveElapsedTicks;
         private IReadOnlyList<WorkspaceInfo> _workspaces = Array.Empty<WorkspaceInfo>();
         private WorkspaceInfo _selectedWorkspace;
         private SolutionLocalState _solutionState = new SolutionLocalState();
@@ -2603,6 +2605,8 @@ namespace DocSets
         }
 
         public bool CanSave => IsLoaded && _workspace.HasOpenDocSet;
+        public long SaveInvocationCount => Interlocked.Read(ref _saveInvocationCount);
+        public TimeSpan TotalSaveDuration => TimeSpan.FromTicks(Interlocked.Read(ref _saveElapsedTicks));
 
         private async Task SaveCoreAsync()
         {
@@ -2612,6 +2616,8 @@ namespace DocSets
             }
 
             Interlocked.Increment(ref _activeSaveCount);
+            Interlocked.Increment(ref _saveInvocationCount);
+            var saveStopwatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 await _fileTracking.UpdateTrackedPositionsAsync(EnumerateAllNodes());
@@ -2619,6 +2625,8 @@ namespace DocSets
             }
             finally
             {
+                saveStopwatch.Stop();
+                Interlocked.Add(ref _saveElapsedTicks, saveStopwatch.Elapsed.Ticks);
                 Interlocked.Decrement(ref _activeSaveCount);
             }
         }

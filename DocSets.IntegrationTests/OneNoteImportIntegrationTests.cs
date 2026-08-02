@@ -167,6 +167,24 @@ namespace DocSets.Tests
                     entry.Status != OneNoteImportStatus.Imported && !entry.IsAggregate),
                 result.Report.PrimaryProblems,
                 "Счётчик первичных проблем отчёта неверен.");
+            Assert.NotNull(result.Report.Profile, "Профиль производительности не создан.");
+            Assert.Equal(result.Pages, result.Report.Profile.Pages.Count,
+                "Профиль должен содержать отдельную запись для каждой страницы.");
+            Assert.True(result.Report.Profile.Pages.All(page =>
+                    !string.IsNullOrWhiteSpace(page.OneNotePageId) && page.XmlBytes > 0 &&
+                    page.TotalMilliseconds >= 0),
+                "Профиль страницы потерял Page ID, размер XML или полное время.");
+            foreach (var stage in new[] { OneNoteImportService.ProfileHierarchy,
+                         OneNoteImportService.ProfilePageContent, OneNoteImportService.ProfileXml,
+                         OneNoteImportService.ProfileHtml, OneNoteImportService.ProfileLinks,
+                         OneNoteImportService.ProfileTags, OneNoteImportService.ProfileImages,
+                         OneNoteImportService.ProfileAttachments, OneNoteImportService.ProfileNodes,
+                         OneNoteImportService.ProfileAssets })
+                Assert.True(result.Report.Profile.Timings.Any(timing => timing.Path == stage),
+                    "В профиле отсутствует стадия " + stage + ".");
+            var profileJson = Newtonsoft.Json.JsonConvert.SerializeObject(result.Report.Profile);
+            Assert.False(profileJson.Contains("<one:") || profileJson.Contains("<html"),
+                "Профиль не должен сохранять XML или HTML содержимое страниц.");
             Console.WriteLine($"Import result: root={result.Root.Name}, folders={result.Folders}, " +
                               $"pages={result.Pages}, images={result.Images}, attachments={result.Attachments}, links={result.InternalLinks}, " +
                               $"unresolved links={result.UnresolvedInternalLinks}, failed={result.FailedPages}");
