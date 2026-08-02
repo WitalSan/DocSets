@@ -168,6 +168,7 @@ namespace DocSets
                 }
             }
             SetAssetDirectory(viewModel?.AssetDirectory);
+            editor.SetNoteTagStyles(viewModel?.NoteTagStyles);
             var toolbarVisible = viewModel?.SolutionState?.JoditToolbarVisible ?? true;
             if (toolbarButton.Checked != toolbarVisible)
                 toolbarButton.Checked = toolbarVisible;
@@ -256,6 +257,7 @@ namespace DocSets
             try
             {
                 SetAssetDirectory(viewModel?.AssetDirectory);
+                editor.SetNoteTagStyles(viewModel?.NoteTagStyles);
                 var html = item?.Content ?? string.Empty;
                 editor.SetLinkNodeId(item?.Id);
                 editor.Enabled = item != null;

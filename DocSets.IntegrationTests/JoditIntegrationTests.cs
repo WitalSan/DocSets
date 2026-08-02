@@ -138,6 +138,60 @@ namespace DocSets.Tests
                                value.Contains("☑");
                     }, "Jodit did not complete the NoteTag checkbox or persist its timestamp.");
 
+                    editor.SetNoteTagStyles(new[]
+                    {
+                        new NoteTagStyle { Id = "todo", Name = "Todo", Icon = "checkbox",
+                            Color = "#107c10", Behavior = NoteTagBehavior.Checkbox },
+                        new NoteTagStyle { Id = "important", Name = "Important", Icon = "important",
+                            Color = "#d13438", Behavior = NoteTagBehavior.Marker }
+                    });
+                    editor.LoadComment("<p>First line</p><p>Second line</p>");
+                    await WaitUntilAsync(async () => (await editor.GetCurrentCommentAsync()).Contains("Second line"),
+                        "Jodit did not load lines for the NoteTag toolbar test.");
+                    Assert.True(await editor.IsNoteTagsToolbarNextToCodeAsync(),
+                        "Tags toolbar control is not located immediately after Code.");
+                    await editor.SimulateNoteTagToolbarToggleAsync("todo", 0, 21);
+                    await WaitUntilAsync(async () =>
+                        CountOccurrences(await editor.GetCurrentCommentAsync(),
+                            "data-docsets-tag-style-id=\"todo\"") == 1,
+                        "Tags toolbar must apply the style only to the current caret line.");
+                    Assert.True(await editor.IsNoteTagCheckedAsync("todo", 0, 21),
+                        "Tags dropdown did not mark the style assigned to the current line as checked.");
+                    await editor.OpenNoteTagsMenuAsync(0, 0);
+                    Assert.True(await editor.IsNoteTagCheckedInMenuAsync("todo"),
+                        "The real Tags menu did not check the style assigned to the caret line.");
+                    await editor.ClickNoteTagInMenuAsync("todo");
+                    await WaitUntilAsync(async () => !(await editor.GetCurrentCommentAsync()).Contains(
+                        "data-docsets-tag-style-id=\"todo\""),
+                        "Clicking a checked style in the real Tags menu did not remove it.");
+                    await editor.ClickNoteTagInMenuAsync("todo");
+                    await WaitUntilAsync(async () => (await editor.GetCurrentCommentAsync()).Contains(
+                            "data-docsets-tag-style-id=\"todo\""),
+                        "Clicking an unchecked style in the real Tags menu did not assign it.");
+                    await editor.SimulateBackspaceAtFirstNoteTagAsync();
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return !value.Contains("data-docsets-tag-style-id=\"todo\"") &&
+                               value.Contains("First line");
+                    }, "Backspace at the tag icon did not remove only the tag while preserving line text.");
+                    await editor.SimulateNoteTagToolbarToggleAsync("todo", 0, 0);
+                    await editor.SimulateNoteTagToolbarToggleAsync("important", 0, 0);
+                    await WaitUntilAsync(async () =>
+                        CountOccurrences(await editor.GetCurrentCommentAsync(),
+                            "data-docsets-tag-style-id=") == 2,
+                        "The editor did not create two tags on the same line.");
+                    await editor.SimulateBackspaceAtNestedNoteTagAsync();
+                    await WaitUntilAsync(async () =>
+                    {
+                        var value = await editor.GetCurrentCommentAsync();
+                        return CountOccurrences(value, "data-docsets-tag-style-id=") == 1 &&
+                               value.Contains("data-docsets-tag-style-id=\"important\"") &&
+                               value.Contains("First line");
+                    }, "Backspace removed more than the tag immediately before the caret.");
+                    Assert.True(await editor.IsCaretInsideRemainingNoteTagAsync(),
+                        "Backspace moved the caret to the beginning of the line instead of preserving its position.");
+
                     editor.LoadComment("<p>Alpha selected range Omega</p>");
                     await WaitUntilAsync(async () =>
                         (await editor.GetCurrentCommentAsync()).Contains("selected range"),
@@ -349,6 +403,19 @@ namespace DocSets.Tests
                 await Task.Delay(50);
             }
             throw new TimeoutException(message);
+        }
+
+        private static int CountOccurrences(string value, string marker)
+        {
+            var count = 0;
+            var offset = 0;
+            while (!string.IsNullOrEmpty(value) &&
+                   (offset = value.IndexOf(marker, offset, StringComparison.OrdinalIgnoreCase)) >= 0)
+            {
+                count++;
+                offset += marker.Length;
+            }
+            return count;
         }
     }
 }

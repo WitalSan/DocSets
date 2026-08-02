@@ -131,6 +131,36 @@
       border-color: #999;
       outline: none;
     }
+    .docsets-note-tags-menu {
+      position: fixed;
+      z-index: 2147483647;
+      min-width: 190px;
+      max-height: 340px;
+      overflow: auto;
+      padding: 4px;
+      border: 1px solid #999;
+      border-radius: 4px;
+      background: #fff;
+      color: #202020;
+      box-shadow: 0 3px 12px rgba(0,0,0,.22);
+      font: 13px "Segoe UI", sans-serif;
+    }
+    .docsets-note-tags-menu label {
+      display: grid;
+      grid-template-columns: 20px 22px 1fr;
+      align-items: center;
+      min-height: 28px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .docsets-note-tags-menu label:hover { background: #e5f1fb; }
+    .docsets-note-tags-menu input { margin: 0; pointer-events: none; }
+    .docsets-note-tags-menu-icon { text-align: center; font-weight: 700; }
+    @media (prefers-color-scheme: dark) {
+      .docsets-note-tags-menu { background: #252526; color: #f1f1f1; border-color: #666; }
+      .docsets-note-tags-menu label:hover { background: #094771; }
+    }
     .jodit-wysiwyg pre.docsets-code-block {
       position: relative;
       overflow: auto;

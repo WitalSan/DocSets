@@ -12,6 +12,10 @@
   let syntaxHighlightTimer = 0;
   let syntaxHighlightFrame = 0;
   const syntaxHighlightNames = new Set();
+  let noteTagStyles = [];
+  let noteTagButton = null;
+  let noteTagMenu = null;
+  let noteTagSavedRange = null;
 
   const send = value => {
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(value);
@@ -37,6 +41,214 @@
     const icon = Array.from(tag.children || []).find(child =>
       child.classList && child.classList.contains('docsets-note-tag-icon'));
     if (icon) icon.textContent = noteTagGlyph(tag);
+  }
+
+  const noteTagBlockSelector = 'p,div,li,h1,h2,h3,h4,h5,h6,td,th';
+
+  function closestNoteTagBlock(node) {
+    const element = node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement;
+    const block = element && element.closest ? element.closest(noteTagBlockSelector) : null;
+    return block && editor && editor.editor.contains(block) ? block : null;
+  }
+
+  function selectedNoteTagBlocks(range) {
+    if (!editor || !range) return [];
+    if (range.collapsed) {
+      const block = closestNoteTagBlock(range.startContainer);
+      return block ? [block] : [];
+    }
+    const blocks = [];
+    const seen = new Set();
+    const walker = document.createTreeWalker(editor.editor, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      let intersects = false;
+      try { intersects = range.intersectsNode(node); } catch (_) { }
+      if (!intersects) continue;
+      const block = closestNoteTagBlock(node);
+      if (block && !seen.has(block)) {
+        seen.add(block);
+        blocks.push(block);
+      }
+    }
+    if (!blocks.length) {
+      [range.startContainer, range.endContainer].forEach(node => {
+        const block = closestNoteTagBlock(node);
+        if (block && !seen.has(block)) { seen.add(block); blocks.push(block); }
+      });
+    }
+    return blocks;
+  }
+
+  function currentNoteTagBlock(range) {
+    return range ? closestNoteTagBlock(range.startContainer) : null;
+  }
+
+  function editorRange() {
+    if (!editor) return null;
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    const start = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer : range.startContainer.parentElement;
+    return start && (start === editor.editor || editor.editor.contains(start))
+      ? range.cloneRange() : null;
+  }
+
+  function rememberNoteTagRange() {
+    const range = editorRange();
+    if (range) noteTagSavedRange = range;
+    return range;
+  }
+
+  function blockHasNoteTag(block, styleId) {
+    return Array.from(block.querySelectorAll('.docsets-note-tag')).some(tag =>
+      (tag.getAttribute('data-docsets-tag-style-id') || '') === styleId);
+  }
+
+  function unwrapNoteTag(tag) {
+    const content = Array.from(tag.children || []).find(child =>
+      child.classList && child.classList.contains('docsets-note-tag-content'));
+    const source = content || tag;
+    const fragment = document.createDocumentFragment();
+    while (source.firstChild) fragment.appendChild(source.firstChild);
+    tag.replaceWith(fragment);
+  }
+
+  function createNoteTagElement(style, block) {
+    const tag = document.createElement('span');
+    tag.className = 'docsets-note-tag';
+    tag.setAttribute('data-docsets-note-tag-id',
+      window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') :
+        Date.now().toString(16) + Math.random().toString(16).slice(2));
+    tag.setAttribute('data-docsets-tag-style-id', style.id);
+    tag.setAttribute('data-docsets-tag-state', 'active');
+    tag.setAttribute('data-docsets-tag-behavior', String(style.behavior || 'Marker').toLowerCase());
+    tag.setAttribute('data-docsets-tag-icon', style.icon || 'tag');
+    tag.setAttribute('data-docsets-tag-name', style.name || style.id);
+    tag.setAttribute('data-docsets-note-tag-source', 'docsets');
+    if (/^(#[0-9a-f]{3,8}|[a-z]+)$/i.test(style.color || ''))
+      tag.style.setProperty('--docsets-note-tag-color', style.color);
+
+    const icon = document.createElement('span');
+    icon.className = 'docsets-note-tag-icon';
+    icon.contentEditable = 'false';
+    icon.title = style.name || style.id;
+    icon.textContent = noteTagGlyph(tag);
+    const content = document.createElement('span');
+    content.className = 'docsets-note-tag-content';
+    while (block.firstChild) content.appendChild(block.firstChild);
+    tag.appendChild(icon);
+    tag.appendChild(content);
+    block.appendChild(tag);
+  }
+
+  function setNoteTagForRange(styleId, range) {
+    const style = noteTagStyles.find(item => item.id === styleId);
+    const block = currentNoteTagBlock(range);
+    if (!style || !block) return false;
+    if (blockHasNoteTag(block, styleId)) {
+      Array.from(block.querySelectorAll('.docsets-note-tag')).filter(tag =>
+        (tag.getAttribute('data-docsets-tag-style-id') || '') === styleId)
+        .reverse().forEach(unwrapNoteTag);
+    } else {
+      createNoteTagElement(style, block);
+    }
+    editor.synchronizeValues();
+    editor.events.fire('change', editor.value);
+    return true;
+  }
+
+  function removeNoteTagAtCaret(range) {
+    if (!range || !range.collapsed) return false;
+    let tag = null;
+    const container = range.startContainer;
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      const next = container.childNodes[range.startOffset];
+      tag = next && next.nodeType === Node.ELEMENT_NODE && next.classList.contains('docsets-note-tag')
+        ? next : null;
+    }
+    if (!tag) {
+      const element = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement;
+      const content = element && element.closest ? element.closest('.docsets-note-tag-content') : null;
+      if (content) {
+        const before = document.createRange();
+        before.selectNodeContents(content);
+        before.setEnd(range.startContainer, range.startOffset);
+        if (!(before.toString() || '').length) tag = content.closest('.docsets-note-tag');
+      }
+    }
+    if (!tag) return false;
+    // Маркер проходит через unwrap вместе с содержимым и позволяет восстановить
+    // каретку в той же логической позиции, в том числе при нескольких вложенных тегах.
+    const marker = document.createElement('span');
+    marker.setAttribute('data-docsets-note-tag-caret', '');
+    marker.style.display = 'none';
+    const markerRange = range.cloneRange();
+    markerRange.collapse(true);
+    markerRange.insertNode(marker);
+    unwrapNoteTag(tag);
+    const caretParent = marker.parentNode;
+    const caretOffset = caretParent ? Array.prototype.indexOf.call(caretParent.childNodes, marker) : 0;
+    if (caretParent) marker.remove();
+    editor.synchronizeValues();
+    editor.events.fire('change', editor.value);
+    if (caretParent) {
+      const caret = document.createRange();
+      caret.setStart(caretParent, Math.min(caretOffset, caretParent.childNodes.length));
+      caret.collapse(true);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(caret);
+      noteTagSavedRange = caret.cloneRange();
+    }
+    return true;
+  }
+
+  function closeNoteTagMenu() {
+    if (noteTagMenu) noteTagMenu.remove();
+    noteTagMenu = null;
+  }
+
+  function showNoteTagMenu() {
+    closeNoteTagMenu();
+    if (!noteTagButton || !noteTagStyles.length) return;
+    const range = noteTagSavedRange;
+    const block = currentNoteTagBlock(range);
+    const menu = document.createElement('div');
+    menu.className = 'docsets-note-tags-menu';
+    menu.setAttribute('role', 'menu');
+    noteTagStyles.forEach((style, index) => {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = !!block && blockHasNoteTag(block, style.id);
+      const icon = document.createElement('span');
+      icon.className = 'docsets-note-tags-menu-icon';
+      icon.textContent = noteTagGlyph({ getAttribute: name => name === 'data-docsets-tag-icon'
+        ? (style.icon || 'tag') : 'active' });
+      const caption = document.createElement('span');
+      caption.textContent = (style.name || style.id) + (index < 9 ? ' (CTRL+' + (index + 1) + ')' : '');
+      label.appendChild(checkbox);
+      label.appendChild(icon);
+      label.appendChild(caption);
+      label.addEventListener('mousedown', event => event.preventDefault());
+      label.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        setNoteTagForRange(style.id, range);
+        noteTagSavedRange = range;
+        showNoteTagMenu();
+      });
+      menu.appendChild(label);
+    });
+    document.body.appendChild(menu);
+    noteTagMenu = menu;
+    const rect = noteTagButton.getBoundingClientRect();
+    menu.style.left = Math.max(4, Math.min(rect.left,
+      window.innerWidth - menu.offsetWidth - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(rect.bottom + 3,
+      window.innerHeight - menu.offsetHeight - 4)) + 'px';
   }
 
   function transformHtml(value, toEditor) {
@@ -583,7 +795,7 @@
       language: 'ru',
       height: '100%',
       minHeight: 180,
-      toolbarAdaptive: true,
+      toolbarAdaptive: false,
       toolbarSticky: false,
       statusbar: true,
       spellcheck: true,
@@ -593,7 +805,7 @@
       defaultActionOnPaste: 'insert_as_html',
       uploader: { insertImageAsBase64URI: true },
       buttons: [
-        'undo', 'redo', '|', 'paragraph', 'codeLanguage', 'font', 'fontsize', 'brush', '|',
+        'undo', 'redo', '|', 'paragraph', 'codeLanguage', 'noteTags', 'font', 'fontsize', 'brush', '|',
         'bold', 'italic', 'underline', 'strikethrough', 'superscript', 'subscript', 'eraser', '|',
         'ul', 'ol', 'outdent', 'indent', 'align', '|',
         'link', 'image', 'table', 'hr', 'symbols', '|',
@@ -621,6 +833,21 @@
             insertCodeBlock(args && args.length ? args[0] : 'plaintext');
           }
         },
+        noteTags: {
+          text: 'Теги',
+          tooltip: 'Назначить тег текущей строке',
+          exec(jodit) {
+            // Нажатие на toolbar переводит фокус с редактора. Не заменяем
+            // сохранённую позицию диапазоном самой кнопки.
+            rememberNoteTagRange();
+            const container = jodit.container.querySelector(
+              '.jodit-toolbar-button_noteTags, .jodit-toolbar-button_notetags');
+            noteTagButton = container
+              ? (container.querySelector('button') || container) : null;
+            if (noteTagMenu) closeNoteTagMenu(); else showNoteTagMenu();
+            return false;
+          }
+        },
         source: { tooltip: 'Исходный HTML' }
       }
     });
@@ -629,6 +856,16 @@
     if (status) status.remove();
     const editable = editor.editor;
     editable.tabIndex = 0;
+    noteTagButton = editor.container.querySelector(
+      '.jodit-toolbar-button_noteTags button, .jodit-toolbar-button_notetags button');
+    if (noteTagButton) noteTagButton.disabled = !noteTagStyles.length;
+    document.addEventListener('pointerdown', event => {
+      const button = event.target && event.target.closest
+        ? event.target.closest('.jodit-toolbar-button_noteTags button, ' +
+          '.jodit-toolbar-button_notetags button') : null;
+      if (button) rememberNoteTagRange();
+    }, true);
+    document.addEventListener('selectionchange', () => rememberNoteTagRange());
     editable.addEventListener('mousedown', () => {
       lastPastedPlainText = null;
       scheduleSyntaxHighlight();
@@ -699,6 +936,21 @@
     });
 
     editable.addEventListener('keydown', event => {
+      const selection = window.getSelection();
+      const range = selection && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+      if (event.key === 'Backspace' && removeNoteTagAtCaret(range)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      const shortcut = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
+        /^[1-9]$/.test(event.key || '') ? Number(event.key) - 1 : -1;
+      if (shortcut >= 0 && shortcut < noteTagStyles.length) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setNoteTagForRange(noteTagStyles[shortcut].id, range);
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         send({ type: 'content', html: currentHtml() });
@@ -765,6 +1017,8 @@
     }, true);
     document.addEventListener('click', event => {
       if (pasteOptions && !pasteOptions.contains(event.target)) closePasteOptions();
+      if (noteTagMenu && !noteTagMenu.contains(event.target) && event.target !== noteTagButton)
+        closeNoteTagMenu();
       const target = event.target && event.target.nodeType === Node.TEXT_NODE
         ? event.target.parentElement
         : event.target;
@@ -838,6 +1092,13 @@
   };
 
   window.docsetsGetHtml = () => currentHtml();
+
+  window.docsetsSetNoteTagStyles = styles => {
+    noteTagStyles = Array.isArray(styles) ? styles.filter(style => style && style.id) : [];
+    if (noteTagButton) noteTagButton.disabled = !noteTagStyles.length;
+    closeNoteTagMenu();
+    return noteTagStyles.length;
+  };
 
   window.docsetsExportSession = () => {
     if (!editor || !editor.history || !editor.history.__stack) return null;
@@ -1083,6 +1344,7 @@
     let endOffset = 0;
     let node;
     while ((node = walker.nextNode())) {
+      if (node.parentElement && node.parentElement.closest('.docsets-note-tag-icon')) continue;
       if (!startNode && remaining <= node.data.length) {
         startNode = node;
         startOffset = remaining;
@@ -1099,6 +1361,7 @@
         selection.removeAllRanges();
         selection.addRange(range);
         editor.focus();
+        noteTagSavedRange = range.cloneRange();
         return true;
       }
       remaining -= node.data.length;
@@ -1143,5 +1406,82 @@
     selection.removeAllRanges();
     selection.addRange(range);
     return insertCodeBlock(language);
+  };
+
+  window.docsetsTestToggleNoteTag = (styleId, offset, length) => {
+    window.docsetsSetTestSelection(offset, length);
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+    return setNoteTagForRange(String(styleId || ''), range);
+  };
+
+  window.docsetsTestIsNoteTagChecked = (styleId, offset, length) => {
+    window.docsetsSetTestSelection(offset, length);
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+    const block = currentNoteTagBlock(range);
+    return !!block && blockHasNoteTag(block, String(styleId || ''));
+  };
+
+  window.docsetsTestBackspaceAtFirstNoteTag = () => {
+    const content = editor && editor.editor.querySelector('.docsets-note-tag-content');
+    if (!content) return false;
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    content.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Backspace', code: 'Backspace', bubbles: true, cancelable: true
+    }));
+    return true;
+  };
+
+  window.docsetsTestBackspaceAtNestedNoteTag = () => {
+    const content = editor && editor.editor.querySelector(
+      '.docsets-note-tag .docsets-note-tag .docsets-note-tag-content');
+    if (!content) return false;
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    content.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Backspace', code: 'Backspace', bubbles: true, cancelable: true
+    }));
+    return true;
+  };
+
+  window.docsetsTestOpenNoteTagsMenu = (offset, length) => {
+    if (!window.docsetsSetTestSelection(offset, length) || !noteTagButton) return false;
+    noteTagButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    noteTagButton.click();
+    return !!noteTagMenu;
+  };
+
+  window.docsetsTestMenuStyleChecked = styleId => {
+    if (!noteTagMenu) return false;
+    const index = noteTagStyles.findIndex(style => style.id === String(styleId || ''));
+    const checkbox = index >= 0 ? noteTagMenu.querySelectorAll('input[type=checkbox]')[index] : null;
+    return !!checkbox && checkbox.checked;
+  };
+
+  window.docsetsTestClickMenuStyle = styleId => {
+    if (!noteTagMenu) return false;
+    const index = noteTagStyles.findIndex(style => style.id === String(styleId || ''));
+    const label = index >= 0 ? noteTagMenu.querySelectorAll('label')[index] : null;
+    if (!label) return false;
+    label.click();
+    return true;
+  };
+
+  window.docsetsTestCaretInsideRemainingNoteTag = () => {
+    const range = editorRange();
+    if (!range) return false;
+    const element = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer : range.startContainer.parentElement;
+    return !!(element && element.closest('.docsets-note-tag-content'));
   };
 })();

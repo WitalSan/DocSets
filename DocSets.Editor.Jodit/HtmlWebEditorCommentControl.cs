@@ -7,6 +7,8 @@ using System.Drawing;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -43,6 +45,7 @@ namespace DocSets
         private string initializationStage = "created";
         private bool focusWhenReady;
         private bool toolbarVisible = true;
+        private string noteTagStylesJson = "[]";
 
         public event EventHandler CommentChanged;
         public event EventHandler EditingCompleted;
@@ -172,6 +175,63 @@ namespace DocSets
                 "if (!icon) return false; icon.dispatchEvent(new MouseEvent('click', " +
                 "{ bubbles:true, cancelable:true })); return true; })()");
 
+        internal Task SimulateNoteTagToolbarToggleAsync(string styleId, int offset, int length)
+            => webView.ExecuteScriptAsync("window.docsetsTestToggleNoteTag(" +
+                JsonConvert.SerializeObject(styleId ?? string.Empty) + "," + Math.Max(0, offset) + "," +
+                Math.Max(0, length) + ")");
+
+        internal async Task<bool> IsNoteTagCheckedAsync(string styleId, int offset, int length)
+        {
+            var result = await webView.ExecuteScriptAsync("window.docsetsTestIsNoteTagChecked(" +
+                JsonConvert.SerializeObject(styleId ?? string.Empty) + "," + Math.Max(0, offset) + "," +
+                Math.Max(0, length) + ")");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal Task SimulateBackspaceAtFirstNoteTagAsync()
+            => webView.ExecuteScriptAsync(
+                "window.docsetsTestBackspaceAtFirstNoteTag && window.docsetsTestBackspaceAtFirstNoteTag()");
+
+        internal Task OpenNoteTagsMenuAsync(int offset, int length)
+            => webView.ExecuteScriptAsync("window.docsetsTestOpenNoteTagsMenu(" +
+                Math.Max(0, offset) + "," + Math.Max(0, length) + ")");
+
+        internal async Task<bool> IsNoteTagCheckedInMenuAsync(string styleId)
+        {
+            var result = await webView.ExecuteScriptAsync("window.docsetsTestMenuStyleChecked(" +
+                JsonConvert.SerializeObject(styleId ?? string.Empty) + ")");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal Task ClickNoteTagInMenuAsync(string styleId)
+            => webView.ExecuteScriptAsync("window.docsetsTestClickMenuStyle(" +
+                JsonConvert.SerializeObject(styleId ?? string.Empty) + ")");
+
+        internal Task SimulateBackspaceAtNestedNoteTagAsync()
+            => webView.ExecuteScriptAsync(
+                "window.docsetsTestBackspaceAtNestedNoteTag && window.docsetsTestBackspaceAtNestedNoteTag()");
+
+        internal async Task<bool> IsCaretInsideRemainingNoteTagAsync()
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "window.docsetsTestCaretInsideRemainingNoteTag && " +
+                "window.docsetsTestCaretInsideRemainingNoteTag()");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal async Task<bool> IsNoteTagsToolbarNextToCodeAsync()
+        {
+            var result = await webView.ExecuteScriptAsync(
+                "(() => { const toolbar = document.querySelector('.jodit-toolbar-editor-collection'); " +
+                "if (!toolbar) return false; " +
+                "const code = toolbar.querySelector(" +
+                "'.jodit-toolbar-button_codeLanguage, .jodit-toolbar-button_codelanguage'); " +
+                "const tags = toolbar.querySelector(" +
+                "'.jodit-toolbar-button_noteTags, .jodit-toolbar-button_notetags'); " +
+                "return !!code && code.nextElementSibling === tags; })()");
+            return string.Equals(result, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal async Task<bool> HasFirstNoteTagIconAsync()
         {
             var result = await webView.ExecuteScriptAsync(
@@ -280,6 +340,14 @@ namespace DocSets
             cachedHtml = pendingHtml;
             SetSaveEnabled(false);
             if (ready) _ = SetEditorHtmlAsync(pendingHtml);
+        }
+
+        public void SetNoteTagStyles(IEnumerable<NoteTagStyle> styles)
+        {
+            noteTagStylesJson = JsonConvert.SerializeObject(
+                (styles ?? Enumerable.Empty<NoteTagStyle>()).Where(style => style != null)
+                .Select(style => style.Clone()).ToList());
+            if (ready && webView.CoreWebView2 != null) _ = SetEditorNoteTagStylesAsync();
         }
 
         public void SetSaveEnabled(bool enabled) => SaveStateChanged?.Invoke(enabled);
@@ -498,6 +566,14 @@ namespace DocSets
                 (toolbarVisible ? "true" : "false") + ")");
         }
 
+        private Task SetEditorNoteTagStylesAsync()
+        {
+            if (!ready || webView.CoreWebView2 == null) return Task.CompletedTask;
+            return webView.ExecuteScriptAsync(
+                "window.docsetsSetNoteTagStyles && window.docsetsSetNoteTagStyles(" +
+                (string.IsNullOrWhiteSpace(noteTagStylesJson) ? "[]" : noteTagStylesJson) + ")");
+        }
+
         private async Task SetEditorSessionAsync(string value, string session)
         {
             if (!ready || webView.CoreWebView2 == null) return;
@@ -535,6 +611,7 @@ namespace DocSets
                     status.Visible = false;
                     _ = SetEditorSessionAsync(pendingHtml, pendingEditingSession);
                     _ = SetEditorToolbarVisibleAsync();
+                    _ = SetEditorNoteTagStylesAsync();
                     if (focusWhenReady) BeginInvoke(new Action(FocusEditor));
                     break;
                 case "changed":
