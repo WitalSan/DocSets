@@ -89,6 +89,8 @@ internal sealed class MainForm : Form
         var import = new ToolStripMenuItem("Импорт");
         import.DropDownItems.Add(Item("OneNote...", Keys.None,
             async (_, __) => await ImportOneNoteAsync()));
+        import.DropDownItems.Add(Item("OneNote Test-1...", Keys.None,
+            async (_, __) => await RunOneNoteObjectIdDiagnosticAsync()));
         file.DropDownItems.Add(import);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(Item("Сохранить", Keys.Control | Keys.S,
@@ -297,6 +299,53 @@ internal sealed class MainForm : Form
         catch (Exception exception)
         {
             ReportError("Не удалось импортировать записную книжку OneNote.", exception);
+        }
+    }
+
+    private async Task RunOneNoteObjectIdDiagnosticAsync()
+    {
+        if (!_viewModel.CanSave)
+        {
+            MessageBox.Show(this, "Сначала откройте или создайте DocSet для сохранения отчёта.",
+                "OneNote Test-1", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        try
+        {
+            var importService = new OneNoteImportService(_viewModel.SaveImageAssetAsync,
+                _viewModel.SaveFileAssetAsync);
+            var notebooks = await importService.GetNotebooksAsync(CancellationToken.None);
+            if (notebooks.Count == 0)
+            {
+                MessageBox.Show(this, "OneNote не вернул доступных записных книжек.",
+                    "OneNote Test-1", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var notebook = OneNoteNotebookDialog.Select(this, notebooks);
+            if (notebook == null) return;
+            var service = new OneNoteObjectIdDiagnosticService();
+            var report = OneNoteDiagnosticDialog.Run(this,
+                (progress, token) => service.RunAsync(notebook, progress, token));
+            if (report == null) return;
+
+            var reportDirectory = Path.Combine(_viewModel.ActiveDocSetDirectory, "reports");
+            Directory.CreateDirectory(reportDirectory);
+            var baseName = "onenote-object-id-test-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+            var jsonPath = Path.Combine(reportDirectory, baseName + ".json");
+            var textPath = Path.Combine(reportDirectory, baseName + ".txt");
+            File.WriteAllText(jsonPath, Newtonsoft.Json.JsonConvert.SerializeObject(report,
+                Newtonsoft.Json.Formatting.Indented), Encoding.UTF8);
+            File.WriteAllText(textPath,
+                OneNoteObjectIdDiagnosticService.BuildTextSummary(report), Encoding.UTF8);
+            MessageBox.Show(this,
+                $"Исследование завершено.\r\n\r\nОбъектных ссылок: {report.TotalObjectLinks}\r\n" +
+                $"Разрешено COM: {report.ResolvedByCom}\r\nНе разрешено COM: {report.NotResolvedByCom}\r\n\r\n" +
+                $"JSON: {jsonPath}\r\nTXT: {textPath}",
+                "OneNote Test-1", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception exception)
+        {
+            ReportError("Не удалось выполнить OneNote Test-1.", exception);
         }
     }
 

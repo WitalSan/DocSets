@@ -127,6 +127,56 @@
       }
     },
     {
+      "id": "mainform-importonenoteasync",
+      "parent": "default",
+      "name": "ImportOneNote",
+      "sourceId": "",
+      "symbol": "DocSets.Desktop.MainForm.ImportOneNoteAsync",
+      "project": "DocSets.Desktop",
+      "path": "DocSets.Desktop\\MainForm.cs",
+      "line": 200,
+      "column": 30,
+      "contentFormat": "Html",
+      "content": "<p><a href=\"symbol:DocSets.IntegrationTests|DocSets.Desktop.OneNote.OneNoteImportService.ResolveDeferredAnchors\">OneNoteImportService.ResolveDeferredAnchors</a><br><span class=\"docsets-pasted-plain\">application.GetHyperlinkToObject</span></p>",
+      "contentPath": "",
+      "createdAtUtc": "2026-08-03T08:51:08.2382398+00:00",
+      "modifiedAtUtc": "2026-08-03T08:55:56.2316049+00:00",
+      "editorState": {
+        "caretLineOffset": 0,
+        "caretColumn": 30,
+        "selectionStartColumn": 1,
+        "selectionEndColumn": 1,
+        "firstVisibleLineOffset": -4,
+        "codePreview": "    private async Task ImportOneNoteAsync()\n    {\n        if (!_viewModel.CanSave)\n        {\n            MessageBox.Show(this, \"Сначала откройте или создайте DocSet.\",\n                \"Импорт из OneNote\", MessageBoxButtons.OK, MessageBoxIcon.Information);\n            return;\n        }\n\n        try\n        {\n            await _composition.Owner.CommitPendingCommentAsync();\n            var profiler = new OneNoteImportProfile();\n            var service = new OneNoteImportService(\n                _viewModel.SaveImageAssetAsync, _viewModel.SaveFileAssetAsync, profiler);\n            var notebooks = await service.GetNotebooksAsync(CancellationToken.None);\n            if (notebooks.Count == 0)\n            {\n                MessageBox.Show(this, \"OneNote не вернул доступных записных книжек.\",\n                    \"Импорт из OneNote\", MessageBoxButtons.OK, MessageBoxIcon.Information);",
+        "symbolSnapshots": [
+          {
+            "symbol": "DocSets",
+            "name": "DocSets",
+            "kind": "Namespace",
+            "signature": "DocSets"
+          },
+          {
+            "symbol": "DocSets.Desktop",
+            "name": "Desktop",
+            "kind": "Namespace",
+            "signature": "Desktop"
+          },
+          {
+            "symbol": "DocSets.Desktop.MainForm",
+            "name": "MainForm",
+            "kind": "NamedType",
+            "signature": "MainForm"
+          },
+          {
+            "symbol": "DocSets.Desktop.MainForm.ImportOneNoteAsync",
+            "name": "ImportOneNoteAsync",
+            "kind": "Method",
+            "signature": "Task ImportOneNoteAsync()"
+          }
+        ]
+      }
+    },
+    {
       "id": "help-project",
       "parent": "",
       "name": "Project Help",

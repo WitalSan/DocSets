@@ -1,5 +1,6 @@
 namespace DocSets.Desktop.OneNote;
 
+using System.ComponentModel;
 using System.Diagnostics;
 
 internal sealed class OneNoteNotebookDialog : Form
@@ -39,6 +40,12 @@ internal sealed class OneNoteProgressDialog : Form
     private readonly ProgressBar _progress = new() { Dock = DockStyle.Top, Height = 22 };
     private readonly Button _cancel = new() { Text = "Отмена", AutoSize = true };
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly Panel _status = new() { Dock = DockStyle.Bottom, Height = 90 };
+    private readonly FlowLayoutPanel _buttons = new()
+    {
+        Dock = DockStyle.Bottom, Height = 36,
+        FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(4)
+    };
     private readonly OneNoteImportReportDialog _reportView;
     private OneNoteImportResult _result;
     private Exception _error;
@@ -48,7 +55,7 @@ internal sealed class OneNoteProgressDialog : Form
     {
         Text = "Импорт из OneNote";
         StartPosition = FormStartPosition.CenterParent;
-        MinimizeBox = false; ShowInTaskbar = false; ControlBox = false;
+        MinimizeBox = false; ShowInTaskbar = false;
         Width = 1100; Height = 760;
         _reportView = new OneNoteImportReportDialog(new OneNoteImportReport(), "", "", null)
         {
@@ -56,21 +63,20 @@ internal sealed class OneNoteProgressDialog : Form
         };
         _reportView.SetActionsEnabled(false);
         _reportView.CloseRequested += (_, __) => Close();
-        var status = new Panel { Dock = DockStyle.Bottom, Height = 90 };
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 36, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(4) };
-        buttons.Controls.Add(_cancel);
-        status.Controls.Add(buttons); status.Controls.Add(_progress); status.Controls.Add(_message);
+        _buttons.Controls.Add(_cancel);
+        _status.Controls.Add(_buttons);
+        _status.Controls.Add(_progress);
+        _status.Controls.Add(_message);
         Controls.Add(_reportView);
-        Controls.Add(status);
+        Controls.Add(_status);
         _reportView.Show();
-        _cancel.Click += (_, __) =>
+        _cancel.Click += (_, __) => RequestCancellation();
+        FormClosing += (_, args) =>
         {
-            if (_completed) { Close(); return; }
-            _cancel.Enabled = false;
-            _message.Text = "Отмена импорта…";
-            _cancellation.Cancel();
+            if (_completed) return;
+            args.Cancel = true;
+            RequestCancellation();
         };
-        FormClosing += (_, args) => { if (!_completed) args.Cancel = true; };
     }
 
     public static OneNoteImportResult Run(IWin32Window owner,
@@ -103,8 +109,13 @@ internal sealed class OneNoteProgressDialog : Form
                 _message.Text = "Сохранение DocSet и обновление дерева…";
                 var presentation = await complete(_result);
                 _reportView.Complete(presentation);
-                _progress.Value = _progress.Maximum;
-                _message.Text = "Импорт завершён.";
+                var report = _result.Report;
+                _progress.Visible = false;
+                _buttons.Visible = false;
+                _status.Height = 36;
+                _message.Text = $"Импорт завершён. Страниц: {_result.Pages}; " +
+                    $"проблем: {report?.PrimaryProblems ?? 0}; " +
+                    $"потерь: {report?.Entries.Count(entry => entry.Status == OneNoteImportStatus.ConvertedWithLoss && !entry.IsAggregate) ?? 0}.";
             }
         }
         catch (OperationCanceledException) { _result = new OneNoteImportResult { Cancelled = true }; }
@@ -112,16 +123,24 @@ internal sealed class OneNoteProgressDialog : Form
         finally
         {
             _completed = true;
-            ControlBox = true;
-            _cancel.Enabled = true;
-            _cancel.Text = "Закрыть";
             if (_error != null || _result?.Cancelled == true) Close();
         }
     }
 
+    private void RequestCancellation()
+    {
+        if (_cancellation.IsCancellationRequested) return;
+        _cancel.Enabled = false;
+        _message.Text = "Отмена импорта…";
+        _cancellation.Cancel();
+    }
+
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _cancellation.Dispose();
+        if (disposing)
+        {
+            _cancellation.Dispose();
+        }
         base.Dispose(disposing);
     }
 }
@@ -138,6 +157,9 @@ internal sealed class OneNoteImportReportDialog : Form
 {
     private OneNoteImportReport _report;
     private Func<OneNoteImportReportEntry, Task> _openDocSets;
+    private readonly BindingList<OneNoteImportReportEntry> _resultRows = new();
+    private readonly BindingList<TimingRow> _timingRows = new();
+    private readonly BindingList<SlowPageRow> _slowPageRows = new();
     private readonly DataGridView _grid = new()
     {
         Dock = DockStyle.Fill,
@@ -162,6 +184,7 @@ internal sealed class OneNoteImportReportDialog : Form
     private readonly Button _details = new() { Text = "Показать подробности", AutoSize = true };
     private readonly Button _openDocSetsButton = new() { Text = "Открыть в DocSets", AutoSize = true };
     private readonly Button _openOneNoteButton = new() { Text = "Открыть в OneNote", AutoSize = true };
+    private bool _actionsEnabled;
     internal event EventHandler CloseRequested;
 
     internal OneNoteImportReportDialog(OneNoteImportReport report, string reportPath,
@@ -191,6 +214,9 @@ internal sealed class OneNoteImportReportDialog : Form
         _slowPagesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Влож.", DataPropertyName = "Attachments", Width = 65 });
         _slowPagesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Всего, мс", DataPropertyName = "Total", Width = 90 });
         _slowPagesGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Разбивка по стадиям", DataPropertyName = "Breakdown", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+        _grid.DataSource = _resultRows;
+        _timingGrid.DataSource = _timingRows;
+        _slowPagesGrid.DataSource = _slowPageRows;
 
         _filter.Items.AddRange(new object[] { "Проблемы (первичные)",
             "Все предупреждения (с родителями)", "Не импортировано",
@@ -209,6 +235,7 @@ internal sealed class OneNoteImportReportDialog : Form
         };
         _details.Click += (_, __) => ShowDetails(CurrentEntry);
         _grid.CellDoubleClick += (_, __) => ShowDetails(CurrentEntry);
+        _grid.SelectionChanged += (_, __) => UpdateActionButtons();
         _openOneNoteButton.Click += (_, __) => OpenOneNote(CurrentEntry);
         _openDocSetsButton.Click += async (_, __) =>
         {
@@ -269,10 +296,19 @@ internal sealed class OneNoteImportReportDialog : Form
 
     internal void SetActionsEnabled(bool enabled)
     {
+        _actionsEnabled = enabled;
         _close.Enabled = enabled;
-        _details.Enabled = enabled;
-        _openDocSetsButton.Enabled = enabled;
-        _openOneNoteButton.Enabled = enabled;
+        UpdateActionButtons();
+    }
+
+    private void UpdateActionButtons()
+    {
+        var entry = CurrentEntry;
+        _details.Enabled = _actionsEnabled && entry != null;
+        _openDocSetsButton.Enabled = _actionsEnabled && entry != null &&
+            _openDocSets != null && !string.IsNullOrWhiteSpace(entry.DocSetsNodeId);
+        _openOneNoteButton.Enabled = _actionsEnabled && entry != null &&
+            !string.IsNullOrWhiteSpace(entry.OneNoteLink);
     }
 
     private OneNoteImportReportEntry CurrentEntry
@@ -291,7 +327,8 @@ internal sealed class OneNoteImportReportDialog : Form
             5 => entries.Where(entry => entry.Status == OneNoteImportStatus.Imported),
             _ => entries
         };
-        _grid.DataSource = entries.ToList();
+        SyncRows(_resultRows, entries.ToList(), entry => entry.Id, null, _grid);
+        UpdateActionButtons();
         _summary.Text = $"Первичных проблем: {_report.PrimaryProblems}   " +
             $"Потери: {_report.Entries.Count(entry => entry.Status == OneNoteImportStatus.ConvertedWithLoss && !entry.IsAggregate)}   " +
             $"Не импортировано: {_report.Entries.Count(entry => entry.Status == OneNoteImportStatus.NotImported && !entry.IsAggregate)}   " +
@@ -305,10 +342,11 @@ internal sealed class OneNoteImportReportDialog : Form
         var total = profile.Timings.FirstOrDefault(item =>
             string.Equals(item.Path, OneNoteImportService.ProfileRoot, StringComparison.Ordinal))
             ?.ElapsedMilliseconds ?? 0;
-        _timingGrid.DataSource = profile.Timings
+        var timingRows = profile.Timings
             .OrderBy(item => ProfileOrder(item.Path))
             .Select(item => new TimingRow
             {
+                Key = item.Path,
                 Stage = new string(' ', Math.Max(0, item.Path.Count(character => character == '/')) * 4) +
                     item.Path.Split('/').Last(),
                 Calls = item.Calls,
@@ -316,6 +354,7 @@ internal sealed class OneNoteImportReportDialog : Form
                 Average = item.AverageMilliseconds.ToString("N1"),
                 Share = total <= 0 ? "—" : (item.ElapsedMilliseconds / total).ToString("P1")
             }).ToList();
+        SyncRows(_timingRows, timingRows, row => row.Key, CopyTimingRow, _timingGrid);
 
         var pageTimes = profile.Pages.Select(page => page.TotalMilliseconds).OrderBy(value => value).ToList();
         var average = pageTimes.Count == 0 ? 0 : pageTimes.Average();
@@ -329,9 +368,10 @@ internal sealed class OneNoteImportReportDialog : Form
             $"(после каждой страницы: {(profile.DocSetSavedAfterEachPage ? "ДА" : "нет")})   " +
             $"Полных обновлений дерева/UI: {profile.TreeUpdateCalls} " +
             $"(после каждой страницы: {(profile.TreeUpdatedAfterEachPage ? "ДА" : "нет")})";
-        _slowPagesGrid.DataSource = profile.Pages.OrderByDescending(page => page.TotalMilliseconds)
+        var slowPageRows = profile.Pages.OrderByDescending(page => page.TotalMilliseconds)
             .Take(20).Select(page => new SlowPageRow
             {
+                Key = page.OneNotePageId + "\n" + page.PageName,
                 Page = page.PageName,
                 PageId = page.OneNotePageId,
                 XmlSize = FormatBytes(page.XmlBytes),
@@ -341,6 +381,7 @@ internal sealed class OneNoteImportReportDialog : Form
                 Breakdown = string.Join("; ", page.Stages.OrderByDescending(pair => pair.Value)
                     .Select(pair => pair.Key + ": " + pair.Value.ToString("N1") + " мс"))
             }).ToList();
+        SyncRows(_slowPageRows, slowPageRows, row => row.Key, CopySlowPageRow, _slowPagesGrid);
     }
 
     private static DataGridView CreateReadOnlyGrid() => new()
@@ -368,8 +409,117 @@ internal sealed class OneNoteImportReportDialog : Form
         => bytes >= 1024 * 1024 ? (bytes / 1024d / 1024d).ToString("N1") + " MB" :
             bytes >= 1024 ? (bytes / 1024d).ToString("N1") + " KB" : bytes + " B";
 
+    private static void SyncRows<T>(BindingList<T> target, IReadOnlyList<T> desired,
+        Func<T, string> key, Action<T, T> update, DataGridView grid)
+    {
+        var selectedKey = grid.CurrentRow?.DataBoundItem is T selected ? key(selected) : null;
+        var selectedColumn = grid.CurrentCell?.ColumnIndex ?? 0;
+        string firstVisibleKey = null;
+        if (grid.FirstDisplayedScrollingRowIndex >= 0 &&
+            grid.FirstDisplayedScrollingRowIndex < grid.Rows.Count &&
+            grid.Rows[grid.FirstDisplayedScrollingRowIndex].DataBoundItem is T firstVisible)
+            firstVisibleKey = key(firstVisible);
+
+        grid.SuspendLayout();
+        try
+        {
+            for (var index = 0; index < desired.Count; index++)
+            {
+                var desiredRow = desired[index];
+                var desiredKey = key(desiredRow);
+                if (index < target.Count && string.Equals(key(target[index]), desiredKey,
+                        StringComparison.Ordinal))
+                {
+                    if (update != null)
+                    {
+                        update(target[index], desiredRow);
+                        target.ResetItem(index);
+                    }
+                    continue;
+                }
+
+                var existingIndex = -1;
+                for (var candidate = index + 1; candidate < target.Count; candidate++)
+                    if (string.Equals(key(target[candidate]), desiredKey, StringComparison.Ordinal))
+                    {
+                        existingIndex = candidate;
+                        break;
+                    }
+                if (existingIndex >= 0)
+                {
+                    var existing = target[existingIndex];
+                    target.RemoveAt(existingIndex);
+                    target.Insert(index, existing);
+                    if (update != null)
+                    {
+                        update(existing, desiredRow);
+                        target.ResetItem(index);
+                    }
+                }
+                else
+                {
+                    target.Insert(index, desiredRow);
+                }
+            }
+            while (target.Count > desired.Count) target.RemoveAt(target.Count - 1);
+
+            RestoreGridPosition(grid, target, key, selectedKey, selectedColumn, firstVisibleKey);
+        }
+        finally
+        {
+            grid.ResumeLayout();
+        }
+    }
+
+    private static void RestoreGridPosition<T>(DataGridView grid, BindingList<T> rows,
+        Func<T, string> key, string selectedKey, int selectedColumn, string firstVisibleKey)
+    {
+        if (!string.IsNullOrWhiteSpace(selectedKey))
+        {
+            var selectedIndex = FindRowIndex(rows, key, selectedKey);
+            if (selectedIndex >= 0 && grid.ColumnCount > 0)
+                grid.CurrentCell = grid[Math.Min(Math.Max(0, selectedColumn), grid.ColumnCount - 1),
+                    selectedIndex];
+        }
+        if (!string.IsNullOrWhiteSpace(firstVisibleKey))
+        {
+            var firstIndex = FindRowIndex(rows, key, firstVisibleKey);
+            if (firstIndex >= 0 && firstIndex < grid.RowCount)
+                try { grid.FirstDisplayedScrollingRowIndex = firstIndex; }
+                catch (InvalidOperationException) { }
+        }
+    }
+
+    private static int FindRowIndex<T>(BindingList<T> rows, Func<T, string> key, string value)
+    {
+        for (var index = 0; index < rows.Count; index++)
+            if (string.Equals(key(rows[index]), value, StringComparison.Ordinal)) return index;
+        return -1;
+    }
+
+    private static void CopyTimingRow(TimingRow target, TimingRow source)
+    {
+        target.Stage = source.Stage;
+        target.Calls = source.Calls;
+        target.Total = source.Total;
+        target.Average = source.Average;
+        target.Share = source.Share;
+    }
+
+    private static void CopySlowPageRow(SlowPageRow target, SlowPageRow source)
+    {
+        target.Page = source.Page;
+        target.PageId = source.PageId;
+        target.XmlSize = source.XmlSize;
+        target.Images = source.Images;
+        target.Attachments = source.Attachments;
+        target.Total = source.Total;
+        target.Breakdown = source.Breakdown;
+    }
+
     private sealed class TimingRow
     {
+        public string Key { get; set; }
         public string Stage { get; set; }
         public long Calls { get; set; }
         public string Total { get; set; }
@@ -379,6 +529,7 @@ internal sealed class OneNoteImportReportDialog : Form
 
     private sealed class SlowPageRow
     {
+        public string Key { get; set; }
         public string Page { get; set; }
         public string PageId { get; set; }
         public string XmlSize { get; set; }
