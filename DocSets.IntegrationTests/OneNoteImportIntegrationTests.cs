@@ -16,6 +16,69 @@ namespace DocSets.Tests
     public sealed class OneNoteImportIntegrationTests
     {
         [TestMethod]
+        public void ResumeProgressStartsFromCompletedCheckpointInsteadOfZero()
+        {
+            Assert.Equal(7, OneNoteImportService.CalculateResumeProgress(1, 10, 7, 0));
+            Assert.Equal(8, OneNoteImportService.CalculateResumeProgress(2, 10, 7, 1));
+            Assert.Equal(10, OneNoteImportService.CalculateResumeProgress(10, 10, 7, 3));
+            Assert.Equal(0, OneNoteImportService.CalculatePageOverallProgress(10, 0, 0));
+            Assert.Equal(40, OneNoteImportService.CalculatePageOverallProgress(10, 5, 0));
+            Assert.Equal(80, OneNoteImportService.CalculatePageOverallProgress(10, 7, 3));
+            Assert.Equal(80, OneNoteImportService.CalculateLinkOverallProgress(0, 4));
+            Assert.Equal(90, OneNoteImportService.CalculateLinkOverallProgress(2, 4));
+            Assert.Equal(100, OneNoteImportService.CalculateLinkOverallProgress(4, 4));
+        }
+
+        [TestMethod]
+        public void ResumeRestoresPendingObjectLinkResolutionFromReportAndPageState()
+        {
+            var target = new DocumentItem { Id = "docsets-page", Name = "Target" };
+            var page = new ImportPageState
+            {
+                OneNotePageId = "source-page", DocSetsNodeId = target.Id,
+                Status = ImportPageStatus.Imported
+            };
+            var reportEntry = new OneNoteImportReportEntry
+            {
+                ObjectType = "Link",
+                Name = "onenote:?page-id=source-page&object-id=target-object"
+            };
+            var service = new OneNoteImportService((_, __, ___) =>
+                    System.Threading.Tasks.Task.FromResult("asset"),
+                restoredReportEntries: new[] { reportEntry },
+                restoredPages: new[] { page }, existingNodes: new[] { target });
+
+            var restored = service.GetRestoredLinkResolutionCountsForTests();
+
+            Assert.Equal(1, restored.Pages);
+            Assert.Equal(1, restored.Pending);
+        }
+
+        [TestMethod]
+        public void ResumeCanRecoverPendingObjectLinkFromExistingDocSetHtmlWithoutReport()
+        {
+            var source = new DocumentItem
+            {
+                Id = "source",
+                Content = "<a href=\"https://docsets.local/bookmark/target#onenote-object-required\">link</a>"
+            };
+            var target = new DocumentItem { Id = "target", Content = "<p>target</p>" };
+            var page = new ImportPageState
+            {
+                OneNotePageId = "source-page", DocSetsNodeId = target.Id,
+                Status = ImportPageStatus.Imported
+            };
+            var service = new OneNoteImportService((_, __, ___) =>
+                    System.Threading.Tasks.Task.FromResult("asset"),
+                restoredPages: new[] { page }, existingNodes: new[] { source, target });
+
+            var restored = service.GetRestoredLinkResolutionCountsForTests();
+
+            Assert.Equal(1, restored.Pages);
+            Assert.Equal(1, restored.Pending);
+        }
+
+        [TestMethod]
         public void ImportsLocalNotebookThroughComAndProductionService()
             => ImportsLocalNotebookThroughComAndProductionService(
                 @"D:\-Projects-\VS\DocSets\-OneNote.Test-\SigmaIT-Собеседования");

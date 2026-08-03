@@ -19,6 +19,7 @@ namespace DocSets
         public event Action<DocumentItem, object> CommentContentChanged;
         public event Func<DocumentItem, int, int, int, bool> CommentSearchMatchRequested;
         public event Action<string> ExternalPanelActivationRequested;
+        public event EventHandler<ImportSessionCommandEventArgs> ImportSessionCommandRequested;
         private readonly DocSetsViewModel _viewModel;
         private readonly ComboBox _workspaceCombo = new ComboBox();
         private readonly Button _openDocSetButton = new Button();
@@ -1386,6 +1387,7 @@ namespace DocSets
         {
             _nodeMenu.ImageScalingSize = new Size(DpiIconSize, DpiIconSize);
             _groupMenu.ImageScalingSize = new Size(DpiIconSize, DpiIconSize);
+            AddImportSessionMenus();
             AddNodeMenu("Open", _viewModel.OpenBookmarkCommand, null, AppIcon.LinkSymbol);
             AddNodeMenu("Pin / Unpin", _viewModel.TogglePinCommand, null, AppIcon.PinOverlay);
             var goToOriginalMenu = new ToolStripMenuItem("Перейти к оригиналу") { Name = "GoToPinOriginal" };
@@ -1407,12 +1409,39 @@ namespace DocSets
             //AddJsonMenu();
             AddNodeMenu("Copy JSON", _viewModel.CopySelectedNodesAsJsonCommand, null, AppIcon.Copy);
             AddNodeMenu("Del", _viewModel.DeleteNodeCommand);
+            _nodeMenu.Items[_nodeMenu.Items.Count - 1].Name = "StandardDeleteNode";
             _nodeMenu.Items.Add(new ToolStripSeparator());
             AddColorMenu();
             AddTagMenu();
             AddPropertiesMenu();
 
             BuildGroupMenu();
+        }
+
+        private void AddImportSessionMenus()
+        {
+            foreach (var pair in new[]
+            {
+                new KeyValuePair<ImportSessionCommand, string>(ImportSessionCommand.Open, "Открыть"),
+                new KeyValuePair<ImportSessionCommand, string>(ImportSessionCommand.Resume, "Продолжить"),
+                new KeyValuePair<ImportSessionCommand, string>(ImportSessionCommand.Pause, "Остановить"),
+                new KeyValuePair<ImportSessionCommand, string>(ImportSessionCommand.Delete, "Удалить")
+            })
+            {
+                var command = pair.Key;
+                var item = new ToolStripMenuItem(pair.Value)
+                    { Name = "ImportSession" + command, Visible = false };
+                item.Click += (_, __) =>
+                {
+                    var current = GetCurrentItem();
+                    if (current?.IsImportSession == true)
+                        ImportSessionCommandRequested?.Invoke(this,
+                            new ImportSessionCommandEventArgs(command, current.ImportSessionId));
+                };
+                _nodeMenu.Items.Add(item);
+            }
+            _nodeMenu.Items.Add(new ToolStripSeparator
+                { Name = "ImportSessionSeparator", Visible = false });
         }
 
         private void BuildGroupMenu()
@@ -2234,6 +2263,7 @@ namespace DocSets
                 SyncSelectionFromTree();
                 RefreshContextFolderMenuTexts();
                 var current = GetCurrentItem();
+                UpdateImportSessionMenus(current);
                 UpdateColorMenuChecks(current);
                 UpdateNodeMenuEnabled(_nodeMenu.Items, current);
                 var goToOriginal = _nodeMenu.Items.Find("GoToPinOriginal", false).FirstOrDefault();
@@ -2243,6 +2273,29 @@ namespace DocSets
                 if (copyLink != null) copyLink.Enabled = linkTarget != null &&
                     !linkTarget.IsLocalOnly && !string.IsNullOrWhiteSpace(linkTarget.Id);
             };
+        }
+
+        private void UpdateImportSessionMenus(DocumentItem current)
+        {
+            var session = current?.IsImportSession == true
+                ? _viewModel.FindImportSession(current.ImportSessionId) : null;
+            var standardDelete = _nodeMenu.Items.Find("StandardDeleteNode", false).FirstOrDefault();
+            if (standardDelete != null) standardDelete.Visible = session == null;
+            foreach (ToolStripItem item in _nodeMenu.Items)
+            {
+                if (!item.Name.StartsWith("ImportSession", StringComparison.Ordinal)) continue;
+                item.Visible = session != null;
+                if (session == null) continue;
+                if (item.Name.EndsWith("Resume", StringComparison.Ordinal))
+                    item.Enabled = session.Status == ImportSessionStatus.Paused ||
+                        session.Status == ImportSessionStatus.Interrupted ||
+                        session.Status == ImportSessionStatus.Failed ||
+                        session.Status == ImportSessionStatus.Completed &&
+                        !session.LinkResolutionCompleted;
+                else if (item.Name.EndsWith("Pause", StringComparison.Ordinal))
+                    item.Enabled = session.Status == ImportSessionStatus.Running ||
+                        session.Status == ImportSessionStatus.Pausing;
+            }
         }
 
         private void CopyCurrentNodeLink()
@@ -2562,8 +2615,9 @@ namespace DocSets
                 AddStandardGroupButton(_viewModel.HistoryRoot, IconProvider.Get(AppIcon.Item, this));
                 AddStandardGroupButton(_viewModel.RecentRoot, IconProvider.Get(AppIcon.LinkSymbol, this));
                 AddStandardGroupButton(_viewModel.PinRoot, IconProvider.Get(AppIcon.PinOverlay, this));
+                AddStandardGroupButton(_viewModel.ImportsRoot, IconProvider.Get(AppIcon.Folder, this));
 
-                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot))
+                foreach (var set in _viewModel.Sets.Where(x => x != null && x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot && !x.IsImportsRoot))
                 {
                     var button = new ToolStripButton(set.Name)
                     {
@@ -3521,6 +3575,12 @@ namespace DocSets
         private void Tree_NodeMouseDoubleClick_OpenBookmark(object sender, TreeNodeAdvMouseEventArgs e)
         {
             var item = GetBookmarkFromMouseEvent(e);
+            if (item?.IsImportSession == true)
+            {
+                ImportSessionCommandRequested?.Invoke(this,
+                    new ImportSessionCommandEventArgs(ImportSessionCommand.Open, item.ImportSessionId));
+                return;
+            }
             if (_showSetsOverview && item != null && item.NodeType == NodeType.Folder && item.IsRootChild)
             {
                 SelectSet(item);
@@ -3730,7 +3790,11 @@ namespace DocSets
                 }
                 else if (e.KeyCode == Keys.Delete)
                 {
-                    if (item != null && item.IsRootChild) _viewModel.DeleteSetCommand.Execute(null);
+                    if (item?.IsImportSession == true)
+                        ImportSessionCommandRequested?.Invoke(this,
+                            new ImportSessionCommandEventArgs(ImportSessionCommand.Delete,
+                                item.ImportSessionId));
+                    else if (item != null && item.IsRootChild) _viewModel.DeleteSetCommand.Execute(null);
                     else Execute(_viewModel.DeleteNodeCommand, item);
                     _showSetsOverview = true;
                     RefreshAll();
@@ -3751,7 +3815,16 @@ namespace DocSets
 
             if (e.Control && (e.KeyCode == Keys.C || e.KeyCode == Keys.Insert)) { Execute(_viewModel.CopySelectedNodesCommand, GetCurrentItem()); e.Handled = true; }
             else if ((e.Control && e.KeyCode == Keys.V) || (e.Shift && e.KeyCode == Keys.Insert)) { Execute(_viewModel.PasteNodesCommand, GetCurrentItem()); e.Handled = true; }
-            else if (e.KeyCode == Keys.Delete) { Execute(_viewModel.DeleteNodeCommand, GetCurrentItem()); e.Handled = true; }
+            else if (e.KeyCode == Keys.Delete)
+            {
+                var item = GetCurrentItem();
+                if (item?.IsImportSession == true)
+                    ImportSessionCommandRequested?.Invoke(this,
+                        new ImportSessionCommandEventArgs(ImportSessionCommand.Delete,
+                            item.ImportSessionId));
+                else Execute(_viewModel.DeleteNodeCommand, item);
+                e.Handled = true;
+            }
             else if (e.Alt && e.KeyCode == Keys.Enter) { ShowBookmarkProperties(GetCurrentItem()); e.Handled = true; }
             else if (e.KeyCode == Keys.Enter) { Execute(_viewModel.OpenBookmarkCommand, GetCurrentItem()); e.Handled = true; }
         }

@@ -177,6 +177,22 @@
       }
     },
     {
+      "id": "onenote-import-jobs",
+      "parent": "default",
+      "name": "OneNote Import Jobs",
+      "nodeType": "Folder",
+      "type": "Empty",
+      "sourceId": "",
+      "symbol": "",
+      "project": "",
+      "path": "",
+      "line": 1,
+      "column": 1,
+      "contentFormat": "Html",
+      "content": "<p><a href=\"symbol:DocSets.Model|DocSets.ImportSessionState\">ImportSessionState</a></p>",
+      "contentPath": ""
+    },
+    {
       "id": "help-project",
       "parent": "",
       "name": "Project Help",

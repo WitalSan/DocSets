@@ -36,11 +36,17 @@ internal sealed class OneNoteImportService
     internal const string ProfileAssets = ProfileRoot + "/Сохранение assets";
     internal const string ProfileSave = ProfileRoot + "/Сохранение DocSet";
     internal const string ProfileUi = ProfileRoot + "/Обновление дерева и UI";
+    internal const string ProfileLinkResolution = ProfileRoot + "/ResolveDeferredAnchors";
     private const int HierarchyNotebooks = 2;
     private const int HierarchyPages = 4;
     private readonly Func<byte[], string, string, Task<string>> _saveImage;
     private readonly Func<byte[], string, Task<string>> _saveFile;
     private readonly OneNoteImportProfile _profile;
+    private readonly Dictionary<string, string> _restoredSourceLinkCache;
+    private readonly HashSet<string> _completedPageIds;
+    private readonly List<OneNoteImportReportEntry> _restoredReportEntries;
+    private readonly List<ImportPageState> _restoredPages;
+    private readonly Dictionary<string, DocumentItem> _existingNodes;
     private OneNotePageTiming _currentPageTiming;
     private readonly Dictionary<string, ImportedPageAnchorState> _importedAnchorPages =
         new(StringComparer.OrdinalIgnoreCase);
@@ -59,16 +65,52 @@ internal sealed class OneNoteImportService
     private static readonly Regex HrefPattern = new(
         "(?<prefix>\\bhref\\s*=\\s*)(?<quote>[\\\"'])(?<value>.*?)(\\k<quote>)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RestoredObjectLinkPattern = new(
+        "href=[\"']https://docsets\\.local/bookmark/(?<node>[^\"'#]+)#(?<anchor>onenote-object-[^\"']+)[\"']",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    public event Action ObjectLinkCacheCheckpoint;
 
     public OneNoteImportService(Func<byte[], string, string, Task<string>> saveImage,
         Func<byte[], string, Task<string>> saveFile = null,
-        OneNoteImportProfile profile = null)
+        OneNoteImportProfile profile = null,
+        IEnumerable<ImportObjectLinkCacheEntry> objectLinkCache = null,
+        IEnumerable<string> completedPageIds = null,
+        IEnumerable<OneNoteImportReportEntry> restoredReportEntries = null,
+        IEnumerable<ImportPageState> restoredPages = null,
+        IEnumerable<DocumentItem> existingNodes = null)
     {
         _saveImage = saveImage ?? throw new ArgumentNullException(nameof(saveImage));
         _saveFile = saveFile ?? ((_, name) => throw new InvalidOperationException(
             "Хранилище вложенных файлов не настроено: " + name));
         _profile = profile ?? new OneNoteImportProfile();
+        _restoredSourceLinkCache = (objectLinkCache ?? Enumerable.Empty<ImportObjectLinkCacheEntry>())
+            .Where(x => x != null && !string.IsNullOrWhiteSpace(x.PageId))
+            .GroupBy(x => x.PageId + "|" + (x.SourceObjectId ?? ""), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.Last().HyperlinkObjectId ?? "", StringComparer.OrdinalIgnoreCase);
+        _completedPageIds = new HashSet<string>(completedPageIds ?? Enumerable.Empty<string>(),
+            StringComparer.OrdinalIgnoreCase);
+        _restoredReportEntries = (restoredReportEntries ?? Enumerable.Empty<OneNoteImportReportEntry>())
+            .Where(x => x != null).ToList();
+        _restoredPages = (restoredPages ?? Enumerable.Empty<ImportPageState>())
+            .Where(x => x != null).ToList();
+        _existingNodes = (existingNodes ?? Enumerable.Empty<DocumentItem>())
+            .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Id))
+            .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
     }
+
+    public IReadOnlyList<ImportObjectLinkCacheEntry> GetObjectLinkCacheSnapshot()
+        => _sourceLinkCache.Select(pair =>
+        {
+            var separator = pair.Key.IndexOf('|');
+            return new ImportObjectLinkCacheEntry
+            {
+                PageId = separator < 0 ? pair.Key : pair.Key.Substring(0, separator),
+                SourceObjectId = separator < 0 ? "" : pair.Key.Substring(separator + 1),
+                HyperlinkObjectId = pair.Value ?? "",
+                Succeeded = !string.IsNullOrWhiteSpace(pair.Value)
+            };
+        }).ToList();
 
     public Task<IReadOnlyList<OneNoteNotebook>> GetNotebooksAsync(CancellationToken cancellationToken)
         => RunStaAsync(application =>
@@ -127,6 +169,7 @@ internal sealed class OneNoteImportService
         using (_profile.Measure(ProfileNodes))
             result = new OneNoteImportResult { Root = Folder(Path.GetFileName(notebookDirectory)) };
         result.Report.Profile = _profile;
+        RestoreReport(result.Report);
         result.Report.NotebookName = result.Root.Name;
         result.Report.ImportedRootNodeId = result.Root.Id;
         RecordHierarchy(result, application, "Notebook", result.Root.Name, "", result.Root.Id);
@@ -175,7 +218,8 @@ internal sealed class OneNoteImportService
             ImportHierarchyChildren(application, section.Elements(), folder, links, result, totalPages,
                 ref currentPage, progress, cancellationToken);
         }
-        ResolveDeferredAnchors(application, cancellationToken);
+        ResolveDeferredAnchors(application, cancellationToken, progress, result, totalPages);
+        result.LinkResolutionCompleted = true;
         return result;
     }
 
@@ -208,6 +252,7 @@ internal sealed class OneNoteImportService
                 Root = Folder(NameOf(sourceRoot, notebook.Name), links.IdFor(sourceRoot))
             };
         result.Report.Profile = _profile;
+        RestoreReport(result.Report);
         result.Report.NotebookName = result.Root.Name;
         result.Report.NotebookId = notebook.Id;
         result.Report.ImportedRootNodeId = result.Root.Id;
@@ -216,7 +261,8 @@ internal sealed class OneNoteImportService
         var current = 0;
         ImportHierarchyChildren(application, sourceRoot.Elements(), result.Root, links, result, pages,
             ref current, progress, cancellationToken);
-        ResolveDeferredAnchors(application, cancellationToken);
+        ResolveDeferredAnchors(application, cancellationToken, progress, result, pages);
+        result.LinkResolutionCompleted = true;
         result.Cancelled = cancellationToken.IsCancellationRequested;
         return result;
     }
@@ -302,12 +348,32 @@ internal sealed class OneNoteImportService
 
         if (kind != "Page") return null;
         currentPage++;
+        var resumablePageId = Attribute(source, "ID");
+        if (_completedPageIds.Contains(resumablePageId))
+        {
+            var placeholder = new DocumentItem
+            {
+                Name = NameOf(source, "Page"), Id = links.IdFor(source),
+                NodeType = NodeType.Item, Type = BookmarkType.Empty,
+                ContentFormat = ContentFormat.Html
+            };
+            targetParent.Children.Add(placeholder);
+            var resumedChildren = source.Elements().Where(x => x.Name.LocalName == "Page").ToList();
+            if (resumedChildren.Count > 0)
+                ImportHierarchyChildren(application, resumedChildren, placeholder, links, result,
+                    totalPages, ref currentPage, progress, cancellationToken);
+            return placeholder;
+        }
         var pageName = NameOf(source, "Страница");
         progress?.Report(new OneNoteImportProgress
         {
-            Current = currentPage,
+            Current = CalculateResumeProgress(currentPage, totalPages,
+                _completedPageIds.Count, result.Pages),
+            OverallPercent = CalculatePageOverallProgress(totalPages,
+                _completedPageIds.Count, result.Pages),
             Total = totalPages,
-            Message = pageName
+            Message = pageName,
+            ResultSnapshot = SnapshotResult(result)
         });
         DocumentItem importedPage = null;
         var pageTiming = new OneNotePageTiming
@@ -318,6 +384,7 @@ internal sealed class OneNoteImportService
         var pageStopwatch = Stopwatch.StartNew();
         var imagesBefore = result.Images;
         var attachmentsBefore = result.Attachments;
+        var pageFinished = false;
         _currentPageTiming = pageTiming;
         try
         {
@@ -367,6 +434,7 @@ internal sealed class OneNoteImportService
                 AggregateReason(pageProblems),
                 pageId, "", nodeId, "");
             SetAggregate(pageEntry, pageProblems);
+            pageFinished = true;
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception exception)
@@ -392,6 +460,7 @@ internal sealed class OneNoteImportService
                 targetParent.Children.Add(importedPage);
             }
             result.Pages++;
+            pageFinished = true;
         }
         finally
         {
@@ -402,11 +471,21 @@ internal sealed class OneNoteImportService
             _profile.Record(ProfileRoot + "/Импорт страниц", pageStopwatch.Elapsed);
             _profile.AddPage(pageTiming);
             _currentPageTiming = null;
-            progress?.Report(new OneNoteImportProgress
-            {
-                Current = currentPage, Total = totalPages, Message = pageName,
-                ReportSnapshot = SnapshotReport(result.Report)
-            });
+            if (pageFinished)
+                progress?.Report(new OneNoteImportProgress
+                {
+                    Current = CalculateResumeProgress(currentPage, totalPages,
+                        _completedPageIds.Count, result.Pages),
+                    OverallPercent = CalculatePageOverallProgress(totalPages,
+                        _completedPageIds.Count, result.Pages),
+                    Total = totalPages, Message = pageName,
+                    ReportSnapshot = SnapshotReport(result.Report),
+                    ResultSnapshot = SnapshotResult(result),
+                    CompletedPageId = Attribute(source, "ID"),
+                    CompletedNodeId = importedPage?.Id ?? "",
+                    ContentChecksum = importedPage == null ? "" : ComputeContentChecksum(importedPage.Content),
+                    OneNoteModifiedAtUtc = ParseOneNoteDate(Attribute(source, "lastModifiedTime"))
+                });
         }
 
         // В OneNote дочерние страницы представлены вложенными элементами Page.
@@ -419,6 +498,29 @@ internal sealed class OneNoteImportService
             ImportHierarchyChildren(application, nestedPages, importedPage ?? targetParent, links, result,
                 totalPages, ref currentPage, progress, cancellationToken);
         return importedPage;
+    }
+
+    internal static int CalculateResumeProgress(int traversedPages, int totalPages,
+        int completedPages, int importedThisRun)
+    {
+        if (totalPages <= 0) return Math.Max(0, completedPages + importedThisRun);
+        return Math.Min(totalPages, Math.Max(Math.Max(0, traversedPages),
+            Math.Max(0, completedPages) + Math.Max(0, importedThisRun)));
+    }
+
+    internal static int CalculatePageOverallProgress(int totalPages,
+        int completedPages, int importedThisRun)
+    {
+        if (totalPages <= 0) return 0;
+        var completed = Math.Min(totalPages,
+            Math.Max(0, completedPages) + Math.Max(0, importedThisRun));
+        return completed * 80 / totalPages;
+    }
+
+    internal static int CalculateLinkOverallProgress(int completedGroups, int totalGroups)
+    {
+        if (totalGroups <= 0) return 100;
+        return 80 + Math.Min(totalGroups, Math.Max(0, completedGroups)) * 20 / totalGroups;
     }
 
     private static double MeasuredPageChildren(OneNotePageTiming page)
@@ -440,11 +542,74 @@ internal sealed class OneNoteImportService
             Profile = _profile.Snapshot()
         };
 
+    private OneNoteImportResult SnapshotResult(OneNoteImportResult result)
+    {
+        if (result == null) return null;
+        var snapshot = new OneNoteImportResult
+        {
+            Root = CloneImportTree(result.Root),
+            Folders = result.Folders,
+            Pages = result.Pages,
+            Images = result.Images,
+            Attachments = result.Attachments,
+            InternalLinks = result.InternalLinks,
+            UnresolvedInternalLinks = result.UnresolvedInternalLinks,
+            FailedPages = result.FailedPages,
+            NoteTags = result.NoteTags,
+            Cancelled = result.Cancelled,
+            LinkResolutionCompleted = result.LinkResolutionCompleted,
+            Report = SnapshotReport(result.Report)
+        };
+        snapshot.Errors.AddRange(result.Errors);
+        snapshot.NoteTagStyles.AddRange(result.NoteTagStyles.Select(x => x?.Clone()).Where(x => x != null));
+        return snapshot;
+    }
+
+    private static DocumentItem CloneImportTree(DocumentItem source)
+    {
+        if (source == null) return null;
+        var clone = new DocumentItem
+        {
+            Id = source.Id,
+            Name = source.Name,
+            NodeType = source.NodeType,
+            Type = source.Type,
+            Symbol = source.Symbol,
+            Project = source.Project,
+            SourceId = source.SourceId,
+            Path = source.Path,
+            Line = source.Line,
+            Column = source.Column,
+            Content = source.Content,
+            ContentFormat = source.ContentFormat,
+            ContentPath = source.ContentPath,
+            Color = source.Color,
+            CreatedAtUtc = source.CreatedAtUtc,
+            ModifiedAtUtc = source.ModifiedAtUtc,
+            ModifiedInSolution = source.ModifiedInSolution,
+            TagIds = source.TagIds?.ToList() ?? new List<string>(),
+            EditorState = source.EditorState?.Clone(),
+            IsExpanded = source.IsExpanded
+        };
+        foreach (var child in source.Children) clone.Children.Add(CloneImportTree(child));
+        return clone;
+    }
+
     private static int PageLevel(XElement page)
         => int.TryParse(Attribute(page, "pageLevel"), NumberStyles.Integer,
                CultureInfo.InvariantCulture, out var level)
             ? Math.Max(1, level)
             : 1;
+
+    private static string ComputeContentChecksum(string content)
+    {
+        using var hash = SHA256.Create();
+        return Convert.ToBase64String(hash.ComputeHash(Encoding.UTF8.GetBytes(content ?? "")));
+    }
+
+    private static DateTimeOffset? ParseOneNoteDate(string value)
+        => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal, out var parsed) ? parsed.ToUniversalTime() : (DateTimeOffset?)null;
 
     private string ConvertPage(IApplication application, string pageId, string nodeId, XDocument page,
         string pageName, OneNoteLinkMap links,
@@ -1045,9 +1210,17 @@ internal sealed class OneNoteImportService
                        "COM: ссылки диагностического отчёта"))
                 application.GetHyperlinkToObject(pageId,
                     string.IsNullOrWhiteSpace(objectId) ? null : objectId, out hyperlink);
-            return _sourceLinkCache[key] = hyperlink ?? "";
+            return CacheSourceLink(key, hyperlink);
         }
-        catch (COMException) { return _sourceLinkCache[key] = ""; }
+        catch (COMException) { return CacheSourceLink(key, ""); }
+    }
+
+    private string CacheSourceLink(string key, string hyperlink)
+    {
+        var value = hyperlink ?? "";
+        _sourceLinkCache[key] = value;
+        if (_sourceLinkCache.Count % 25 == 0) ObjectLinkCacheCheckpoint?.Invoke();
+        return value;
     }
 
     private static string DiagnosticPlaceholder(OneNoteImportReportEntry entry)
@@ -1158,6 +1331,67 @@ internal sealed class OneNoteImportService
         _importedAnchorPages.Clear();
         _pendingObjectAnchors.Clear();
         _sourceLinkCache.Clear();
+        foreach (var pair in _restoredSourceLinkCache) _sourceLinkCache[pair.Key] = pair.Value;
+        RestoreDeferredAnchorState();
+    }
+
+    private void RestoreReport(OneNoteImportReport target)
+    {
+        if (target == null || _restoredReportEntries.Count == 0) return;
+        target.Entries.AddRange(_restoredReportEntries);
+    }
+
+    private void RestoreDeferredAnchorState()
+    {
+        var pagesBySourceId = new Dictionary<string, ImportedPageAnchorState>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var page in _restoredPages)
+        {
+            if (string.IsNullOrWhiteSpace(page.OneNotePageId) ||
+                string.IsNullOrWhiteSpace(page.DocSetsNodeId) ||
+                !_existingNodes.TryGetValue(page.DocSetsNodeId, out var item)) continue;
+            var state = new ImportedPageAnchorState(page.OneNotePageId, item,
+                new List<string>(), null);
+            AddImportedPageAliases(state);
+            pagesBySourceId[page.OneNotePageId] = state;
+            var canonical = CanonicalOneNoteId(page.OneNotePageId);
+            if (!string.IsNullOrWhiteSpace(canonical)) pagesBySourceId[canonical] = state;
+        }
+        foreach (var entry in _restoredReportEntries.Where(x =>
+                     string.Equals(x.ObjectType, "Link", StringComparison.OrdinalIgnoreCase)))
+        {
+            var href = WebUtility.HtmlDecode(entry.Name ?? "");
+            if (!href.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase)) continue;
+            var pageId = LinkParameter(href, "page-id");
+            var objectId = LinkParameter(href, "object-id");
+            if (string.IsNullOrWhiteSpace(pageId) || string.IsNullOrWhiteSpace(objectId)) continue;
+            if (!pagesBySourceId.TryGetValue(pageId, out var state) &&
+                !pagesBySourceId.TryGetValue(CanonicalOneNoteId(pageId), out state)) continue;
+            var key = state.Item.Id + "|" + CanonicalOneNoteId(objectId);
+            if (!_pendingObjectAnchors.ContainsKey(key))
+                _pendingObjectAnchors[key] = new PendingObjectAnchor(
+                    state.PageId, objectId, state.Item.Id);
+        }
+        foreach (var source in _existingNodes.Values)
+            foreach (Match match in RestoredObjectLinkPattern.Matches(source.Content ?? ""))
+            {
+                var nodeId = Uri.UnescapeDataString(WebUtility.HtmlDecode(match.Groups["node"].Value));
+                var anchor = Uri.UnescapeDataString(WebUtility.HtmlDecode(match.Groups["anchor"].Value));
+                if (!_existingNodes.TryGetValue(nodeId, out var target)) continue;
+                var state = _importedAnchorPages.Values.FirstOrDefault(x =>
+                    ReferenceEquals(x.Item, target));
+                if (state == null) continue;
+                var key = state.Item.Id + "|" + anchor;
+                if (!_pendingObjectAnchors.ContainsKey(key))
+                    _pendingObjectAnchors[key] = new PendingObjectAnchor(
+                        state.PageId, anchor, state.Item.Id);
+            }
+    }
+
+    internal (int Pages, int Pending) GetRestoredLinkResolutionCountsForTests()
+    {
+        ResetObjectLinkCaches();
+        return (_importedAnchorPages.Values.Distinct().Count(), _pendingObjectAnchors.Count);
     }
 
     private void TrackObjectLinkTargets(string html, IReadOnlyDictionary<string, string> targets)
@@ -1183,13 +1417,19 @@ internal sealed class OneNoteImportService
             page.Descendants().Select(element => Attribute(element, "objectID"))
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList(), _currentPageTiming);
-        _importedAnchorPages[pageId] = state;
-        if (!string.IsNullOrWhiteSpace(item.Id)) _importedAnchorPages[item.Id] = state;
-        var canonical = CanonicalOneNoteId(pageId);
+        AddImportedPageAliases(state);
+    }
+
+    private void AddImportedPageAliases(ImportedPageAnchorState state)
+    {
+        _importedAnchorPages[state.PageId] = state;
+        if (!string.IsNullOrWhiteSpace(state.Item.Id)) _importedAnchorPages[state.Item.Id] = state;
+        var canonical = CanonicalOneNoteId(state.PageId);
         if (!string.IsNullOrWhiteSpace(canonical)) _importedAnchorPages[canonical] = state;
     }
 
-    private void ResolveDeferredAnchors(IApplication application, CancellationToken cancellationToken)
+    private void ResolveDeferredAnchors(IApplication application, CancellationToken cancellationToken,
+        IProgress<OneNoteImportProgress> progress, OneNoteImportResult result, int totalPages)
     {
         var pendingByPage = new Dictionary<ImportedPageAnchorState, List<PendingObjectAnchor>>();
         foreach (var pending in _pendingObjectAnchors.Values)
@@ -1203,18 +1443,49 @@ internal sealed class OneNoteImportService
             pagePending.Add(pending);
         }
 
+        progress?.Report(new OneNoteImportProgress
+        {
+            Current = totalPages, Total = totalPages, OverallPercent = 80,
+            Stage = "Разрешение внутренних ссылок",
+            Message = "Подготовка очереди ссылок",
+            ReportSnapshot = SnapshotReport(result.Report)
+        });
+        var completedGroups = 0;
         foreach (var page in pendingByPage)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var resolutionStopwatch = Stopwatch.StartNew();
             var state = page.Key;
+            if (state.SourceObjectIds.Count == 0)
+            {
+                string pageXml;
+                using (_profile.Measure(ProfileAnchorCom, state.PageTiming,
+                           "COM: восстановление объектных якорей"))
+                    application.GetPageContent(state.PageId, out pageXml,
+                        PageInfo.piAll, XMLSchema.xs2013);
+                cancellationToken.ThrowIfCancellationRequested();
+                var document = XDocument.Parse(pageXml, LoadOptions.PreserveWhitespace);
+                state.SourceObjectIds.AddRange(document.Descendants()
+                    .Select(x => Attribute(x, "objectID"))
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct(StringComparer.OrdinalIgnoreCase));
+            }
             var pageHtml = state.Item.Content ?? "";
             var unresolved = page.Value
-                .Select(pending => CanonicalOneNoteId(pending.ObjectId))
-                .Where(objectId => !string.IsNullOrWhiteSpace(objectId) &&
-                    pageHtml.IndexOf("id=\"" + ObjectAnchor(objectId) + "\"",
+                .Select(pending => DesiredAnchor(pending.ObjectId))
+                .Where(anchor => !string.IsNullOrWhiteSpace(anchor) &&
+                    pageHtml.IndexOf("id=\"" + anchor + "\"",
                         StringComparison.OrdinalIgnoreCase) < 0)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (unresolved.Count == 0) continue;
+            if (unresolved.Count == 0)
+            {
+                resolutionStopwatch.Stop();
+                _profile.Record(ProfileLinkResolution, resolutionStopwatch.Elapsed);
+                completedGroups++;
+                progress?.Report(CreateLinkResolutionProgress(result, totalPages,
+                    completedGroups, pendingByPage.Count, state.Item.Name));
+                continue;
+            }
 
             var sourceByHyperlinkObjectId = new Dictionary<string, string>(
                 StringComparer.OrdinalIgnoreCase);
@@ -1239,24 +1510,24 @@ internal sealed class OneNoteImportService
                     if (state.PageTiming != null)
                         state.PageTiming.TotalMilliseconds += stopwatch.Elapsed.TotalMilliseconds;
                     _profile.Record(ProfileRoot + "/Импорт страниц", stopwatch.Elapsed, 0);
-                    _sourceLinkCache[cacheKey] = hyperlink ?? "";
+                    CacheSourceLink(cacheKey, hyperlink);
                 }
                 var hyperlinkObjectId = CanonicalOneNoteId(LinkParameter(
                     WebUtility.HtmlDecode(hyperlink), "object-id"));
                 if (string.IsNullOrWhiteSpace(hyperlinkObjectId)) continue;
-                if (!sourceByHyperlinkObjectId.ContainsKey(hyperlinkObjectId))
-                    sourceByHyperlinkObjectId[hyperlinkObjectId] = sourceObjectId;
-                unresolved.Remove(hyperlinkObjectId);
+                var hyperlinkAnchor = ObjectAnchor(hyperlinkObjectId);
+                if (!sourceByHyperlinkObjectId.ContainsKey(hyperlinkAnchor))
+                    sourceByHyperlinkObjectId[hyperlinkAnchor] = sourceObjectId;
+                unresolved.Remove(hyperlinkAnchor);
                 if (unresolved.Count == 0) break;
             }
 
             foreach (var pending in page.Value)
             {
-                var targetObjectId = CanonicalOneNoteId(pending.ObjectId);
-                var desiredAnchor = ObjectAnchor(targetObjectId);
+                var desiredAnchor = DesiredAnchor(pending.ObjectId);
                 if ((state.Item.Content ?? "").IndexOf("id=\"" + desiredAnchor + "\"",
                         StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    !sourceByHyperlinkObjectId.TryGetValue(targetObjectId, out var sourceObjectId))
+                    !sourceByHyperlinkObjectId.TryGetValue(desiredAnchor, out var sourceObjectId))
                     continue;
                 var fallbackAnchor = ObjectAnchor(sourceObjectId);
                 state.Item.Content = Regex.Replace(state.Item.Content ?? "",
@@ -1264,8 +1535,35 @@ internal sealed class OneNoteImportService
                     _ => "id=\"" + desiredAnchor + "\"", RegexOptions.IgnoreCase);
                 UpdateReportAnchor(state.PageId, sourceObjectId, desiredAnchor);
             }
+            resolutionStopwatch.Stop();
+            _profile.Record(ProfileLinkResolution, resolutionStopwatch.Elapsed);
+            completedGroups++;
+            progress?.Report(new OneNoteImportProgress
+            {
+                Current = totalPages, Total = totalPages,
+                OverallPercent = CalculateLinkOverallProgress(completedGroups, pendingByPage.Count),
+                Stage = "Разрешение внутренних ссылок",
+                Message = state.Item.Name,
+                ReportSnapshot = SnapshotReport(result.Report)
+            });
         }
     }
+
+    private OneNoteImportProgress CreateLinkResolutionProgress(OneNoteImportResult result,
+        int totalPages, int completedGroups, int totalGroups, string pageName)
+        => new()
+        {
+            Current = totalPages,
+            Total = totalPages,
+            OverallPercent = CalculateLinkOverallProgress(completedGroups, totalGroups),
+            Stage = "Разрешение внутренних ссылок",
+            Message = pageName,
+            ReportSnapshot = SnapshotReport(result.Report)
+        };
+
+    private static string DesiredAnchor(string objectId)
+        => (objectId ?? "").StartsWith("onenote-object-", StringComparison.OrdinalIgnoreCase)
+            ? objectId : ObjectAnchor(CanonicalOneNoteId(objectId));
 
     private void UpdateReportAnchor(string pageId, string sourceObjectId, string anchorId)
     {

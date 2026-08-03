@@ -35,6 +35,9 @@ internal sealed class MainForm : Form
     private bool _workspaceCheckInProgress;
     private bool _closeCommitInProgress;
     private bool _closeCommitCompleted;
+    private readonly Dictionary<string, CancellationTokenSource> _importJobs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deletedImportSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ImportSessionDockContent> _importSessionContents = new(StringComparer.OrdinalIgnoreCase);
 
     public MainForm()
     {
@@ -60,6 +63,8 @@ internal sealed class MainForm : Form
         _dockManager.Register(_composition.Panels);
         _composition.Owner.ExternalPanelActivationRequested += ShowPanel;
         _composition.Owner.OpenJoditWindowRequested += OpenCommentWindow;
+        _composition.Owner.ImportSessionCommandRequested += OnImportSessionCommandRequested;
+        _viewModel.ImportSessionRemoved += OnImportSessionRemoved;
 
         CreateMenu();
         _status.Items.Add(_documentStatus);
@@ -88,7 +93,7 @@ internal sealed class MainForm : Form
         file.DropDownItems.Add(_recentMenu);
         var import = new ToolStripMenuItem("Импорт");
         import.DropDownItems.Add(Item("OneNote...", Keys.None,
-            async (_, __) => await ImportOneNoteAsync()));
+            async (_, __) => await StartOneNoteImportAsync()));
         import.DropDownItems.Add(Item("OneNote Test-1...", Keys.None,
             async (_, __) => await RunOneNoteObjectIdDiagnosticAsync()));
         file.DropDownItems.Add(import);
@@ -199,6 +204,379 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async Task StartOneNoteImportAsync()
+    {
+        if (!_viewModel.CanSave)
+        {
+            MessageBox.Show(this, "Сначала откройте или создайте DocSet.",
+                "Импорт из OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        try
+        {
+            await _composition.Owner.CommitPendingCommentAsync();
+            var discovery = new OneNoteImportService(
+                _viewModel.SaveImageAssetAsync, _viewModel.SaveFileAssetAsync);
+            var notebooks = await discovery.GetNotebooksAsync(CancellationToken.None);
+            if (notebooks.Count == 0)
+            {
+                MessageBox.Show(this, "OneNote не вернул доступных записных книжек.",
+                    "Импорт из OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var notebook = OneNoteNotebookDialog.Select(this, notebooks);
+            if (notebook == null) return;
+            var session = new ImportSessionState
+            {
+                Name = "OneNote - " + notebook.Name,
+                SourceType = "OneNote",
+                SourceId = notebook.Id,
+                SourceName = notebook.Name,
+                Stage = "Подготовка"
+            };
+            await _viewModel.SaveImportSessionAsync(session);
+            _ = RunOneNoteImportSessionAsync(session);
+        }
+        catch (Exception exception)
+        {
+            ReportError("Не удалось запустить импорт OneNote.", exception);
+        }
+    }
+
+    private async Task RunOneNoteImportSessionAsync(ImportSessionState session)
+    {
+        if (session == null || _importJobs.ContainsKey(session.Id)) return;
+        var cancellation = new CancellationTokenSource();
+        var checkpointGate = new SemaphoreSlim(1, 1);
+        _importJobs[session.Id] = cancellation;
+        ImportSessionStateMachine.StartOrResume(session);
+        await _viewModel.SaveImportSessionAsync(session);
+
+        var profile = DeserializeProfile(session.ProfileJson) ?? new OneNoteImportProfile();
+        profile.StartOverall();
+        var target = FindNode(session.TargetNodeId);
+        var restoredReport = DeserializeReport(session.ReportJson);
+        var service = new OneNoteImportService(_viewModel.SaveImageAssetAsync,
+            _viewModel.SaveFileAssetAsync, profile, session.ObjectLinkCache,
+            session.Pages.Where(x => x.Status == ImportPageStatus.Imported ||
+                x.Status == ImportPageStatus.ImportedWithWarnings).Select(x => x.OneNotePageId),
+            restoredReport?.Entries, session.Pages, EnumerateNodes(target));
+        service.ObjectLinkCacheCheckpoint += () =>
+        {
+            var snapshot = service.GetObjectLinkCacheSnapshot().ToList();
+            if (IsDisposed || !IsHandleCreated) return;
+            BeginInvoke(new Action(async () =>
+            {
+                if (_deletedImportSessions.Contains(session.Id)) return;
+                session.ObjectLinkCache = snapshot;
+                await _viewModel.SaveImportSessionAsync(session);
+            }));
+        };
+        OneNoteImportResult latest = null;
+        var progress = new Progress<OneNoteImportProgress>(async value =>
+        {
+            await checkpointGate.WaitAsync();
+            try
+            {
+                if (_deletedImportSessions.Contains(session.Id)) return;
+                latest = value.ResultSnapshot ?? latest;
+                ImportSessionStateMachine.ApplyProgress(session, value.Current, value.Total);
+                session.OverallProgressPercent = Math.Max(0, Math.Min(100, value.OverallPercent));
+                session.Stage = !string.IsNullOrWhiteSpace(value.Stage)
+                    ? value.Stage + ": " + value.Message
+                    : string.IsNullOrWhiteSpace(value.CompletedPageId)
+                    ? "Импорт страницы: " + value.Message
+                    : "Сохранение страницы: " + value.Message;
+                session.ProfileJson = Newtonsoft.Json.JsonConvert.SerializeObject(
+                    profile.Snapshot(), Newtonsoft.Json.Formatting.Indented);
+                if (value.ReportSnapshot != null)
+                    session.ReportJson = Newtonsoft.Json.JsonConvert.SerializeObject(
+                        value.ReportSnapshot, Newtonsoft.Json.Formatting.Indented);
+                if (latest?.Root != null)
+                {
+                    if (target == null)
+                    {
+                        target = latest.Root;
+                        session.TargetNodeId = target.Id;
+                        await _viewModel.AddImportedRootAsync(target,
+                            "Импорт OneNote: " + session.SourceName, latest.NoteTagStyles,
+                            selectRoot: false);
+                    }
+                    else if (!ReferenceEquals(target, latest.Root)) MergeImportTree(target, latest.Root, session);
+                }
+                if (!string.IsNullOrWhiteSpace(value.CompletedPageId))
+                {
+                    var page = session.Pages.FirstOrDefault(x => string.Equals(x.OneNotePageId,
+                        value.CompletedPageId, StringComparison.OrdinalIgnoreCase));
+                    if (page == null) session.Pages.Add(page = new ImportPageState
+                        { OneNotePageId = value.CompletedPageId });
+                    page.DocSetsNodeId = value.CompletedNodeId;
+                    var pageReport = value.ReportSnapshot?.Entries.LastOrDefault(x =>
+                        string.Equals(x.ObjectType, "Page", StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(x.OneNotePageId, value.CompletedPageId, StringComparison.OrdinalIgnoreCase));
+                    page.Status = pageReport?.Status == OneNoteImportStatus.NotImported
+                        ? ImportPageStatus.Failed
+                        : pageReport?.Status == OneNoteImportStatus.ImportedWithWarnings
+                            ? ImportPageStatus.ImportedWithWarnings : ImportPageStatus.Imported;
+                    page.ImportedAtUtc ??= DateTimeOffset.UtcNow;
+                    if (!string.IsNullOrWhiteSpace(value.ContentChecksum))
+                        page.ContentChecksum = value.ContentChecksum;
+                    if (value.OneNoteModifiedAtUtc.HasValue)
+                        page.OneNoteModifiedAtUtc = value.OneNoteModifiedAtUtc;
+                    if (value.ReportSnapshot != null)
+                        session.ReportJson = Newtonsoft.Json.JsonConvert.SerializeObject(
+                            value.ReportSnapshot, Newtonsoft.Json.Formatting.Indented);
+                    session.ProfileJson = Newtonsoft.Json.JsonConvert.SerializeObject(
+                        profile.Snapshot(), Newtonsoft.Json.Formatting.Indented);
+                    session.ObjectLinkCache = service.GetObjectLinkCacheSnapshot().ToList();
+                    UpdateStatistics(session, latest, value.ReportSnapshot);
+                    await _viewModel.SaveAsync();
+                    await _viewModel.SaveImportSessionAsync(session);
+                }
+                else
+                {
+                    await _viewModel.SaveImportSessionAsync(session);
+                }
+            }
+            catch (Exception exception)
+            {
+                DocSetsLog.Current.Error("OneNote", "Не удалось сохранить контрольную точку импорта.", exception);
+            }
+            finally { checkpointGate.Release(); }
+        });
+
+        try
+        {
+            var notebook = new OneNoteNotebook(session.SourceId, session.SourceName);
+            latest = await service.ImportAsync(notebook, progress, cancellation.Token);
+            if (!latest.LinkResolutionCompleted)
+                throw new InvalidOperationException(
+                    "Стадия разрешения внутренних ссылок не завершена.");
+            await checkpointGate.WaitAsync();
+            try
+            {
+                if (latest.Root != null)
+                {
+                    if (target == null)
+                    {
+                        target = latest.Root; session.TargetNodeId = target.Id;
+                        await _viewModel.AddImportedRootAsync(target,
+                            "Импорт OneNote: " + session.SourceName, latest.NoteTagStyles,
+                            selectRoot: false);
+                    }
+                    else if (!ReferenceEquals(target, latest.Root)) MergeImportTree(target, latest.Root, session);
+                }
+                profile.StopOverall(OneNoteImportService.ProfileRoot);
+                session.Status = ImportSessionStatus.Completed;
+                session.LinkResolutionCompleted = true;
+                session.Stage = "Завершено";
+                session.CompletedAtUtc = DateTimeOffset.UtcNow;
+                session.ProgressCurrent = session.ProgressTotal;
+                session.OverallProgressPercent = 100;
+                session.Errors = latest.Errors.ToList();
+                session.Warnings = latest.Report.Entries.Where(x =>
+                    x.Status == OneNoteImportStatus.ImportedWithWarnings ||
+                    x.Status == OneNoteImportStatus.ConvertedWithLoss)
+                    .Select(x => x.Name + ": " + x.Reason).Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Distinct().ToList();
+                session.ReportJson = Newtonsoft.Json.JsonConvert.SerializeObject(latest.Report, Newtonsoft.Json.Formatting.Indented);
+                session.ProfileJson = Newtonsoft.Json.JsonConvert.SerializeObject(profile.Snapshot(), Newtonsoft.Json.Formatting.Indented);
+                session.ObjectLinkCache = service.GetObjectLinkCacheSnapshot().ToList();
+                UpdateStatistics(session, latest, latest.Report);
+                await _viewModel.SaveAsync();
+                await _viewModel.SaveImportSessionAsync(session);
+            }
+            finally { checkpointGate.Release(); }
+        }
+        catch (OperationCanceledException)
+        {
+            if (_deletedImportSessions.Contains(session.Id)) return;
+            ImportSessionStateMachine.CompletePause(session);
+            session.ObjectLinkCache = service.GetObjectLinkCacheSnapshot().ToList();
+            await _viewModel.SaveAsync();
+            await _viewModel.SaveImportSessionAsync(session);
+        }
+        catch (Exception exception)
+        {
+            if (_deletedImportSessions.Contains(session.Id)) return;
+            session.Status = ImportSessionStatus.Failed;
+            session.Stage = "Ошибка";
+            session.Errors.Add(exception.GetBaseException().Message);
+            session.ObjectLinkCache = service.GetObjectLinkCacheSnapshot().ToList();
+            await _viewModel.SaveImportSessionAsync(session);
+            DocSetsLog.Current.Error("OneNote", "Фоновый импорт завершился ошибкой.", exception);
+        }
+        finally
+        {
+            _importJobs.Remove(session.Id);
+            cancellation.Dispose();
+            checkpointGate.Dispose();
+        }
+    }
+
+    private async void OnImportSessionCommandRequested(object sender, ImportSessionCommandEventArgs e)
+    {
+        var session = _viewModel.FindImportSession(e.SessionId);
+        if (session == null) return;
+        if (e.Command == ImportSessionCommand.Open)
+        {
+            ShowImportSessionContent(session);
+        }
+        else if (e.Command == ImportSessionCommand.Resume)
+            await RunOneNoteImportSessionAsync(session);
+        else if (e.Command == ImportSessionCommand.Pause)
+        {
+            _importJobs.TryGetValue(session.Id, out var cancellation);
+            Action cancel = cancellation == null ? null : cancellation.Cancel;
+            if (!ImportSessionStateMachine.RequestPause(session, cancel)) return;
+            await _viewModel.SaveImportSessionAsync(session);
+        }
+        else if (e.Command == ImportSessionCommand.Delete)
+        {
+            if (MessageBox.Show(this,
+                    "Удалить информацию о сессии? Импортированные документы останутся.",
+                    "Импорт OneNote", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+            await _viewModel.DeleteImportSessionAsync(session.Id);
+        }
+    }
+
+    private void OnImportSessionRemoved(object sender, ImportSessionRemovedEventArgs e)
+    {
+        _deletedImportSessions.Add(e.SessionId);
+        if (_importJobs.TryGetValue(e.SessionId, out var cancellation)) cancellation.Cancel();
+        if (_importSessionContents.TryGetValue(e.SessionId, out var content)) content.Close();
+    }
+
+    private void ShowImportSessionContent(ImportSessionState session)
+    {
+        if (_importSessionContents.TryGetValue(session.Id, out var existing) && !existing.IsDisposed)
+        {
+            existing.Show();
+            existing.Activate();
+            return;
+        }
+        var content = new ImportSessionDockContent(session, OpenImportedEntryAsync);
+        content.Report.CommandRequested += OnImportSessionCommandRequested;
+        content.FormClosed += (_, __) => _importSessionContents.Remove(session.Id);
+        _importSessionContents[session.Id] = content;
+        content.Show(_dockPanel, DockState.Document);
+        content.Activate();
+    }
+
+    private async Task OpenImportedEntryAsync(OneNoteImportReportEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry?.DocSetsNodeId) ||
+            !await _viewModel.OpenBookmarkByIdAsync(entry.DocSetsNodeId))
+        {
+            MessageBox.Show(this, "Связанный объект DocSets не найден.",
+                "Отчёт импорта OneNote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        _composition.Owner.NavigateToSelectedItem();
+        ShowPanel(DocSetsPanelIds.Note);
+        var note = _composition.GetPanel(DocSetsPanelIds.Note)?.Controls
+            .OfType<DocSetsHtmlCommentWindowControl>().FirstOrDefault();
+        if (note != null)
+            await note.NavigateToAnchorAsync(_composition.Owner.CurrentCommentItem,
+                entry.DocSetsAnchorId);
+    }
+
+    private DocumentItem FindNode(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        return FindNode(_viewModel.Sets, id);
+    }
+
+    private static DocumentItem FindNode(IEnumerable<DocumentItem> nodes, string id)
+    {
+        foreach (var node in nodes ?? Enumerable.Empty<DocumentItem>())
+        {
+            if (string.Equals(node?.Id, id, StringComparison.OrdinalIgnoreCase)) return node;
+            var child = FindNode(node?.Children, id);
+            if (child != null) return child;
+        }
+        return null;
+    }
+
+    private static void MergeImportTree(DocumentItem target, DocumentItem source,
+        ImportSessionState session)
+    {
+        foreach (var sourceChild in source.Children.ToList())
+        {
+            var targetChild = target.Children.FirstOrDefault(x => string.Equals(
+                x.Id, sourceChild.Id, StringComparison.OrdinalIgnoreCase));
+            if (targetChild == null) target.Children.Add(sourceChild);
+            else
+            {
+                var page = session?.Pages?.FirstOrDefault(x => string.Equals(
+                    x.DocSetsNodeId, targetChild.Id, StringComparison.OrdinalIgnoreCase));
+                if (page != null && !string.IsNullOrWhiteSpace(sourceChild.Content) &&
+                    string.Equals(page.ContentChecksum, ComputeContentChecksum(targetChild.Content),
+                        StringComparison.Ordinal))
+                {
+                    targetChild.Content = sourceChild.Content;
+                    page.ContentChecksum = ComputeContentChecksum(sourceChild.Content);
+                }
+                MergeImportTree(targetChild, sourceChild, session);
+            }
+        }
+    }
+
+    private static string ComputeContentChecksum(string content)
+    {
+        using var hash = System.Security.Cryptography.SHA256.Create();
+        return Convert.ToBase64String(hash.ComputeHash(
+            System.Text.Encoding.UTF8.GetBytes(content ?? "")));
+    }
+
+    private static OneNoteImportProfile DeserializeProfile(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return Newtonsoft.Json.JsonConvert.DeserializeObject<OneNoteImportProfile>(json); }
+        catch { return null; }
+    }
+
+    private static OneNoteImportReport DeserializeReport(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return Newtonsoft.Json.JsonConvert.DeserializeObject<OneNoteImportReport>(json); }
+        catch { return null; }
+    }
+
+    private static IEnumerable<DocumentItem> EnumerateNodes(DocumentItem root)
+    {
+        if (root == null) yield break;
+        yield return root;
+        foreach (var child in root.Children.ToList())
+            foreach (var nested in EnumerateNodes(child)) yield return nested;
+    }
+
+    private static void UpdateStatistics(ImportSessionState session, OneNoteImportResult result,
+        OneNoteImportReport report)
+    {
+        if (session == null || result == null) return;
+        session.Statistics.Sections = Math.Max(session.Statistics.Sections, result.Folders);
+        session.Statistics.Pages = Math.Max(session.Statistics.Pages,
+            Math.Max(result.Pages, session.Pages.Count));
+        session.Statistics.Images = Math.Max(session.Statistics.Images, result.Images);
+        session.Statistics.Attachments = Math.Max(session.Statistics.Attachments, result.Attachments);
+        session.Statistics.Tags = Math.Max(session.Statistics.Tags, result.NoteTags);
+        session.Statistics.InternalLinks = Math.Max(session.Statistics.InternalLinks, result.InternalLinks);
+        session.Statistics.FailedPages = Math.Max(session.Statistics.FailedPages, result.FailedPages);
+        if (report == null) return;
+        var reportEntries = report.Entries?.ToArray() ?? Array.Empty<OneNoteImportReportEntry>();
+        session.Statistics.ObjectLinks = reportEntries.Count(x =>
+            !string.IsNullOrWhiteSpace(x.OneNoteObjectId));
+        session.Statistics.ExternalLinks = reportEntries.Count(x =>
+            string.Equals(x.ObjectType, "Link", StringComparison.OrdinalIgnoreCase) &&
+            !x.Name.StartsWith("onenote:", StringComparison.OrdinalIgnoreCase));
+        session.Statistics.Tables = reportEntries.Count(x =>
+            string.Equals(x.ObjectType, "Table", StringComparison.OrdinalIgnoreCase));
+    }
+
+#if false // Replaced by persistent background import sessions; retained only as migration reference.
     private async Task ImportOneNoteAsync()
     {
         if (!_viewModel.CanSave)
@@ -302,6 +680,7 @@ internal sealed class MainForm : Form
         }
     }
 
+#endif
     private async Task RunOneNoteObjectIdDiagnosticAsync()
     {
         if (!_viewModel.CanSave)
@@ -487,6 +866,15 @@ internal sealed class MainForm : Form
         _historyTimer.Stop();
         try
         {
+            foreach (var job in _importJobs.ToList())
+            {
+                job.Value.Cancel();
+                var session = _viewModel.FindImportSession(job.Key);
+                if (session == null) continue;
+                session.Status = ImportSessionStatus.Paused;
+                session.Stage = "Приостановлено при завершении приложения";
+                await _viewModel.SaveImportSessionAsync(session);
+            }
             await _composition.Owner.CommitPendingCommentAsync();
             if (_commentControl != null && !_commentControl.IsDisposed)
                 await _commentControl.CommitPendingEditBeforeCloseAsync();
@@ -554,6 +942,7 @@ internal sealed class MainForm : Form
         {
             _composition.Owner.ExternalPanelActivationRequested -= ShowPanel;
             _composition.Owner.OpenJoditWindowRequested -= OpenCommentWindow;
+            _viewModel.ImportSessionRemoved -= OnImportSessionRemoved;
             _workspaceTimer.Dispose();
             _historyTimer.Dispose();
             _commentWindow?.Dispose();

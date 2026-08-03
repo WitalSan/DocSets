@@ -844,6 +844,9 @@ namespace DocSets
         private bool isPinItem;
         private bool isRecentRoot;
         private bool isRecentItem;
+        private bool isImportsRoot;
+        private bool isImportSession;
+        private string importSessionId = string.Empty;
         private string targetId = string.Empty;
         private bool isMethodSymbol;
         private ObservableCollection<DocumentItem> children = new ObservableCollection<DocumentItem>();
@@ -1141,6 +1144,27 @@ namespace DocSets
         {
             get => isRecentItem;
             set => isRecentItem = value;
+        }
+
+        [JsonIgnore]
+        public bool IsImportsRoot
+        {
+            get => isImportsRoot;
+            set => isImportsRoot = value;
+        }
+
+        [JsonIgnore]
+        public bool IsImportSession
+        {
+            get => isImportSession;
+            set => isImportSession = value;
+        }
+
+        [JsonIgnore]
+        public string ImportSessionId
+        {
+            get => importSessionId;
+            set => importSessionId = value ?? string.Empty;
         }
 
         [JsonIgnore]

@@ -30,6 +30,8 @@ namespace DocSets
         private readonly ISolutionContextService _solutionContext;
         private readonly DocumentTreeService _treeService;
         private readonly NavigationHistoryService _historyService;
+        private readonly ImportSessionTreeService _importSessionTreeService;
+        private readonly IImportSessionStore _importSessionStore;
         private readonly RecentBookmarksService _recentBookmarksService;
         private readonly PinService _pinService;
         private readonly UndoRedoService _undoRedoService;
@@ -84,6 +86,8 @@ namespace DocSets
             _solutionContext = solutionContext ?? throw new ArgumentNullException(nameof(solutionContext));
             _treeService = new DocumentTreeService();
             _historyService = new NavigationHistoryService();
+            _importSessionTreeService = new ImportSessionTreeService();
+            _importSessionStore = new ImportSessionStore();
             _recentBookmarksService = new RecentBookmarksService();
             _pinService = new PinService();
             _undoRedoService = new UndoRedoService();
@@ -144,12 +148,15 @@ namespace DocSets
         }
 
         public event EventHandler<DocumentTreeChangedEventArgs> TreeChanged;
+        public event EventHandler<ImportSessionRemovedEventArgs> ImportSessionRemoved;
 
         public DocumentItem Root => _state.Root;
         public ObservableCollection<DocumentItem> Sets => _state.Root.Children;
         public DocumentItem HistoryRoot => _historyService.Root;
         public DocumentItem RecentRoot => _recentBookmarksService.Root;
         public DocumentItem PinRoot => _pinService.Root;
+        public DocumentItem ImportsRoot => _importSessionTreeService.Root;
+        public IReadOnlyCollection<ImportSessionState> ImportSessions => _importSessionTreeService.Sessions;
         public string CurrentSolutionName => _solutionContext.Current.Name;
         public IReadOnlyList<TagDefinition> Tags => _state.Tags;
         public IReadOnlyList<NoteTagStyle> NoteTagStyles => _state.NoteTagStyles;
@@ -171,7 +178,7 @@ namespace DocSets
         /// Import protocol details deliberately stay outside DocSets.Core.
         /// </summary>
         public Task AddImportedRootAsync(DocumentItem root, string operationName,
-            IEnumerable<NoteTagStyle> noteTagStyles = null)
+            IEnumerable<NoteTagStyle> noteTagStyles = null, bool selectRoot = true)
         {
             if (root == null) throw new ArgumentNullException(nameof(root));
             if (!IsLoaded || !CanSave)
@@ -191,11 +198,33 @@ namespace DocSets
                             _state.NoteTagStyles.Add(style.Clone());
                     }
                     Sets.Add(root);
-                    SelectedSet = root;
-                    SelectedNode = root;
+                    if (selectRoot)
+                    {
+                        SelectedSet = root;
+                        SelectedNode = root;
+                    }
                     root.IsExpanded = true;
                     InvalidateCommands();
                 });
+        }
+
+        public ImportSessionState FindImportSession(string id) => _importSessionTreeService.Find(id);
+
+        public async Task SaveImportSessionAsync(ImportSessionState session)
+        {
+            if (session == null) throw new ArgumentNullException(nameof(session));
+            if (string.IsNullOrWhiteSpace(ActiveDocSetDirectory))
+                throw new InvalidOperationException("DocSet не открыт.");
+            await _importSessionStore.SaveAsync(ActiveDocSetDirectory, session);
+            _importSessionTreeService.Upsert(session);
+            OnPropertyChanged(nameof(ImportSessions));
+        }
+
+        public async Task DeleteImportSessionAsync(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(ActiveDocSetDirectory)) return;
+            _importSessionTreeService.RemoveNode(id);
+            await Task.CompletedTask;
         }
 
         public Task<string> NormalizeCommentAssetsAsync(string markdown,
@@ -497,6 +526,9 @@ namespace DocSets
         private void Root_TreeChanged(object sender, DocumentTreeChangedEventArgs e)
         {
             if (_refreshingRecent) return;
+            if (!_isApplyingState && e?.Kind == DocumentTreeChangeKind.Removed &&
+                e.Item?.IsImportSession == true)
+                _ = HandleRemovedImportSessionNodeAsync(e.Item);
             ApplyIdMigration(_state.EnsureReadableIds());
             if (ShouldRefreshRecent(e))
             {
@@ -581,6 +613,22 @@ namespace DocSets
             _historyService.Attach(_state, _solutionState.History);
             _recentBookmarksService.Attach(_state, _historyService.Root);
             _pinService.Attach(_state, _solutionState.Pins, _recentBookmarksService.Root);
+            var importSessions = string.IsNullOrWhiteSpace(ActiveDocSetDirectory)
+                ? Array.Empty<ImportSessionState>()
+                : _importSessionStore.LoadAllAsync(ActiveDocSetDirectory).GetAwaiter().GetResult();
+            _importSessionTreeService.Attach(_state, importSessions);
+            foreach (var session in importSessions.Where(x =>
+                         x.Status == ImportSessionStatus.Completed &&
+                         !x.LinkResolutionCompleted &&
+                         !string.IsNullOrWhiteSpace(x.TargetNodeId)))
+            {
+                var importedRoot = FindNodeById(_state.Sets, session.TargetNodeId);
+                if (!ImportSessionLinkInspector.HasUnresolvedObjectLinks(importedRoot)) continue;
+                session.Status = ImportSessionStatus.Interrupted;
+                session.CompletedAtUtc = null;
+                session.Stage = "Требуется продолжить разрешение внутренних ссылок";
+                _importSessionTreeService.Upsert(session);
+            }
 
             if (!_state.Sets.Any(x => x != null && !x.IsLocalOnly))
             {
@@ -603,9 +651,9 @@ namespace DocSets
                 var activeViewId = _solutionState.ActiveViewId;
                 SelectedSet = _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder &&
                                   string.Equals(x.Id, activeViewId, StringComparison.OrdinalIgnoreCase))
-                              ?? _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot &&
+                              ?? _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot && !x.IsImportsRoot &&
                                   string.Equals(x.Name, preferredSetName ?? _state.ActiveSet, StringComparison.OrdinalIgnoreCase))
-                              ?? _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
+                              ?? _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot && !x.IsImportsRoot);
 
                 var restoredNode = FindNodeByIndexPath(SelectedSet?.Children, selectedNodePath);
                 SetSelectedNodes(restoredNode == null
@@ -695,6 +743,39 @@ namespace DocSets
             return node;
         }
 
+        private async Task HandleRemovedImportSessionNodeAsync(DocumentItem node)
+        {
+            var id = node?.ImportSessionId;
+            if (string.IsNullOrWhiteSpace(id)) return;
+            var session = _importSessionTreeService.Find(id);
+            if (session == null) return;
+            _importSessionTreeService.Forget(id);
+            OnPropertyChanged(nameof(ImportSessions));
+            ImportSessionRemoved?.Invoke(this, new ImportSessionRemovedEventArgs(id));
+            try
+            {
+                await _importSessionStore.DeleteAsync(ActiveDocSetDirectory, id);
+            }
+            catch (Exception exception)
+            {
+                _importSessionTreeService.Upsert(session);
+                OnPropertyChanged(nameof(ImportSessions));
+                DocSetsLog.Current.Error("Импорт",
+                    "Не удалось удалить файл сессии импорта; узел восстановлен.", exception);
+            }
+        }
+
+        private static DocumentItem FindNodeById(IEnumerable<DocumentItem> nodes, string id)
+        {
+            foreach (var node in nodes ?? Enumerable.Empty<DocumentItem>())
+            {
+                if (string.Equals(node?.Id, id, StringComparison.OrdinalIgnoreCase)) return node;
+                var child = FindNodeById(node?.Children, id);
+                if (child != null) return child;
+            }
+            return null;
+        }
+
         private void AddSet()
         {
             var name = _dialogs.Prompt("DocSets", "Название группы:");
@@ -769,7 +850,7 @@ namespace DocSets
                 Show("Недавние закладки формируются автоматически.");
                 return;
             }
-            if (set.IsHistoryRoot || set.IsPinRoot)
+            if (set.IsHistoryRoot || set.IsPinRoot || set.IsImportsRoot)
             {
                 if (!_dialogs.Confirm("Очистить историю переходов?", "DocSets")) return;
                 set.Children.Clear();
@@ -787,7 +868,7 @@ namespace DocSets
                 _state.Sets.Add(new DocumentItem { Name = "Default", NodeType = NodeType.Folder, Type = BookmarkType.Empty });
             }
 
-            SelectedSet = _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot);
+            SelectedSet = _state.Sets.FirstOrDefault(x => x.NodeType == NodeType.Folder && !x.IsHistoryRoot && !x.IsRecentRoot && !x.IsPinRoot && !x.IsImportsRoot);
             _state.ActiveSet = SelectedSet?.Name ?? "";
             });
             InvalidateCommands();
@@ -1235,6 +1316,7 @@ namespace DocSets
 
             var nodes = GetEffectiveNodes(item).ToList();
             if (nodes.Count == 0) return;
+            if (nodes.Any(x => x.IsImportsRoot)) return;
 
             var text = nodes.Count == 1
                 ? (nodes[0].NodeType == NodeType.Folder ? $"Удалить папку '{nodes[0].Name}' и все вложенные элементы?" : $"Удалить закладку '{nodes[0].Name}'?")
