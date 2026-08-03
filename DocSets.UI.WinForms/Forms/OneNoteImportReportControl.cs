@@ -63,6 +63,13 @@ namespace DocSets
         {
             Dock = DockStyle.Fill;
             var toolbar = new ToolStrip { Dock = DockStyle.Top, GripStyle = ToolStripGripStyle.Hidden };
+            toolbar.ImageScalingSize = DpiService.Scale(this, new Size(16, 16));
+            resume.Image = IconProvider.Get(AppIcon.Play, this, 16);
+            pause.Image = IconProvider.Get(AppIcon.Pause, this, 16);
+            delete.Image = IconProvider.Get(AppIcon.Delete, this, 16);
+            resume.ImageTransparentColor = Color.Magenta;
+            pause.ImageTransparentColor = Color.Magenta;
+            delete.ImageTransparentColor = Color.Magenta;
             resume.Click += (_, __) => Request(ImportSessionCommand.Resume);
             pause.Click += (_, __) => Request(ImportSessionCommand.Pause);
             delete.Click += (_, __) => RequestDelete();

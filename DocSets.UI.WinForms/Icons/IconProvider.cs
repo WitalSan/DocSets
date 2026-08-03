@@ -33,7 +33,10 @@ namespace DocSets
         NvLeft,
         NvRight,
         NvUp,
-        NvDown
+        NvDown,
+        Play,
+        Pause,
+        Delete
     }
 
     internal static class IconProvider
@@ -110,7 +113,8 @@ namespace DocSets
             if (Sources.TryGetValue(icon, out var cached))
                 return cached;
 
-            var resourceName = $"DocSets.Icons.{icon}.png";
+            var resourceFileName = icon == AppIcon.Delete ? "del" : icon.ToString();
+            var resourceName = $"DocSets.Icons.{resourceFileName}.png";
 
             using (var stream = Assembly
                        .GetExecutingAssembly()
