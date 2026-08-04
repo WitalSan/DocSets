@@ -18,6 +18,29 @@
     .jodit-workplace { min-height: 0 !important; }
     .jodit-wysiwyg, .jodit-source { box-sizing: border-box; overflow: auto !important; }
     .jodit-wysiwyg a[href] { cursor: pointer; }
+    .jodit-wysiwyg .docsets-metafile {
+      display: inline-block;
+      max-width: 100%;
+      user-select: all;
+      cursor: default;
+    }
+    .jodit-wysiwyg .docsets-metafile > img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    .jodit-wysiwyg .docsets-metafile-placeholder {
+      min-width: 6rem;
+      min-height: 3rem;
+      background: repeating-linear-gradient(135deg, #f3f3f3, #f3f3f3 8px, #e7e7e7 8px, #e7e7e7 16px);
+      outline: 1px dashed #999;
+    }
+    .jodit-wysiwyg .docsets-metafile-placeholder-text {
+      display: inline-block;
+      padding: .8rem;
+      color: #555;
+      font: 12px sans-serif;
+    }
     .jodit-wysiwyg .docsets-attachment {
       display: inline-flex;
       align-items: center;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Net;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -27,6 +28,8 @@ namespace DocSets
         private readonly Dictionary<string, string> editingSessions =
             new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly LinkedList<string> editingSessionOrder = new LinkedList<string>();
+        private readonly HashSet<string> pendingMetafilePreviews =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private const int MaximumEditingSessions = 100;
         private DocSetsViewModel viewModel;
         private DocSetsWinFormsControl source;
@@ -134,6 +137,31 @@ namespace DocSets
                     DocSetsLog.Current.Error("Изображения", "Не удалось сохранить изображение " + editorName + ".", exception);
                 }
             };
+            editor.MetafileInsertionRequested += async (bytes, format, width, height) =>
+            {
+                if (viewModel == null) return;
+                string original = null;
+                try
+                {
+                    original = await viewModel.SaveFileAssetAsync(bytes, "clipboard." + format);
+                    var preview = new MetafilePreviewService().Render(bytes, width, height);
+                    var previewReference = await viewModel.SaveImageAssetAsync(preview.PngBytes,
+                        "image/png", "clipboard.v" + MetafilePreviewService.RendererVersion + "." +
+                        preview.PixelWidth + "x" + preview.PixelHeight + ".png");
+                    editor.InsertMetafile(MetafilePreviewService.BuildHtml(bytes, original,
+                        previewReference, format, preview));
+                }
+                catch (Exception exception)
+                {
+                    if (!string.IsNullOrWhiteSpace(original))
+                        editor.InsertMetafile(MetafilePreviewService.BuildPlaceholderHtml(bytes,
+                            original, format, width, height));
+                    DocSetsLog.Current.Error("Изображения",
+                        "Не удалось вставить метафайл из буфера обмена.", exception);
+                }
+            };
+            editor.MetafilePreviewRequested += async (assetId, original, format, width, height) =>
+                await RegenerateMetafilePreviewAsync(assetId, original, format, width, height);
             editor.ExternalSymbolDropRequested += async text =>
             {
                 var link = await DocumentLinkService.ResolveDroppedSymbolAsync(viewModel, text);
@@ -175,6 +203,41 @@ namespace DocSets
             else
                 editor.SetToolbarVisible(toolbarVisible);
             await SwitchItemAsync(selectedItem);
+        }
+
+        private async Task RegenerateMetafilePreviewAsync(string assetId, string originalReference,
+            string format, int width, int height)
+        {
+            if (viewModel == null || string.IsNullOrWhiteSpace(assetId) ||
+                string.IsNullOrWhiteSpace(originalReference)) return;
+            var key = assetId + "|" + width + "x" + height + "|v" + MetafilePreviewService.RendererVersion;
+            if (!pendingMetafilePreviews.Add(key)) return;
+            try
+            {
+                var relative = originalReference.StartsWith("asset:", StringComparison.OrdinalIgnoreCase)
+                    ? originalReference.Substring(6).Replace('/', Path.DirectorySeparatorChar)
+                        .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    : string.Empty;
+                var root = Path.GetFullPath(viewModel.AssetDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                var path = Path.GetFullPath(Path.Combine(viewModel.AssetDirectory, relative));
+                if (string.IsNullOrWhiteSpace(relative) ||
+                    !path.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+                    throw new FileNotFoundException("Original metafile asset was not found.", path);
+                var preview = new MetafilePreviewService().Render(File.ReadAllBytes(path), width, height);
+                var previewReference = await viewModel.SaveImageAssetAsync(preview.PngBytes, "image/png",
+                    "metafile.v" + MetafilePreviewService.RendererVersion + "." +
+                    preview.PixelWidth + "x" + preview.PixelHeight + ".png");
+                editor.CompleteMetafilePreview(assetId, previewReference,
+                    preview.LogicalWidth, preview.LogicalHeight);
+            }
+            catch (Exception exception)
+            {
+                editor.FailMetafilePreview(assetId, width, height);
+                DocSetsLog.Current.Error("Изображения",
+                    "Не удалось обновить предварительный просмотр метафайла.", exception);
+            }
+            finally { pendingMetafilePreviews.Remove(key); }
         }
 
         public async Task NavigateToAnchorAsync(DocumentItem selectedItem, string anchor)

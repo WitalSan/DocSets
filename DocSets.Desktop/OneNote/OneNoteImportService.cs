@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
@@ -1004,14 +1003,38 @@ internal sealed class OneNoteImportService
             if (string.Equals(extension, "emf", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(extension, "wmf", StringComparison.OrdinalIgnoreCase))
             {
-                using var input = new MemoryStream(bytes);
-                using var bitmap = Image.FromStream(input);
-                using var output = new MemoryStream();
-                bitmap.Save(output, ImageFormat.Png);
-                bytes = output.ToArray();
-                mime = "image/png";
-                extension = "png";
-                convertedWithLoss = true;
+                var size = image.Elements().FirstOrDefault(x => x.Name.LocalName == "Size");
+                var logicalWidth = ParsePositiveDimension(Attribute(size, "width"));
+                var logicalHeight = ParsePositiveDimension(Attribute(size, "height"));
+                var originalReference = _saveFile(bytes, "onenote-image." + extension)
+                    .GetAwaiter().GetResult();
+                MetafilePreview preview = null;
+                string previewReference = null;
+                Exception previewError = null;
+                try
+                {
+                    preview = new MetafilePreviewService().Render(bytes, logicalWidth, logicalHeight);
+                    previewReference = _saveImage(preview.PngBytes, "image/png",
+                        "onenote-image.v" + MetafilePreviewService.RendererVersion + "." +
+                        preview.PixelWidth + "x" + preview.PixelHeight + ".png").GetAwaiter().GetResult();
+                }
+                catch (Exception exception) { previewError = exception; }
+                extraction.Stop();
+                _profile.Record(ProfileImages, extraction.Elapsed);
+                _profile.RecordPageStage(_currentPageTiming, "Извлечение изображений", extraction.Elapsed);
+                extractionRecorded = true;
+                result.Images++;
+                AddCurrentReport("Image", "Изображение (" + sourceExtension + ")",
+                    OneNoteImportStatus.ImportedWithWarnings,
+                    previewError == null
+                        ? "Оригинал метафайла сохранён; для отображения создан PNG-preview."
+                        : "Оригинал метафайла сохранён, но PNG-preview создать не удалось: " + previewError.Message,
+                    image);
+                return previewError == null
+                    ? MetafilePreviewService.BuildHtml(bytes, originalReference,
+                        previewReference, extension, preview)
+                    : MetafilePreviewService.BuildPlaceholderHtml(bytes, originalReference,
+                        extension, logicalWidth, logicalHeight);
             }
             extraction.Stop();
             _profile.Record(ProfileImages, extraction.Elapsed);
@@ -1042,6 +1065,10 @@ internal sealed class OneNoteImportService
             return DiagnosticPlaceholder(entry);
         }
     }
+
+    private static int ParsePositiveDimension(string value)
+        => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result) && result > 0
+            ? Math.Max(1, (int)Math.Round(result)) : 0;
 
     private string ConvertInsertedFile(XElement file, OneNoteImportResult result,
         CancellationToken cancellationToken)

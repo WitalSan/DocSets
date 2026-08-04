@@ -16,6 +16,10 @@
   let noteTagButton = null;
   let noteTagMenu = null;
   let noteTagSavedRange = null;
+  let metafileCheckTimer = 0;
+  const pendingMetafilePreviews = new Set();
+  const METAFILE_RENDERER_VERSION = 1;
+  const METAFILE_DENSITY = 2;
 
   const send = value => {
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(value);
@@ -308,6 +312,43 @@
   const toEditorHtml = value => transformHtml(value, true);
   const fromEditorHtml = value => transformHtml(value, false);
   const currentHtml = () => editor ? fromEditorHtml(editor.value || '') : '';
+
+  function requestMetafilePreview(item) {
+    if (!item) return;
+    const image = item.querySelector(':scope > img');
+    const width = Math.max(1, Math.round(Number(item.getAttribute('data-docsets-width')) ||
+      (image && (image.getBoundingClientRect().width || image.width)) || 1));
+    const height = Math.max(1, Math.round(Number(item.getAttribute('data-docsets-height')) ||
+      (image && (image.getBoundingClientRect().height || image.height)) || 1));
+    const version = Number(item.getAttribute('data-docsets-renderer-version')) || 0;
+    const valid = image && image.complete && image.naturalWidth >= width * METAFILE_DENSITY &&
+      image.naturalHeight >= height * METAFILE_DENSITY && version === METAFILE_RENDERER_VERSION;
+    item.classList.toggle('docsets-metafile-placeholder', !valid);
+    if (valid) return;
+    if (image && !image.complete) {
+      if (!image.dataset.docsetsMetafileWatch) {
+        image.dataset.docsetsMetafileWatch = '1';
+        image.addEventListener('load', () => requestMetafilePreview(item), { once: true });
+        image.addEventListener('error', () => requestMetafilePreview(item), { once: true });
+      }
+      return;
+    }
+    const assetId = item.getAttribute('data-docsets-asset-id') || '';
+    const originalSrc = item.getAttribute('data-docsets-original-src') || '';
+    const key = assetId + '|' + width + 'x' + height + '|v' + METAFILE_RENDERER_VERSION;
+    if (!assetId || !originalSrc || pendingMetafilePreviews.has(key)) return;
+    pendingMetafilePreviews.add(key);
+    send({ type: 'metafilePreview', assetId, originalSrc,
+      format: item.getAttribute('data-docsets-original-format') || '', width, height });
+  }
+
+  function scheduleMetafileChecks(delay) {
+    clearTimeout(metafileCheckTimer);
+    metafileCheckTimer = setTimeout(() => {
+      metafileCheckTimer = 0;
+      if (editor) editor.editor.querySelectorAll('.docsets-metafile').forEach(requestMetafilePreview);
+    }, Math.max(0, delay || 0));
+  }
 
   function clearSyntaxHighlights() {
     if (!window.CSS || !CSS.highlights) return;
@@ -924,6 +965,17 @@
     editor.events.on('change', () => {
       scheduleSyntaxHighlight(30);
       if (suppressChanges) return;
+      document.querySelectorAll('.jodit-wysiwyg .docsets-metafile').forEach(item => {
+        const image = item.querySelector(':scope > img');
+        if (!image) return;
+        const width = Math.max(1, Math.round(image.getBoundingClientRect().width || image.width || 1));
+        const height = Math.max(1, Math.round(image.getBoundingClientRect().height || image.height || 1));
+        item.setAttribute('data-docsets-width', String(width));
+        item.setAttribute('data-docsets-height', String(height));
+        image.setAttribute('width', String(width));
+        image.setAttribute('height', String(height));
+      });
+      scheduleMetafileChecks(250);
       // Передаём актуальный снимок вместе с признаком изменения. При закрытии
       // Visual Studio нельзя синхронно запрашивать DOM WebView2: это приводит
       // к взаимной блокировке потока UI и процесса браузера.
@@ -1086,6 +1138,7 @@
       editor.value = toEditorHtml(html || '');
       editor.history.clear();
       scheduleSyntaxHighlight();
+      scheduleMetafileChecks(0);
     }
     finally { suppressChanges = false; }
     return true;
@@ -1153,6 +1206,7 @@
       history.fireChangeStack();
       editor.synchronizeValues();
       scheduleSyntaxHighlight();
+      scheduleMetafileChecks(0);
     } finally {
       suppressChanges = false;
     }
@@ -1260,6 +1314,57 @@
     }
     editor.synchronizeValues();
     editor.events.fire('change', editor.value);
+    return true;
+  };
+
+  window.docsetsInsertMetafile = html => {
+    if (!editor || !html) return false;
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    template.content.querySelectorAll('img[src]').forEach(image => {
+      const source = image.getAttribute('src') || '';
+      if (source.toLowerCase().startsWith('asset:'))
+        image.setAttribute('src', ASSET_PREFIX + source.substring(6).replace(/^\/+/, ''));
+    });
+    editor.s.insertHTML(template.innerHTML);
+    editor.events.fire('change');
+    return true;
+  };
+
+  window.docsetsCompleteMetafilePreview = (assetId, previewReference, previewUrl,
+      width, height, rendererVersion) => {
+    if (!editor || !assetId) return false;
+    let updated = false;
+    editor.editor.querySelectorAll('.docsets-metafile').forEach(item => {
+      if ((item.getAttribute('data-docsets-asset-id') || '') !== assetId) return;
+      const itemWidth = Math.max(1, Number(item.getAttribute('data-docsets-width')) || 1);
+      const itemHeight = Math.max(1, Number(item.getAttribute('data-docsets-height')) || 1);
+      if (Math.round(itemWidth) !== Math.round(width) || Math.round(itemHeight) !== Math.round(height)) return;
+      let image = item.querySelector(':scope > img');
+      if (!image) { image = document.createElement('img'); item.appendChild(image); }
+      item.setAttribute('data-docsets-preview-src', previewReference || '');
+      item.setAttribute('data-docsets-renderer-version', String(rendererVersion || 0));
+      image.setAttribute('src', previewUrl || previewReference || '');
+      image.setAttribute('width', String(width));
+      image.setAttribute('height', String(height));
+      image.setAttribute('draggable', 'false');
+      item.classList.remove('docsets-metafile-placeholder');
+      updated = true;
+    });
+    pendingMetafilePreviews.delete(assetId + '|' + width + 'x' + height + '|v' + rendererVersion);
+    if (updated) {
+      editor.synchronizeValues();
+      editor.events.fire('change', editor.value);
+    }
+    return updated;
+  };
+
+  window.docsetsFailMetafilePreview = (assetId, width, height, rendererVersion) => {
+    pendingMetafilePreviews.delete(assetId + '|' + width + 'x' + height + '|v' + rendererVersion);
+    editor && editor.editor.querySelectorAll('.docsets-metafile').forEach(item => {
+      if ((item.getAttribute('data-docsets-asset-id') || '') === assetId)
+        item.classList.add('docsets-metafile-placeholder');
+    });
     return true;
   };
 

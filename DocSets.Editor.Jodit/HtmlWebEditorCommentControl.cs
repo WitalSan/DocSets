@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -54,6 +55,8 @@ namespace DocSets
         public event Action<string> LinkActivated;
         public event Action<string> ExternalSymbolDropRequested;
         public event Action<string, string, string, string> ImageInsertionRequested;
+        public event Action<byte[], string, int, int> MetafileInsertionRequested;
+        public event Action<string, string, string, int, int> MetafilePreviewRequested;
 
         protected HtmlWebEditorCommentControl(
             string hostPrefix,
@@ -376,6 +379,124 @@ namespace DocSets
                 JsonConvert.SerializeObject(requestId) + "," + JsonConvert.SerializeObject(url) + ")");
         }
 
+        public void InsertMetafile(string html)
+        {
+            if (!ready || string.IsNullOrWhiteSpace(html)) return;
+            _ = webView.ExecuteScriptAsync("window.docsetsInsertMetafile(" +
+                JsonConvert.SerializeObject(html) + ")");
+        }
+
+        public void CompleteMetafilePreview(string assetId, string previewReference, int width, int height)
+        {
+            if (!ready || string.IsNullOrWhiteSpace(assetId) || string.IsNullOrWhiteSpace(previewReference)) return;
+            var url = previewReference.StartsWith("asset:", StringComparison.OrdinalIgnoreCase)
+                ? AssetHostPrefix + previewReference.Substring(6).TrimStart('/')
+                : previewReference;
+            _ = webView.ExecuteScriptAsync("window.docsetsCompleteMetafilePreview(" +
+                JsonConvert.SerializeObject(assetId) + "," + JsonConvert.SerializeObject(previewReference) + "," +
+                JsonConvert.SerializeObject(url) + "," +
+                Math.Max(1, width) + "," + Math.Max(1, height) + "," +
+                MetafilePreviewService.RendererVersion + ")");
+        }
+
+        public void FailMetafilePreview(string assetId, int width, int height)
+        {
+            if (!ready || string.IsNullOrWhiteSpace(assetId)) return;
+            _ = webView.ExecuteScriptAsync("window.docsetsFailMetafilePreview(" +
+                JsonConvert.SerializeObject(assetId) + "," + Math.Max(1, width) + "," +
+                Math.Max(1, height) + "," + MetafilePreviewService.RendererVersion + ")");
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if ((keyData == (Keys.Control | Keys.V) || keyData == (Keys.Shift | Keys.Insert)) &&
+                TryReadClipboardMetafile(out var bytes, out var format, out var width, out var height))
+            {
+                MetafileInsertionRequested?.Invoke(bytes, format, width, height);
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private static bool TryReadClipboardMetafile(out byte[] bytes, out string format,
+            out int width, out int height)
+        {
+            bytes = null; format = null; width = height = 0;
+            try
+            {
+                var value = Clipboard.GetDataObject()?.GetData(DataFormats.EnhancedMetafile) as Metafile;
+                if (value != null)
+                {
+                    using (value)
+                    {
+                        width = Math.Max(1, value.Width); height = Math.Max(1, value.Height);
+                        var handle = value.GetHenhmetafile();
+                        try
+                        {
+                            var size = GetEnhMetaFileBits(handle, 0, null);
+                            if (size == 0) return false;
+                            bytes = new byte[size];
+                            if (GetEnhMetaFileBits(handle, size, bytes) != size) { bytes = null; return false; }
+                            format = "emf";
+                            return true;
+                        }
+                        finally { DeleteEnhMetaFile(handle); }
+                    }
+                }
+                return TryReadClipboardWmf(out bytes, out format, out width, out height);
+            }
+            catch { return false; }
+        }
+
+        private static bool TryReadClipboardWmf(out byte[] bytes, out string format,
+            out int width, out int height)
+        {
+            bytes = null; format = null; width = height = 0;
+            if (!OpenClipboard(IntPtr.Zero)) return false;
+            try
+            {
+                var memory = GetClipboardData(3); // CF_METAFILEPICT
+                if (memory == IntPtr.Zero) return false;
+                var pointer = GlobalLock(memory);
+                if (pointer == IntPtr.Zero) return false;
+                try
+                {
+                    var pict = (MetaFilePict)System.Runtime.InteropServices.Marshal.PtrToStructure(
+                        pointer, typeof(MetaFilePict));
+                    var size = GetMetaFileBitsEx(pict.Handle, 0, null);
+                    if (size == 0) return false;
+                    bytes = new byte[size];
+                    if (GetMetaFileBitsEx(pict.Handle, size, bytes) != size) { bytes = null; return false; }
+                    width = Math.Max(1, (int)Math.Round(Math.Abs(pict.XExt) * 96d / 2540d));
+                    height = Math.Max(1, (int)Math.Round(Math.Abs(pict.YExt) * 96d / 2540d));
+                    format = "wmf";
+                    return true;
+                }
+                finally { GlobalUnlock(memory); }
+            }
+            finally { CloseClipboard(); }
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct MetaFilePict { public int MappingMode; public int XExt; public int YExt; public IntPtr Handle; }
+
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+        private static extern uint GetEnhMetaFileBits(IntPtr hemf, uint bufferSize, byte[] buffer);
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+        private static extern bool DeleteEnhMetaFile(IntPtr hemf);
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+        private static extern uint GetMetaFileBitsEx(IntPtr hmf, uint bufferSize, byte[] buffer);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool OpenClipboard(IntPtr owner);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool CloseClipboard();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr GetClipboardData(uint format);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GlobalLock(IntPtr memory);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool GlobalUnlock(IntPtr memory);
+
         public void FailImage(string requestId, string message)
         {
             if (!ready || string.IsNullOrWhiteSpace(requestId)) return;
@@ -643,6 +764,14 @@ namespace DocSets
                             (string)message["name"] ?? string.Empty,
                             (string)message["requestId"] ?? string.Empty);
                     break;
+                case "metafilePreview":
+                    MetafilePreviewRequested?.Invoke(
+                        (string)message["assetId"] ?? string.Empty,
+                        (string)message["originalSrc"] ?? string.Empty,
+                        (string)message["format"] ?? string.Empty,
+                        Math.Max(1, (int?)message["width"] ?? 1),
+                        Math.Max(1, (int?)message["height"] ?? 1));
+                    break;
                 case "copyContent":
                     CopyContentToClipboard((string)message["html"], (string)message["text"]);
                     break;
@@ -774,12 +903,53 @@ namespace DocSets
                 data.SetData(DataFormats.UnicodeText, plainText ?? string.Empty);
                 data.SetData(DataFormats.Text, plainText ?? string.Empty);
                 data.SetData(DataFormats.Html, BuildClipboardHtml(fragment));
+                var originalMatch = Regex.Match(html ?? string.Empty,
+                    "data-docsets-original-src\\s*=\\s*['\"](?<src>asset:[^'\"]+)['\"]",
+                    RegexOptions.IgnoreCase);
+                var formatMatch = Regex.Match(html ?? string.Empty,
+                    "data-docsets-original-format\\s*=\\s*['\"](?<format>emf|wmf)['\"]",
+                    RegexOptions.IgnoreCase);
+                var previewMatch = Regex.Match(fragment,
+                    "<img[^>]+src\\s*=\\s*['\"](?<src>file:[^'\"]+)['\"]",
+                    RegexOptions.IgnoreCase);
+                Metafile original = null;
+                Bitmap preview = null;
+                if (originalMatch.Success && TryResolveStoredAsset(originalMatch.Groups["src"].Value,
+                        out var originalPath) && File.Exists(originalPath))
+                {
+                    original = new Metafile(originalPath);
+                    data.SetData(string.Equals(formatMatch.Groups["format"].Value, "wmf",
+                        StringComparison.OrdinalIgnoreCase) ? DataFormats.MetafilePict :
+                        DataFormats.EnhancedMetafile, original);
+                }
+                if (previewMatch.Success && Uri.TryCreate(previewMatch.Groups["src"].Value,
+                        UriKind.Absolute, out var previewUri) && File.Exists(previewUri.LocalPath))
+                {
+                    using (var loaded = Image.FromFile(previewUri.LocalPath)) preview = new Bitmap(loaded);
+                    data.SetData(DataFormats.Bitmap, preview);
+                }
                 Clipboard.SetDataObject(data, true);
+                original?.Dispose();
+                preview?.Dispose();
             }
             catch (Exception exception)
             {
                 DocSetsLog.Current.Error("Изображения", "Не удалось скопировать HTML-заметку.", exception);
             }
+        }
+
+        private bool TryResolveStoredAsset(string reference, out string path)
+        {
+            path = null;
+            if (string.IsNullOrWhiteSpace(assetDirectory) ||
+                !reference.StartsWith("asset:", StringComparison.OrdinalIgnoreCase)) return false;
+            var relative = reference.Substring(6).Replace('/', Path.DirectorySeparatorChar)
+                .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var root = Path.GetFullPath(assetDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var candidate = Path.GetFullPath(Path.Combine(assetDirectory, relative));
+            if (!candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return false;
+            path = candidate;
+            return true;
         }
 
         private void OpenAttachment(string target, bool openWith)
