@@ -164,8 +164,13 @@ namespace DocSets
                 await RegenerateMetafilePreviewAsync(assetId, original, format, width, height);
             editor.ExternalSymbolDropRequested += async text =>
             {
-                var link = await DocumentLinkService.ResolveDroppedSymbolAsync(viewModel, text);
-                if (link != null) editor.InsertResolvedLink(link);
+                var link = await DocumentLinkService.ResolveDroppedCodeAsync(viewModel, text);
+                if (link?.Kind == DocumentLinkKind.Bookmark &&
+                    link.Target?.StartsWith(DocumentLink.EmbeddedBookmarkPrefix,
+                        StringComparison.Ordinal) == true)
+                    editor.InsertEmbeddedBookmarkLink(link);
+                else if (link != null)
+                    editor.InsertResolvedLink(link);
             };
             Leave += async (_, __) => await SaveAsync(forceRead: true);
         }
@@ -504,6 +509,11 @@ namespace DocSets
                     break;
                 case DocumentLinkKind.Bookmark:
                     var bookmarkTarget = link.Target ?? string.Empty;
+                    if (DocumentLinkService.TryGetEmbeddedBookmark(bookmarkTarget, out var codeBookmark))
+                    {
+                        await viewModel.OpenBookmarkAsync(codeBookmark);
+                        break;
+                    }
                     var fragmentIndex = bookmarkTarget.IndexOf('#');
                     var bookmarkId = fragmentIndex < 0
                         ? bookmarkTarget

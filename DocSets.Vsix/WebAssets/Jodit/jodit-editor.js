@@ -1079,7 +1079,13 @@
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      send({ type: 'link', target: fromEditorLink(anchor.getAttribute('href') || anchor.href) });
+      const bookmark = anchor.getAttribute('data-docsets-code-bookmark') || '';
+      const link = {
+        type: 'link',
+        target: fromEditorLink(anchor.getAttribute('href') || anchor.href)
+      };
+      if (bookmark) link.bookmark = bookmark;
+      send(link);
     }, true);
     editable.addEventListener('dblclick', event => {
       const attachment = event.target && event.target.closest
@@ -1402,6 +1408,32 @@
     const escape = value => String(value || '').replace(/[&<>"']/g, char =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
     editor.s.insertHTML(prefix + '<a href="' + escape(href) + '">' +
+      escape(caption) + '</a>' + suffix);
+    editor.focus();
+    return true;
+  };
+
+  window.docsetsInsertEmbeddedBookmarkLink = link => {
+    if (!editor || !link || !link.bookmark) return false;
+    const caption = link.caption || 'Ссылка';
+    const href = link.href || '';
+    const selection = window.getSelection();
+    let before = '';
+    let after = '';
+    if (selection && selection.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (range.startContainer.nodeType === Node.TEXT_NODE)
+        before = range.startContainer.data.charAt(Math.max(0, range.startOffset - 1));
+      if (range.endContainer.nodeType === Node.TEXT_NODE)
+        after = range.endContainer.data.charAt(range.endOffset);
+    }
+    const prefix = before && !/\s/.test(before) ? ' ' : '';
+    const suffix = after && !/\s/.test(after) ? ' ' : '';
+    const escape = value => String(value || '').replace(/[&<>"']/g, char =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+    editor.s.insertHTML(prefix + '<a href="' + escape(href) +
+      '" class="docsets-code-bookmark" data-docsets-code-bookmark="' +
+      escape(link.bookmark) + '" style="white-space:pre-wrap">' +
       escape(caption) + '</a>' + suffix);
     editor.focus();
     return true;

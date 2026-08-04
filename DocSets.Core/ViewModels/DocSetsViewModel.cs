@@ -1181,7 +1181,7 @@ namespace DocSets
             await AddPreparedBookmarkAsync(bookmark, target);
         }
 
-        private async Task OpenBookmarkAsync(DocumentItem item)
+        public async Task OpenBookmarkAsync(DocumentItem item)
         {
             item = ResolvePin(item);
             if (!IsBookmark(item)) return;

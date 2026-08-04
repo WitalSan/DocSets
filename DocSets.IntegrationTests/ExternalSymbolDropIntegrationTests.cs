@@ -58,6 +58,7 @@ namespace DocSets.Tests
                 form.Controls.Add(editor);
                 form.Show();
                 await WaitUntilAsync(() => editor.IsReady, "Jodit не инициализирован.");
+                await TestEmbeddedCodeBookmarkAsync(editor);
                 editor.LoadComment("<p>BeforeAfter</p>");
                 await WaitUntilAsync(async () => (await editor.GetCurrentCommentAsync()).Contains("BeforeAfter"),
                     "Jodit не загрузил исходный HTML.");
@@ -78,6 +79,67 @@ namespace DocSets.Tests
                     "Jodit не вставил HTML-ссылку с пробелами. Получено: " + html);
             }
         }
+
+        private static async Task TestEmbeddedCodeBookmarkAsync(JoditCommentControl editor)
+        {
+            const string selectedCode = "if (ready)\r\n    Run();";
+            editor.LoadComment("<p>Code:</p>");
+            await WaitUntilAsync(async () =>
+                (await editor.GetCurrentCommentAsync()).Contains("Code:"),
+                "Jodit не загрузил заметку для проверки ссылки на выделенный код.");
+            await editor.SetTestSelectionAsync(5);
+            var codeLink = DocumentLinkService.CreateEmbeddedBookmarkLink(
+                CreateCodeBookmark(selectedCode));
+            string activatedLink = null;
+            editor.LinkActivated += target => activatedLink = target;
+            editor.InsertEmbeddedBookmarkLink(codeLink);
+            await WaitUntilAsync(async () =>
+            {
+                var value = await editor.GetCurrentCommentAsync();
+                return value.Contains("bookmark:embedded-v1") &&
+                       value.Contains("data-docsets-code-bookmark=") &&
+                       value.Contains("if (ready)") &&
+                       !value.Contains(codeLink.Target);
+            }, "Jodit не сохранил короткую ссылку и payload минимальной кодовой закладки.");
+            var savedHtml = await editor.GetCurrentCommentAsync();
+            editor.LoadComment(savedHtml);
+            await WaitUntilAsync(async () =>
+                (await editor.GetCurrentCommentAsync()).Contains(
+                    "data-docsets-code-bookmark="),
+                "Jodit потерял payload кодовой закладки после повторной загрузки заметки.");
+            await editor.SimulateFirstLinkClickAsync();
+            await WaitUntilAsync(() => string.Equals(activatedLink,
+                    "bookmark:" + codeLink.Target, StringComparison.Ordinal),
+                "Jodit не вернул payload кодовой закладки при клике.");
+            Assert.True(DocumentLinkService.TryGetEmbeddedBookmark(
+                activatedLink.Substring("bookmark:".Length), out var restored));
+            Assert.Equal(selectedCode, restored.EditorState.SelectedText);
+        }
+
+        private static DocumentItem CreateCodeBookmark(string selectedText) => new DocumentItem
+        {
+            Name = "Run",
+            NodeType = NodeType.Item,
+            Type = BookmarkType.Symbol,
+            Symbol = "Sample.Worker.Run()",
+            Project = "Sample",
+            Path = "src/Worker.cs",
+            Line = 40,
+            Column = 9,
+            EditorState = new EditorState
+            {
+                CaretLineOffset = 2,
+                CaretColumn = 15,
+                HasSelection = true,
+                SelectionStartLineOffset = 1,
+                SelectionStartColumn = 9,
+                SelectionEndLineOffset = 2,
+                SelectionEndColumn = 11,
+                FirstVisibleLineOffset = -5,
+                SelectedText = selectedText,
+                CodePreview = new string('x', 10000)
+            }
+        };
 
         private static DocumentLink CreateLink() => new DocumentLink
         {

@@ -68,6 +68,72 @@ namespace DocSets.Tests
         }
 
         [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void EmbeddedCodeBookmarkPreservesEditorSelectionState()
+        {
+            var source = new DocumentItem
+            {
+                Name = "Run",
+                NodeType = NodeType.Item,
+                Type = BookmarkType.Symbol,
+                Symbol = "Sample.Worker.Run()",
+                Project = "Sample",
+                SourceId = "shared",
+                Path = "src/Worker.cs",
+                Line = 40,
+                Column = 9,
+                EditorState = new EditorState
+                {
+                    CaretLineOffset = 3,
+                    CaretColumn = 17,
+                    HasSelection = true,
+                    SelectionStartLineOffset = 1,
+                    SelectionStartColumn = 9,
+                    SelectionEndLineOffset = 3,
+                    SelectionEndColumn = 18,
+                    FirstVisibleLineOffset = -6,
+                    SelectedText = "if (ready)\r\n    Run();"
+                }
+            };
+
+            var link = DocumentLinkService.CreateEmbeddedBookmarkLink(source);
+
+            Assert.NotNull(link);
+            Assert.Equal(DocumentLinkKind.Bookmark, link.Kind);
+            Assert.Equal(source.EditorState.SelectedText, link.Caption);
+            Assert.True(link.Target.StartsWith(DocumentLink.EmbeddedBookmarkPrefix,
+                System.StringComparison.Ordinal));
+            Assert.True(DocumentLinkService.TryGetEmbeddedBookmark(link.Target, out var restored));
+            Assert.Equal(source.Path, restored.Path);
+            Assert.Equal(source.Symbol, restored.Symbol);
+            Assert.Equal(source.Project, restored.Project);
+            Assert.Equal(source.SourceId, restored.SourceId);
+            Assert.Equal(source.Line, restored.Line);
+            Assert.Equal(source.Column, restored.Column);
+            Assert.True(restored.EditorState.HasSelection);
+            Assert.Equal(source.EditorState.SelectionStartLineOffset,
+                restored.EditorState.SelectionStartLineOffset);
+            Assert.Equal(source.EditorState.SelectionEndLineOffset,
+                restored.EditorState.SelectionEndLineOffset);
+            Assert.Equal(source.EditorState.FirstVisibleLineOffset,
+                restored.EditorState.FirstVisibleLineOffset);
+            Assert.Equal(source.EditorState.SelectedText, restored.EditorState.SelectedText);
+            Assert.Null(restored.EditorState.CodePreview);
+            Assert.Equal(0, restored.EditorState.SymbolSnapshots.Count);
+            Assert.True(link.Target.Length < 500,
+                "Минимальный DTO не должен раздувать ссылку служебными данными.");
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
+        public void SingleIdentifierKeepsLegacySymbolDropRoute()
+        {
+            Assert.True(DocumentLinkService.IsSingleIdentifier("MethodName"));
+            Assert.True(DocumentLinkService.IsSingleIdentifier("  @className  "));
+            Assert.False(DocumentLinkService.IsSingleIdentifier("MethodName()"));
+            Assert.False(DocumentLinkService.IsSingleIdentifier("left + right"));
+            Assert.False(DocumentLinkService.IsSingleIdentifier("first\r\nsecond"));
+        }
+
+        [Microsoft.VisualStudio.TestTools.UnitTesting.TestMethod]
         public void ExternalUrlLinkRendersAndRoundTrips()
         {
             var markdown = "[SERVICESW-1344](https://jira.example/browse/SERVICESW-1344)";

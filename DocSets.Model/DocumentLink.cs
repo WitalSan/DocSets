@@ -20,6 +20,8 @@ public enum DocumentLinkKind
 [Serializable]
 public sealed class DocumentLink
 {
+    public const string EmbeddedBookmarkPrefix = "embedded-v1:";
+
     public DocumentLinkKind Kind { get; set; }
     public string Caption { get; set; }
     public string Target { get; set; }

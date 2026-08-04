@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json;
 
 namespace DocSets
 {
@@ -55,6 +57,225 @@ namespace DocSets
                 Project = symbol.Project,
                 SourceId = symbol.SourceId
             };
+        }
+
+        public static async Task<DocumentLink> ResolveDroppedCodeAsync(
+            DocSetsViewModel viewModel, string draggedText)
+        {
+            if (viewModel == null || string.IsNullOrWhiteSpace(draggedText)) return null;
+
+            if (IsSingleIdentifier(draggedText))
+            {
+                return await ResolveDroppedSymbolAsync(viewModel, draggedText);
+            }
+
+            var bookmark = await viewModel.CreateBookmarkFromActiveDocumentAsync(showErrors: false);
+            if (IsTransferredSelection(bookmark?.EditorState, draggedText))
+            {
+                return CreateEmbeddedBookmarkLink(bookmark);
+            }
+
+            return await ResolveDroppedSymbolAsync(viewModel, draggedText);
+        }
+
+        internal static bool IsSingleIdentifier(string value)
+        {
+            var text = (value ?? string.Empty).Trim();
+            if (text.StartsWith("@", StringComparison.Ordinal)) text = text.Substring(1);
+            if (text.Length == 0 || !(char.IsLetter(text[0]) || text[0] == '_')) return false;
+            return text.Skip(1).All(character =>
+                char.IsLetterOrDigit(character) || character == '_');
+        }
+
+        internal static DocumentLink CreateEmbeddedBookmarkLink(DocumentItem bookmark)
+        {
+            if (bookmark == null || bookmark.EditorState?.HasSelection != true) return null;
+
+            var dto = EmbeddedCodeBookmarkDto.FromDocumentItem(bookmark);
+            var json = JsonConvert.SerializeObject(dto, Formatting.None);
+            var target = DocumentLink.EmbeddedBookmarkPrefix +
+                         ToBase64Url(Encoding.UTF8.GetBytes(json));
+            return new DocumentLink
+            {
+                Kind = DocumentLinkKind.Bookmark,
+                Caption = bookmark.EditorState.SelectedText,
+                Target = target
+            };
+        }
+
+        internal static bool TryGetEmbeddedBookmark(string target, out DocumentItem bookmark)
+        {
+            bookmark = null;
+            if (string.IsNullOrWhiteSpace(target) ||
+                !target.StartsWith(DocumentLink.EmbeddedBookmarkPrefix,
+                    StringComparison.Ordinal)) return false;
+
+            try
+            {
+                var payload = target.Substring(DocumentLink.EmbeddedBookmarkPrefix.Length);
+                var json = Encoding.UTF8.GetString(FromBase64Url(payload));
+                bookmark = JsonConvert.DeserializeObject<EmbeddedCodeBookmarkDto>(json)
+                    ?.ToDocumentItem();
+                return bookmark != null && bookmark.Type != BookmarkType.Empty &&
+                       !string.IsNullOrWhiteSpace(bookmark.Path);
+            }
+            catch
+            {
+                bookmark = null;
+                return false;
+            }
+        }
+
+        private static bool IsTransferredSelection(EditorState state, string draggedText)
+        {
+            if (state?.HasSelection != true || string.IsNullOrEmpty(state.SelectedText)) return false;
+            return string.Equals(NormalizeLineEndings(state.SelectedText).Trim(),
+                NormalizeLineEndings(draggedText).Trim(), StringComparison.Ordinal);
+        }
+
+        private static string NormalizeLineEndings(string value)
+            => (value ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+
+        private static string ToBase64Url(byte[] value)
+            => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+        private static byte[] FromBase64Url(string value)
+        {
+            var base64 = (value ?? string.Empty).Replace('-', '+').Replace('_', '/');
+            switch (base64.Length % 4)
+            {
+                case 2: base64 += "=="; break;
+                case 3: base64 += "="; break;
+            }
+            return Convert.FromBase64String(base64);
+        }
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private sealed class EmbeddedCodeBookmarkDto
+        {
+            [JsonProperty("t")]
+            public BookmarkType Type { get; set; }
+
+            [JsonProperty("i", NullValueHandling = NullValueHandling.Ignore)]
+            public string SourceId { get; set; }
+
+            [JsonProperty("s", NullValueHandling = NullValueHandling.Ignore)]
+            public string Symbol { get; set; }
+
+            [JsonProperty("j", NullValueHandling = NullValueHandling.Ignore)]
+            public string Project { get; set; }
+
+            [JsonProperty("p")]
+            public string Path { get; set; }
+
+            [JsonProperty("l")]
+            public int Line { get; set; }
+
+            [JsonProperty("c")]
+            public int Column { get; set; }
+
+            [JsonProperty("e")]
+            public EmbeddedEditorStateDto EditorState { get; set; }
+
+            public static EmbeddedCodeBookmarkDto FromDocumentItem(DocumentItem item)
+            {
+                return new EmbeddedCodeBookmarkDto
+                {
+                    Type = item.Type,
+                    SourceId = item.SourceId,
+                    Symbol = item.Symbol,
+                    Project = item.Project,
+                    Path = item.Path,
+                    Line = item.Line,
+                    Column = item.Column,
+                    EditorState = EmbeddedEditorStateDto.FromEditorState(item.EditorState)
+                };
+            }
+
+            public DocumentItem ToDocumentItem()
+            {
+                var state = EditorState?.ToEditorState();
+                return new DocumentItem
+                {
+                    Name = CreateEmbeddedBookmarkName(state?.SelectedText),
+                    NodeType = NodeType.Item,
+                    Type = Type,
+                    SourceId = SourceId ?? string.Empty,
+                    Symbol = Symbol ?? string.Empty,
+                    Project = Project ?? string.Empty,
+                    Path = Path ?? string.Empty,
+                    Line = Math.Max(1, Line),
+                    Column = Math.Max(1, Column),
+                    EditorState = state
+                };
+            }
+        }
+
+        [JsonObject(MemberSerialization.OptIn)]
+        private sealed class EmbeddedEditorStateDto
+        {
+            [JsonProperty("cl")]
+            public int CaretLineOffset { get; set; }
+
+            [JsonProperty("cc")]
+            public int CaretColumn { get; set; }
+
+            [JsonProperty("sl")]
+            public int SelectionStartLineOffset { get; set; }
+
+            [JsonProperty("sc")]
+            public int SelectionStartColumn { get; set; }
+
+            [JsonProperty("el")]
+            public int SelectionEndLineOffset { get; set; }
+
+            [JsonProperty("ec")]
+            public int SelectionEndColumn { get; set; }
+
+            [JsonProperty("vl")]
+            public int FirstVisibleLineOffset { get; set; }
+
+            [JsonProperty("x")]
+            public string SelectedText { get; set; }
+
+            public static EmbeddedEditorStateDto FromEditorState(EditorState state)
+            {
+                if (state == null) return null;
+                return new EmbeddedEditorStateDto
+                {
+                    CaretLineOffset = state.CaretLineOffset,
+                    CaretColumn = state.CaretColumn,
+                    SelectionStartLineOffset = state.SelectionStartLineOffset,
+                    SelectionStartColumn = state.SelectionStartColumn,
+                    SelectionEndLineOffset = state.SelectionEndLineOffset,
+                    SelectionEndColumn = state.SelectionEndColumn,
+                    FirstVisibleLineOffset = state.FirstVisibleLineOffset,
+                    SelectedText = state.SelectedText
+                };
+            }
+
+            public EditorState ToEditorState()
+            {
+                return new EditorState
+                {
+                    CaretLineOffset = CaretLineOffset,
+                    CaretColumn = Math.Max(1, CaretColumn),
+                    HasSelection = true,
+                    SelectionStartLineOffset = SelectionStartLineOffset,
+                    SelectionStartColumn = Math.Max(1, SelectionStartColumn),
+                    SelectionEndLineOffset = SelectionEndLineOffset,
+                    SelectionEndColumn = Math.Max(1, SelectionEndColumn),
+                    FirstVisibleLineOffset = FirstVisibleLineOffset,
+                    SelectedText = SelectedText ?? string.Empty
+                };
+            }
+        }
+
+        private static string CreateEmbeddedBookmarkName(string selectedText)
+        {
+            var firstLine = NormalizeLineEndings(selectedText).Split('\n')[0].Trim();
+            if (firstLine.Length == 0) return "Выделенный код";
+            return firstLine.Length <= 120 ? firstLine : firstLine.Substring(0, 117) + "...";
         }
 
         public static string ToMarkdown(DocumentLink link)

@@ -523,6 +523,27 @@ namespace DocSets
             FocusEditor();
         }
 
+        public void InsertEmbeddedBookmarkLink(DocumentLink link)
+        {
+            if (!ready || link?.Kind != DocumentLinkKind.Bookmark ||
+                string.IsNullOrWhiteSpace(link.Target) ||
+                !link.Target.StartsWith(DocumentLink.EmbeddedBookmarkPrefix,
+                    StringComparison.Ordinal)) return;
+
+            var bookmark = link.Target.Substring(DocumentLink.EmbeddedBookmarkPrefix.Length);
+            var target = DocumentLink.EmbeddedBookmarkPrefix.TrimEnd(':');
+            var href = "https://docsets.local/bookmark/" + Uri.EscapeDataString(target);
+            var payload = new
+            {
+                caption = string.IsNullOrWhiteSpace(link.Caption) ? link.Target : link.Caption,
+                href,
+                bookmark
+            };
+            _ = webView.ExecuteScriptAsync("window.docsetsInsertEmbeddedBookmarkLink(" +
+                JsonConvert.SerializeObject(payload) + ")");
+            FocusEditor();
+        }
+
         public void FocusEditor()
         {
             focusWhenReady = true;
@@ -751,7 +772,16 @@ namespace DocSets
                     SaveRequested?.Invoke(this, EventArgs.Empty);
                     break;
                 case "link":
-                    LinkActivated?.Invoke((string)message["target"] ?? string.Empty);
+                    var linkTarget = (string)message["target"] ?? string.Empty;
+                    var embeddedBookmark = (string)message["bookmark"] ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(embeddedBookmark) &&
+                        string.Equals(linkTarget, "bookmark:" +
+                            DocumentLink.EmbeddedBookmarkPrefix.TrimEnd(':'),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        linkTarget += ":" + embeddedBookmark;
+                    }
+                    LinkActivated?.Invoke(linkTarget);
                     break;
                 case "externalDrop":
                     ExternalSymbolDropRequested?.Invoke((string)message["text"] ?? string.Empty);
