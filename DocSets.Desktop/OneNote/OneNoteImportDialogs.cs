@@ -7,6 +7,9 @@ internal sealed class OneNoteNotebookDialog : Form
 
     private OneNoteNotebookDialog(IReadOnlyList<OneNoteNotebook> values)
     {
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96, 96);
+        Font = SystemFonts.MessageBoxFont;
         Text = "Импорт из OneNote — выбор записной книжки";
         StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false;

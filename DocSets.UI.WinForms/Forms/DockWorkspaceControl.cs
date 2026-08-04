@@ -420,6 +420,9 @@ namespace DocSets
             using (var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true })
             using (var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, AutoSize = true })
             {
+                dialog.AutoScaleMode = AutoScaleMode.Dpi;
+                dialog.AutoScaleDimensions = new SizeF(96, 96);
+                dialog.Font = SystemFonts.MessageBoxFont;
                 var layout = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
                 var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight };
                 buttons.Controls.Add(ok); buttons.Controls.Add(cancel); layout.Controls.Add(text); layout.Controls.Add(buttons); dialog.Controls.Add(layout);

@@ -12,6 +12,9 @@ internal sealed class OneNoteDiagnosticDialog : Form
 
     private OneNoteDiagnosticDialog()
     {
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96, 96);
+        Font = SystemFonts.MessageBoxFont;
         Text = "OneNote Test-1 — исследование object-id";
         StartPosition = FormStartPosition.CenterParent;
         Width = 720; Height = 150;

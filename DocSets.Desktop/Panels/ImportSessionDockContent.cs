@@ -10,6 +10,9 @@ internal sealed class ImportSessionDockContent : DockContent
     public ImportSessionDockContent(ImportSessionState session,
         Func<OneNoteImportReportEntry, Task> openEntry)
     {
+        AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
+        AutoScaleDimensions = new System.Drawing.SizeF(96, 96);
+        Font = System.Drawing.SystemFonts.MessageBoxFont;
         SessionId = session?.Id ?? throw new ArgumentNullException(nameof(session));
         Text = session.Name;
         TabText = session.Name;

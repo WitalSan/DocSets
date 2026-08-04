@@ -77,6 +77,21 @@ namespace DocSets
 
             Controls.Add(list);
             Controls.Add(toolbar);
+            ApplyDpiMetrics();
+        }
+
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            ApplyDpiMetrics();
+        }
+
+        private void ApplyDpiMetrics()
+        {
+            categoryBox.Width = DpiService.Scale(this, 130);
+            var widths = new[] { 95, 80, 110, 600 };
+            for (var index = 0; index < widths.Length && index < list.Columns.Count; index++)
+                list.Columns[index].Width = DpiService.Scale(this, widths[index]);
         }
 
         private void List_KeyDown(object sender, KeyEventArgs e)

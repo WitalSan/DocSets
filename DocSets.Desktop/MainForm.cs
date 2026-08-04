@@ -43,6 +43,8 @@ internal sealed class MainForm : Form
     {
         Text = "DocSets";
         AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96, 96);
+        Font = SystemFonts.MessageBoxFont;
         KeyPreview = true;
         _settings = _settingsStore.Load();
         RestoreBoundsFromSettings();
@@ -767,6 +769,9 @@ internal sealed class MainForm : Form
             {
                 Text = "DocSets Заметка — Jodit (HTML)",
                 StartPosition = FormStartPosition.CenterParent,
+                AutoScaleMode = AutoScaleMode.Dpi,
+                AutoScaleDimensions = new SizeF(96, 96),
+                Font = SystemFonts.MessageBoxFont,
                 Width = 1100,
                 Height = 800
             };

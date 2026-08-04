@@ -36,6 +36,7 @@ namespace DocSets
             list.MultiSelect = false;
             list.GridLines = false;
             BuildColumns();
+            ApplyColumnDpi();
             list.SelectedIndexChanged += (_, __) => ActivateSelected();
             list.ItemActivate += (_, __) => ActivateSelected();
             root.Controls.Add(list, 0, 0);
@@ -62,6 +63,7 @@ namespace DocSets
             if (!columnVisibility.ContainsKey(key) || columnVisibility[key] == visible) return;
             columnVisibility[key] = visible;
             BuildColumns();
+            ApplyColumnDpi();
             SetResults(results, selectedResultIndex, currentDisplayLimit);
         }
         private void BuildColumns()
@@ -72,6 +74,28 @@ namespace DocSets
             if (columnVisibility["field"]) list.Columns.Add("Где", 85);
             if (columnVisibility["path"]) list.Columns.Add("Path", 230);
             if (columnVisibility["snippet"]) list.Columns.Add("Фрагмент", 320);
+        }
+
+        private void ApplyColumnDpi()
+        {
+            var logicalWidths = new Dictionary<string, int>
+            {
+                ["tree"] = 210,
+                ["bookmark"] = 150,
+                ["field"] = 85,
+                ["path"] = 230,
+                ["snippet"] = 320
+            };
+            var index = 0;
+            foreach (var pair in logicalWidths)
+                if (columnVisibility[pair.Key] && index < list.Columns.Count)
+                    list.Columns[index++].Width = DpiService.Scale(this, pair.Value);
+        }
+
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            ApplyColumnDpi();
         }
 
         private List<string> GetColumnValues(BookmarkSearchResult result)
@@ -296,6 +320,16 @@ namespace DocSets
         protected override void OnDpiChangedAfterParent(EventArgs e)
         {
             base.OnDpiChangedAfterParent(e);
+            ApplyDpiMetrics();
+        }
+
+        private void ApplyDpiMetrics()
+        {
+            searchIcon.Size = DpiService.Scale(this, new Size(24, 24));
+            query.Width = DpiService.Scale(this, 230);
+            previous.Size = DpiService.Scale(this, new Size(27, 27));
+            next.Size = DpiService.Scale(this, new Size(27, 27));
+            scope.Width = DpiService.Scale(this, 150);
             ApplyNavigationImages();
         }
 

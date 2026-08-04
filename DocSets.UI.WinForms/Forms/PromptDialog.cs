@@ -16,6 +16,8 @@ namespace DocSets
             MaximizeBox = false;
             ShowInTaskbar = false;
             AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96, 96);
+            Font = SystemFonts.MessageBoxFont;
             ClientSize = new Size(420, 122);
 
             var labelControl = new Label

@@ -51,6 +51,9 @@ namespace DocSets
         private readonly Button openDocSetsButton = new Button { Text = "Открыть в DocSets", AutoSize = true };
         private readonly Button openOneNoteButton = new Button { Text = "Открыть в OneNote", AutoSize = true };
         private readonly Timer refreshTimer = new Timer { Interval = 500 };
+        private readonly ToolStrip toolbar = new ToolStrip { Dock = DockStyle.Top, GripStyle = ToolStripGripStyle.Hidden };
+        private readonly FlowLayoutPanel actions = new FlowLayoutPanel();
+        private readonly TableLayoutPanel layout = new TableLayoutPanel();
         private string lastReportJson;
         private string lastProfileJson;
         private string lastStatistics;
@@ -62,11 +65,9 @@ namespace DocSets
         public OneNoteImportReportDialog()
         {
             Dock = DockStyle.Fill;
-            var toolbar = new ToolStrip { Dock = DockStyle.Top, GripStyle = ToolStripGripStyle.Hidden };
-            toolbar.ImageScalingSize = DpiService.Scale(this, new Size(16, 16));
-            resume.Image = IconProvider.Get(AppIcon.Play, this, 16);
-            pause.Image = IconProvider.Get(AppIcon.Pause, this, 16);
-            delete.Image = IconProvider.Get(AppIcon.Delete, this, 16);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96, 96);
+            Font = SystemFonts.MessageBoxFont;
             resume.ImageTransparentColor = Color.Magenta;
             pause.ImageTransparentColor = Color.Magenta;
             delete.ImageTransparentColor = Color.Magenta;
@@ -151,11 +152,10 @@ namespace DocSets
             tabs.TabPages.Add(profilePage);
             tabs.TabPages.Add(messagesPage);
 
-            var actions = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(7),
-                FlowDirection = FlowDirection.RightToLeft
-            };
+            actions.Dock = DockStyle.Bottom;
+            actions.Height = 48;
+            actions.Padding = new Padding(7);
+            actions.FlowDirection = FlowDirection.RightToLeft;
             actions.Controls.Add(details);
             actions.Controls.Add(openDocSetsButton);
             actions.Controls.Add(openOneNoteButton);
@@ -165,14 +165,11 @@ namespace DocSets
             general.Dock = DockStyle.Fill;
             tabs.Dock = DockStyle.Fill;
             actions.Dock = DockStyle.Fill;
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 5,
-                Margin = Padding.Empty,
-                Padding = Padding.Empty
-            };
+            layout.Dock = DockStyle.Fill;
+            layout.ColumnCount = 1;
+            layout.RowCount = 5;
+            layout.Margin = Padding.Empty;
+            layout.Padding = Padding.Empty;
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));
@@ -188,7 +185,60 @@ namespace DocSets
             refreshTimer.Tick += (_, __) => RefreshFromSession();
             refreshTimer.Start();
             Disposed += (_, __) => refreshTimer.Dispose();
+            ApplyDpiMetrics();
             UpdateActionButtons();
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            ApplyDpiMetrics();
+        }
+
+        protected override void OnDpiChangedAfterParent(EventArgs e)
+        {
+            base.OnDpiChangedAfterParent(e);
+            ApplyDpiMetrics();
+        }
+
+        private void ApplyDpiMetrics()
+        {
+            var iconSize = DpiService.IconSize(this, 16);
+            toolbar.ImageScalingSize = new Size(iconSize, iconSize);
+            resume.Image = IconProvider.Get(AppIcon.Play, iconSize);
+            pause.Image = IconProvider.Get(AppIcon.Pause, iconSize);
+            delete.Image = IconProvider.Get(AppIcon.Delete, iconSize);
+            filter.Width = DpiService.Scale(this, 215);
+            general.Padding = DpiService.Scale(this, new Padding(8, 5, 8, 0));
+            profileSummary.Padding = DpiService.Scale(this, new Padding(8, 6, 8, 0));
+            actions.Padding = DpiService.Scale(this, new Padding(7));
+            layout.RowStyles[0].Height = DpiService.Scale(this, 26);
+            layout.RowStyles[1].Height = DpiService.Scale(this, 18);
+            layout.RowStyles[2].Height = DpiService.Scale(this, 66);
+            layout.RowStyles[4].Height = DpiService.Scale(this, 48);
+
+            SetColumnWidth(results, 0, 155);
+            SetColumnWidth(results, 1, 125);
+            SetColumnWidth(results, 2, 220);
+            SetColumnWidth(results, 4, 82);
+            SetColumnWidth(results, 5, 82);
+            SetColumnWidth(results, 6, 96);
+            SetColumnWidth(timings, 1, 75);
+            SetColumnWidth(timings, 2, 105);
+            SetColumnWidth(timings, 3, 110);
+            SetColumnWidth(timings, 4, 75);
+            SetColumnWidth(pages, 0, 210);
+            SetColumnWidth(pages, 1, 235);
+            SetColumnWidth(pages, 2, 85);
+            SetColumnWidth(pages, 3, 65);
+            SetColumnWidth(pages, 4, 65);
+            SetColumnWidth(pages, 5, 90);
+        }
+
+        private void SetColumnWidth(DataGridView grid, int index, int logicalWidth)
+        {
+            if (index >= 0 && index < grid.Columns.Count)
+                grid.Columns[index].Width = DpiService.Scale(this, logicalWidth);
         }
 
         public void Attach(ImportSessionState value, Func<OneNoteImportReportEntry, Task> openEntry)

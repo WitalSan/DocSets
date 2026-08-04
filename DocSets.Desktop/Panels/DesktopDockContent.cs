@@ -8,6 +8,9 @@ internal sealed class DesktopDockContent : DockContent
 {
     public DesktopDockContent(DocSetsPanelControl content)
     {
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new System.Drawing.SizeF(96, 96);
+        Font = System.Drawing.SystemFonts.MessageBoxFont;
         Content = content ?? throw new ArgumentNullException(nameof(content));
         PersistId = content.PersistId;
         Text = content.Title;
