@@ -1413,31 +1413,97 @@
     return true;
   };
 
-  window.docsetsInsertEmbeddedBookmarkLink = link => {
-    if (!editor || !link || !link.bookmark) return false;
-    const caption = link.caption || 'Ссылка';
-    const href = link.href || '';
-    const selection = window.getSelection();
-    let before = '';
-    let after = '';
-    if (selection && selection.rangeCount) {
-      const range = selection.getRangeAt(0);
-      if (range.startContainer.nodeType === Node.TEXT_NODE)
-        before = range.startContainer.data.charAt(Math.max(0, range.startOffset - 1));
-      if (range.endContainer.nodeType === Node.TEXT_NODE)
-        after = range.endContainer.data.charAt(range.endOffset);
-    }
-    const prefix = before && !/\s/.test(before) ? ' ' : '';
-    const suffix = after && !/\s/.test(after) ? ' ' : '';
-    const escape = value => String(value || '').replace(/[&<>"']/g, char =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-    editor.s.insertHTML(prefix + '<a href="' + escape(href) +
-      '" class="docsets-code-bookmark" data-docsets-code-bookmark="' +
-      escape(link.bookmark) + '" style="white-space:pre-wrap">' +
-      escape(caption) + '</a>' + suffix);
-    editor.focus();
-    return true;
-  };
+    window.docsetsInsertEmbeddedBookmarkLink = link => {
+        if (!editor || !link || !link.bookmark) return false;
+
+        const escape = value => String(value || '').replace(/[&<>"']/g, char =>
+            ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+
+        const decodeBookmark = value => {
+            let base64 = String(value || '')
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+
+            while (base64.length % 4)
+                base64 += '=';
+
+            const bytes = Uint8Array.from(
+                atob(base64),
+                character => character.charCodeAt(0));
+
+            return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        };
+
+        let bookmark;
+
+        try {
+            bookmark = decodeBookmark(link.bookmark);
+        } catch (error) {
+            console.error('Не удалось декодировать DocSets bookmark.', error);
+            return false;
+        }
+
+        const href = link.href || '';
+        const methodName = bookmark.s || 'Ссылка';
+        const selectedCode =
+            bookmark.e && typeof bookmark.e.x === 'string'
+                ? bookmark.e.x
+                : '';
+
+        const language = 'csharp';
+
+        const html =
+            '<pre class="docsets-code-block" data-language="' +
+            escape(language) + '">' +
+            '<code class="language-' + escape(language) + '">' +
+            '<a href="' + escape(href) + '"' +
+            ' class="docsets-code-bookmark"' +
+            ' data-docsets-code-bookmark="' + escape(link.bookmark) + '"' +
+            ' style="white-space:pre-wrap">' +
+            escape(methodName) +
+            '</a>\n' +
+            escape(selectedCode) +
+            '</code>' +
+            '</pre>' +
+            '<p><br></p>';
+
+        editor.s.insertHTML(html);
+        editor.focus();
+
+        return true;
+    };
+
+    window.docsetsInsertEmbeddedBookmarkLink1 = link => {
+        if (!editor || !link || !link.bookmark) return false;
+        const caption = link.caption || 'Ссылка';
+        const href = link.href || '';
+        const selection = window.getSelection();
+        let before = '';
+        let after = '';
+        if (selection && selection.rangeCount) {
+            const range = selection.getRangeAt(0);
+            if (range.startContainer.nodeType === Node.TEXT_NODE)
+                before = range.startContainer.data.charAt(Math.max(0, range.startOffset - 1));
+            if (range.endContainer.nodeType === Node.TEXT_NODE)
+                after = range.endContainer.data.charAt(range.endOffset);
+        }
+        const prefix = before && !/\s/.test(before) ? ' ' : '';
+        const suffix = after && !/\s/.test(after) ? ' ' : '';
+        const escape = value => String(value || '').replace(/[&<>"']/g, char =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+        editor.s.insertHTML(prefix + '<a href="' + escape(href) +
+            '" class="docsets-code-bookmark" data-docsets-code-bookmark="' +
+            escape(link.bookmark) + '" style="white-space:pre-wrap">' +
+            escape(caption) + '</a>' + suffix);
+        editor.focus();
+        return true;
+    };
 
   window.docsetsCreateAnchor = () => {
     if (!editor) return null;

@@ -193,6 +193,31 @@
       "contentPath": ""
     },
     {
+      "id": "window-docsetsinsertembeddedbookmarklink-link",
+      "parent": "default",
+      "name": "window.docsetsInsertEmbeddedBookmarkLink = link => {",
+      "sourceId": "",
+      "symbol": "",
+      "project": "",
+      "path": "DocSets.Vsix\\WebAssets\\Jodit\\jodit-editor.js",
+      "line": 1416,
+      "column": 21,
+      "contentFormat": "Html",
+      "content": "",
+      "contentPath": "",
+      "createdAtUtc": "2026-08-05T06:03:46.2054339+00:00",
+      "modifiedAtUtc": "2026-08-05T06:03:46.2054339+00:00",
+      "editorState": {
+        "caretLineOffset": 0,
+        "caretColumn": 21,
+        "selectionStartColumn": 1,
+        "selectionEndColumn": 1,
+        "firstVisibleLineOffset": -11,
+        "codePreview": "  window.docsetsInsertEmbeddedBookmarkLink = link => {\r\n    if (!editor || !link || !link.bookmark) return false;\r\n    const caption = link.caption || 'Ссылка';\r\n    const href = link.href || '';\r\n    const selection = window.getSelection();\r\n    let before = '';",
+        "symbolSnapshots": []
+      }
+    },
+    {
       "id": "help-project",
       "parent": "",
       "name": "Project Help",
